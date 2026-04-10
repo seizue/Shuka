@@ -37,9 +37,9 @@ echo (EPUB will be saved to your Downloads folder)
 echo.
 
 if "%COVER_URL%"=="" (
-    "%~dp0ShukuEpub.exe" "%NOVEL_URL%" "%PAGES%"
+    "%~dp0Shuka.exe" "%NOVEL_URL%" "%PAGES%"
 ) else (
-    "%~dp0ShukuEpub.exe" "%NOVEL_URL%" "%PAGES%" "" "%COVER_URL%"
+    "%~dp0Shuka.exe" "%NOVEL_URL%" "%PAGES%" "" "%COVER_URL%"
 )
 
 echo.

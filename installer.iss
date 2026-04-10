@@ -26,6 +26,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "bin\publish\Shuka.exe";                          DestDir: "{app}"; Flags: ignoreversion
+Source: "Shuka.ico";                                      DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.dll";                          DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.deps.json";                    DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.runtimeconfig.json";           DestDir: "{app}"; Flags: ignoreversion
@@ -35,8 +36,8 @@ Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtim
 Source: "download-epub.bat";                              DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{userdesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\Shuka.ico"
+Name: "{userdesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\Shuka.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec
