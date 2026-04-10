@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "mH4k2txZ3Uc=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\ADMIN\\Desktop\\Ven\\Projects\\Shuka\\Shuka\\Shuka.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\ADMIN\\.nuget\\packages\\htmlagilitypack\\1.12.4\\htmlagilitypack.1.12.4.nupkg.sha512",
+    "C:\\Users\\ADMIN\\.nuget\\packages\\system.text.encoding.codepages\\10.0.5\\system.text.encoding.codepages.10.0.5.nupkg.sha512"
+  ],
+  "logs": []
+}
