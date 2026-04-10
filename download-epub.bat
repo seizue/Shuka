@@ -52,4 +52,18 @@ if %ERRORLEVEL%==0 (
 )
 
 echo.
-pause
+echo ----------------------------------------
+echo   1. Download another novel
+echo   2. Exit
+echo ----------------------------------------
+set /p CHOICE="Choose (1 or 2): "
+
+if "%CHOICE%"=="1" (
+    cls
+    call "%~f0"
+    exit /b
+)
+
+echo.
+echo Goodbye!
+timeout /t 2 /nobreak >nul
