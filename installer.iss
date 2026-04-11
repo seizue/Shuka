@@ -32,8 +32,11 @@ Source: "Shuka.ico";                                      DestDir: "{app}"; Flag
 Source: "bin\publish\Shuka.dll";                          DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.deps.json";                    DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.runtimeconfig.json";           DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\HtmlAgilityPack.dll";                DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\publish\Microsoft.Playwright.dll";           DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\publish\Microsoft.Bcl.AsyncInterfaces.dll";  DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\System.Text.Encoding.CodePages.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\publish\playwright.ps1";                     DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\publish\.playwright\*";                      DestDir: "{app}\.playwright"; Flags: ignoreversion recursesubdirs
 Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs
 Source: "download-epub.bat";                              DestDir: "{app}"; Flags: ignoreversion
 
