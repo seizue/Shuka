@@ -33,7 +33,7 @@ Launch **Shuka** from the Start Menu or desktop shortcut. You'll see a menu:
 Paste the novel URL, optionally provide a cover image URL, and choose how many pages to download (leave blank for all).
 
 ```
-Novel URL:  https://www.52shuku.net/gl/14_b/bjY59.html
+Novel URL:  https://www.52shuku.net/bl/14_b/bjY59.html
 Cover URL:  (optional)
 Pages:      (blank = all)
 ```
@@ -46,7 +46,7 @@ Add novels one by one. For each you can provide an optional cover URL. When done
 
 ```
 --- Novel #1 ---
-Novel URL:  https://www.52shuku.net/gl/14_b/bjY59.html
+Novel URL:  https://www.52shuku.net/bl/14_b/bjY59.html
 Cover URL:  (optional)
 Novel #1 added.
 
