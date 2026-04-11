@@ -58,6 +58,10 @@
               "target": "Package",
               "version": "[1.12.4, )"
             },
+            "Microsoft.Playwright": {
+              "target": "Package",
+              "version": "[1.49.0, )"
+            },
             "System.Text.Encoding.CodePages": {
               "target": "Package",
               "version": "[10.0.5, )"

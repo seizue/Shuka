@@ -1,14 +1,14 @@
 @echo off
-title 52shuku EPUB Downloader
+title Shuka EPUB Downloader
 color 0B
 cd /d "%~dp0"
 
 :MENU
 cls
 echo.
-echo ========================================
-echo    52shuku.net  -^>  EPUB (English)
-echo ========================================
+echo =================================================
+echo    52shuku.net / czbooks.net  -^>  EPUB (English)
+echo =================================================
 echo.
 echo   1. Download single novel
 echo   2. Batch download (multiple novels)
@@ -26,7 +26,7 @@ goto MENU
 cls
 echo.
 echo ========================================
-echo    Single Novel Download
+echo    Chinese Novel  -^>  EPUB (English)
 echo ========================================
 echo.
 set /p NOVEL_URL="Novel URL: "
@@ -62,7 +62,7 @@ goto MENU
 cls
 echo.
 echo ========================================
-echo    Batch Download
+echo    Batch Download  -^>  EPUB (English)
 echo ========================================
 echo.
 echo Add novels one by one. Each will download after you choose to start.

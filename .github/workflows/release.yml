@@ -21,6 +21,9 @@ jobs:
       - name: Publish
         run: dotnet publish -c Release -r win-x64 --self-contained false -o bin/publish
 
+      - name: Install Playwright browsers for bundling
+        run: dotnet run --project . -- playwright install chromium
+
       - name: Build installer (Inno Setup)
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
         with:

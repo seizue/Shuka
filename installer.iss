@@ -42,4 +42,6 @@ Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFile
 Name: "{userdesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\Shuka.ico"; Tasks: desktopicon
 
 [Run]
+; Install Playwright Chromium browser (needed for Cloudflare-protected sites)
+Filename: "{app}\Shuka.exe"; Parameters: "playwright install chromium"; Description: "Installing browser for Cloudflare bypass..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec
