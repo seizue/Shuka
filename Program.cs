@@ -39,7 +39,7 @@ site.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,applic
 
 // HTTP client for Google Translate and cover downloads (clean, no site headers)
 var gh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
-using var gt = new HttpClient(gh) { Timeout = TimeSpan.FromSeconds(20) };
+using var gt = new HttpClient(gh) { Timeout = TimeSpan.FromSeconds(45) };
 gt.DefaultRequestHeaders.Add("User-Agent",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
@@ -141,11 +141,11 @@ async Task<string> FetchWithPlaywright(string url)
     }
 }
 
-// Translate a single chunk via Google Translate (unofficial API)
-async Task<string> TranslateChunk(string chunk, int retries = 4)
+// Translate a single chunk — 50 Google retries first, then alternates Google/MyMemory up to 100 each
+async Task<string> TranslateChunk(string chunk)
 {
-    int delay = 1500;
-    for (int attempt = 0; attempt <= retries; attempt++)
+    // Phase 1: retry Google up to 50 times
+    for (int attempt = 1; attempt <= 50; attempt++)
     {
         try
         {
@@ -161,15 +161,116 @@ async Task<string> TranslateChunk(string chunk, int retries = 4)
             string r = sb.ToString().Trim();
             if (!string.IsNullOrEmpty(r)) return r;
         }
-        catch (Exception ex) when (attempt < retries)
+        catch (Exception ex)
         {
-            Console.WriteLine($"\n  [translate retry {attempt+1}] {ex.Message}");
+            int delay = ex is TaskCanceledException ? 2000 : Math.Min(1000 * attempt, 10000);
+            Console.Write($"\n  [Google retry {attempt}/50]");
             await Task.Delay(delay);
-            delay = Math.Min(delay * 2, 10000);
         }
-        catch (Exception ex) { Console.WriteLine($"\n  [translate failed] {ex.Message}"); break; }
     }
+
+    Console.Write("\n  [Google failed 50 times, switching to alternating fallback]");
+
+    // Phase 2: alternate Google/MyMemory, max 100 each
+    const int maxAttempts = 100;
+    int googleFails = 0, memoryFails = 0;
+    bool useGoogle = true;
+
+    while (googleFails < maxAttempts || memoryFails < maxAttempts)
+    {
+        if (useGoogle && googleFails >= maxAttempts) useGoogle = false;
+        if (!useGoogle && memoryFails >= maxAttempts) useGoogle = true;
+
+        if (useGoogle)
+        {
+            try
+            {
+                string url = "https://translate.googleapis.com/translate_a/single" +
+                    $"?client=gtx&sl=zh&tl=en&dt=t&q={Uri.EscapeDataString(chunk)}";
+                string json = await gt.GetStringAsync(url);
+                using var jdoc = JsonDocument.Parse(json);
+                var sb = new StringBuilder();
+                foreach (var seg in jdoc.RootElement[0].EnumerateArray())
+                    if (seg.ValueKind == JsonValueKind.Array && seg.GetArrayLength() > 0
+                        && seg[0].ValueKind == JsonValueKind.String)
+                        sb.Append(seg[0].GetString());
+                string r = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(r)) return r;
+                googleFails++;
+            }
+            catch
+            {
+                googleFails++;
+                Console.Write($"\n  [Google fail #{googleFails}, switching to MyMemory]");
+                await Task.Delay(Math.Min(1000 * googleFails, 10000));
+            }
+            useGoogle = false;
+        }
+        else
+        {
+            try
+            {
+                string q = chunk.Length > 500 ? chunk[..500] : chunk;
+                string url = $"https://api.mymemory.translated.net/get?q={Uri.EscapeDataString(q)}&langpair=zh|en";
+                string json = await gt.GetStringAsync(url);
+                using var jdoc = JsonDocument.Parse(json);
+                string? result = jdoc.RootElement
+                    .GetProperty("responseData")
+                    .GetProperty("translatedText")
+                    .GetString();
+                if (!string.IsNullOrWhiteSpace(result) && result != chunk)
+                {
+                    Console.Write(" [MM]");
+                    return result.Trim();
+                }
+                memoryFails++;
+            }
+            catch
+            {
+                memoryFails++;
+                Console.Write($"\n  [MyMemory fail #{memoryFails}, switching to Google]");
+                await Task.Delay(Math.Min(1000 * memoryFails, 10000));
+            }
+            useGoogle = true;
+        }
+    }
+
+    Console.WriteLine($"\n  [all translators exhausted, keeping original]");
     return chunk;
+}
+
+// MyMemory fallback translator (free, no key, 5000 chars/day per IP)
+async Task<string> TranslateChunkMyMemory(string chunk)
+{
+    try
+    {
+        // MyMemory has a 500 char limit per request, so split if needed
+        if (chunk.Length > 500)
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < chunk.Length; i += 500)
+                parts.Add(chunk.Substring(i, Math.Min(500, chunk.Length - i)));
+            var translated = new List<string>();
+            foreach (var part in parts)
+                translated.Add(await TranslateChunkMyMemory(part));
+            return string.Join("", translated);
+        }
+
+        string url = $"https://api.mymemory.translated.net/get?q={Uri.EscapeDataString(chunk)}&langpair=zh|en";
+        string json = await gt.GetStringAsync(url);
+        using var jdoc = JsonDocument.Parse(json);
+        string? result = jdoc.RootElement
+            .GetProperty("responseData")
+            .GetProperty("translatedText")
+            .GetString();
+        if (!string.IsNullOrWhiteSpace(result) && result != chunk)
+        {
+            Console.Write(" [MyMemory]");
+            return result.Trim();
+        }
+    }
+    catch (Exception ex) { Console.WriteLine($"\n  [MyMemory failed] {ex.Message}"); }
+    return chunk; // last resort: return original Chinese
 }
 
 // Split text into chunks and translate in parallel
@@ -188,8 +289,8 @@ async Task<string> Translate(string text)
     }
     if (cur.Length > 0) chunks.Add(cur.ToString());
 
-    // Translate all chunks in parallel (max 4 concurrent to avoid rate-limiting)
-    var sem = new SemaphoreSlim(4);
+    // Translate all chunks in parallel (max 3 concurrent to avoid rate-limiting)
+    var sem = new SemaphoreSlim(3);
     var tasks = chunks.Select(async (chunk, i) =>
     {
         await sem.WaitAsync();
