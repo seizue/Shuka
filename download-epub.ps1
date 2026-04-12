@@ -5,9 +5,9 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 function Show-Header {
     Clear-Host
     Write-Host ""
-    Write-Host "=================================================" -ForegroundColor Cyan
-    Write-Host "   52shuku.net / czbooks.net  ->  EPUB (English) " -ForegroundColor Cyan
-    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host "===========================================" -ForegroundColor Cyan
+    Write-Host "     Shuka -> Chinese to English (EPUB)    " -ForegroundColor Cyan
+    Write-Host "===========================================" -ForegroundColor Cyan
     Write-Host ""
 }
 

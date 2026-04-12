@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Shuka")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1684def3ad62c5d0c3d6606fd72728c733f06daf")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6402d08a5c6748c304b08bf826ee68078ca2157d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Shuka")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Shuka")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

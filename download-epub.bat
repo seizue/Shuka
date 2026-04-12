@@ -6,9 +6,9 @@ cd /d "%~dp0"
 :MENU
 cls
 echo.
-echo =================================================
-echo    52shuku.net / czbooks.net  -^>  EPUB (English)
-echo =================================================
+echo =============================================
+echo      Shuka -^> Chinese to English (EPUB)
+echo =============================================
 echo.
 echo   1. Download single novel
 echo   2. Batch download (multiple novels)

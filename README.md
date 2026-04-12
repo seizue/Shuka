@@ -34,7 +34,7 @@ Launch **Shuka** from the Start Menu or desktop shortcut:
 
 ```
 ===============================================
-  52shuku.net / czbooks.net  ->  EPUB (English)
+       Shuka -> Chinese to English (EPUB)
 ===============================================
 
   1. Download single novel
