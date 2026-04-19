@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 jobs:
-  # ── Windows installer ────────────────────────────────────────────────────────
+  # Windows installer ────────────────────────────────────────────────────────
   windows:
     name: Build Windows Installer
     runs-on: windows-latest
@@ -21,6 +21,9 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
+
+      - name: Install workloads
+        run: dotnet workload restore
 
       - name: Publish
         run: dotnet publish -c Release -r win-x64 --self-contained false -o bin/publish
@@ -42,7 +45,7 @@ jobs:
           generate_release_notes: true
           files: installer_output/Shuka_Setup.exe
 
-  # ── Android APK ──────────────────────────────────────────────────────────────
+  # Android APK ──────────────────────────────────────────────────────────────
   android:
     name: Build Android APK
     runs-on: windows-latest
