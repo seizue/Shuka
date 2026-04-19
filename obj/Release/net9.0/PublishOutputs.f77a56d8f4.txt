@@ -1,8 +1,0 @@
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\Shuka.exe
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\Shuka.dll
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\Shuka.deps.json
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\Shuka.runtimeconfig.json
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\Shuka.pdb
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\HtmlAgilityPack.dll
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\System.Text.Encoding.CodePages.dll
-C:\Users\ADMIN\Desktop\Ven\Projects\Shuka\Shuka\bin\publish\runtimes\win\lib\net9.0\System.Text.Encoding.CodePages.dll

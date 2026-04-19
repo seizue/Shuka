@@ -12,8 +12,18 @@
 
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
-    <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
-    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.59.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.6" />
+  </ItemGroup>
+
+  <!-- Exclude Android and Core subfolders from this Windows-only build -->
+  <ItemGroup>
+    <Compile Remove="Shuka.Android\**" />
+    <Compile Remove="Shuka.Core\**" />
+    <EmbeddedResource Remove="Shuka.Android\**" />
+    <EmbeddedResource Remove="Shuka.Core\**" />
+    <None Remove="Shuka.Android\**" />
+    <None Remove="Shuka.Core\**" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# .NET
+*.dll
+*.exe
+!bin/publish/**
+
+# MAUI / Android
+*.apk
+*.aab
+
+# Kiro
+.kiro/
+
+# OS
+.DS_Store
+Thumbs.db

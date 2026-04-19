@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Foreground only — MAUI composites onto background color -->
+  <g transform="translate(6, 6) scale(5)">
+    <path d="M50 48 C46 38 42 22 50 10 C58 22 54 38 50 48Z" fill="#7A4E4F"/>
+    <path d="M50 48 C58 42 72 34 82 40 C76 52 60 52 50 48Z" fill="#8B5E5F"/>
+    <path d="M50 52 C58 58 68 70 62 82 C50 78 46 64 50 52Z" fill="#7A4E4F"/>
+    <path d="M50 52 C46 62 42 78 50 90 C58 78 54 62 50 52Z" fill="#8B5E5F"/>
+    <path d="M50 52 C42 58 28 66 18 60 C24 48 40 46 50 52Z" fill="#7A4E4F"/>
+    <path d="M50 48 C42 42 26 36 18 42 C24 54 42 54 50 48Z" fill="#8B5E5F"/>
+    <circle cx="50" cy="50" r="8" fill="#533738"/>
+    <circle cx="50" cy="50" r="5" fill="#8B5E5F"/>
+    <circle cx="50" cy="50" r="2.5" fill="#C4888A"/>
+    <line x1="50" y1="44" x2="50" y2="36" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="50" cy="35" r="1.8" fill="#EBCB8B"/>
+    <line x1="55" y1="46" x2="61" y2="40" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="62" cy="39" r="1.8" fill="#EBCB8B"/>
+    <line x1="56" y1="52" x2="64" y2="52" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="65" cy="52" r="1.8" fill="#EBCB8B"/>
+    <line x1="50" y1="56" x2="50" y2="64" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="50" cy="65" r="1.8" fill="#EBCB8B"/>
+    <line x1="45" y1="54" x2="39" y2="60" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="38" cy="61" r="1.8" fill="#EBCB8B"/>
+    <line x1="44" y1="48" x2="36" y2="46" stroke="#C4888A" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="35" cy="46" r="1.8" fill="#EBCB8B"/>
+  </g>
+</svg>

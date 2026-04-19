@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Pages.MainPage"
+             BackgroundColor="{DynamicResource BgPage}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- ── Top App Bar ──────────────────────────────────── -->
+        <Grid Grid.Row="0"
+              ColumnDefinitions="Auto,*"
+              Padding="20,52,20,16"
+              BackgroundColor="{DynamicResource BgCard}">
+
+            <Border Grid.Column="0"
+                    BackgroundColor="{DynamicResource AccentContainer}"
+                    StrokeThickness="0"
+                    StrokeShape="RoundRectangle 14"
+                    WidthRequest="44" HeightRequest="44"
+                    VerticalOptions="Center"
+                    Margin="0,0,14,0">
+                <Image Source="lily.png"
+                       WidthRequest="26"
+                       HeightRequest="26"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+            </Border>
+
+            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                <Label Text="Shuka"
+                       FontSize="22"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource TextPrimary}" />
+                <Label Text="Chinese → English EPUB"
+                       FontSize="12"
+                       TextColor="{DynamicResource TextMuted}" />
+            </VerticalStackLayout>
+        </Grid>
+
+        <!-- ── Body ─────────────────────────────────────────── -->
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout Padding="16,20,16,40" Spacing="14">
+
+                <!-- ── Input card ──────────────────────────── -->
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="20,16,20,20">
+                    <VerticalStackLayout Spacing="18">
+
+                        <!-- Novel URL -->
+                        <VerticalStackLayout Spacing="8">
+                            <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
+                                <Label Text="{DynamicResource IconLink}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="14"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Text="Novel URL"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Border Stroke="{DynamicResource Stroke}"
+                                    StrokeThickness="1.5"
+                                    StrokeShape="RoundRectangle 12"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    Padding="14,0,14,0">
+                                <Entry x:Name="UrlEntry"
+                                       Placeholder="https://czbooks.net/n/..."
+                                       Keyboard="Url"
+                                       ReturnType="Next"
+                                       HeightRequest="48" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <!-- Cover URL -->
+                        <VerticalStackLayout Spacing="8">
+                            <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
+                                <Label Text="{DynamicResource IconImage}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="14"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                                <Label Text="Cover URL"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Text="· optional"
+                                       FontSize="11"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Border Stroke="{DynamicResource Stroke}"
+                                    StrokeThickness="1.5"
+                                    StrokeShape="RoundRectangle 12"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    Padding="14,0,14,0">
+                                <Entry x:Name="CoverEntry"
+                                       Placeholder="https://..."
+                                       Keyboard="Url"
+                                       ReturnType="Next"
+                                       HeightRequest="48" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <!-- Chapters -->
+                        <VerticalStackLayout Spacing="8">
+                            <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
+                                <Label Text="{DynamicResource IconNumbers}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="14"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                                <Label Text="Chapters"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Text="· 0 = all"
+                                       FontSize="11"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Border Stroke="{DynamicResource Stroke}"
+                                    StrokeThickness="1.5"
+                                    StrokeShape="RoundRectangle 12"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    Padding="14,0,14,0">
+                                <Entry x:Name="ChaptersEntry"
+                                       Text="0"
+                                       Keyboard="Numeric"
+                                       HeightRequest="48" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Download FAB -->
+                <Border x:Name="DownloadBtn"
+                        BackgroundColor="{DynamicResource Accent}"
+                        StrokeThickness="0"
+                        StrokeShape="RoundRectangle 20"
+                        HeightRequest="58"
+                        Padding="0">
+                    <Grid ColumnDefinitions="Auto,*,Auto" Padding="22,0,22,0">
+                        <Label Grid.Column="0"
+                               x:Name="DownloadIcon"
+                               Text="{DynamicResource IconDownload}"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="22"
+                               TextColor="{DynamicResource TextOnAccent}"
+                               VerticalOptions="Center"
+                               Margin="0,0,14,0" />
+                        <Label Grid.Column="1"
+                               x:Name="DownloadBtnLabel"
+                               Text="Download &amp; Translate"
+                               FontSize="15"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextOnAccent}"
+                               VerticalOptions="Center" />
+                        <ActivityIndicator Grid.Column="2"
+                                           x:Name="DownloadSpinner"
+                                           Color="{DynamicResource TextOnAccent}"
+                                           IsRunning="False"
+                                           IsVisible="False"
+                                           WidthRequest="22"
+                                           HeightRequest="22" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnDownloadClicked" />
+                        </Grid.GestureRecognizers>
+                    </Grid>
+                </Border>
+
+                <!-- Progress card -->
+                <Border x:Name="ProgressCard"
+                        BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="20,18"
+                        IsVisible="False">
+                    <VerticalStackLayout Spacing="12">
+                        <Label x:Name="StatusLabel"
+                               Text="Starting..."
+                               FontSize="13"
+                               TextColor="{DynamicResource TextSecondary}" />
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto">
+                            <ProgressBar Grid.Column="0"
+                                         x:Name="ProgressBar"
+                                         Progress="0"
+                                         ProgressColor="{DynamicResource Accent}"
+                                         BackgroundColor="{DynamicResource ProgressTrack}"
+                                         VerticalOptions="Center" />
+                            <Label Grid.Column="1"
+                                   x:Name="ProgressPct"
+                                   Text="0%"
+                                   FontSize="12"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource AccentLight}"
+                                   Margin="10,0,0,0"
+                                   VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Result card -->
+                <Border x:Name="ResultFrame"
+                        BackgroundColor="{DynamicResource SuccessContainer}"
+                        Stroke="{DynamicResource Success}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="20,18"
+                        IsVisible="False">
+                    <VerticalStackLayout Spacing="14">
+                        <HorizontalStackLayout Spacing="12">
+                            <Border BackgroundColor="{DynamicResource Success}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40">
+                                <Label Text="{DynamicResource IconCheck}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="22"
+                                       TextColor="{DynamicResource BgPage}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+                                <Label Text="Done!"
+                                       FontSize="14"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource Success}" />
+                                <Label x:Name="ResultLabel"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       LineBreakMode="TailTruncation"
+                                       MaximumWidthRequest="240" />
+                            </VerticalStackLayout>
+                        </HorizontalStackLayout>
+
+                        <Grid ColumnDefinitions="*,12,*">
+                            <!-- Open Folder -->
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource Success}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 14"
+                                    HeightRequest="50"
+                                    Padding="0">
+                                <Grid ColumnDefinitions="Auto,*" Padding="14,0">
+                                    <Label Grid.Column="0"
+                                           Text="&#xE2C7;"
+                                           FontFamily="{DynamicResource IconFont}"
+                                           FontSize="20"
+                                           TextColor="{DynamicResource BgPage}"
+                                           VerticalOptions="Center"
+                                           Margin="0,0,10,0" />
+                                    <Label Grid.Column="1"
+                                           Text="Open Folder"
+                                           FontSize="13"
+                                           FontAttributes="Bold"
+                                           TextColor="{DynamicResource BgPage}"
+                                           VerticalOptions="Center" />
+                                    <Grid.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnOpenFolderClicked" />
+                                    </Grid.GestureRecognizers>
+                                </Grid>
+                            </Border>
+
+                            <!-- Share -->
+                            <Border Grid.Column="2"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    Stroke="{DynamicResource Stroke}"
+                                    StrokeThickness="1"
+                                    StrokeShape="RoundRectangle 14"
+                                    HeightRequest="50"
+                                    Padding="0">
+                                <Grid ColumnDefinitions="Auto,*" Padding="14,0">
+                                    <Label Grid.Column="0"
+                                           Text="{DynamicResource IconShare}"
+                                           FontFamily="{DynamicResource IconFont}"
+                                           FontSize="20"
+                                           TextColor="{DynamicResource TextSecondary}"
+                                           VerticalOptions="Center"
+                                           Margin="0,0,10,0" />
+                                    <Label Grid.Column="1"
+                                           Text="Share"
+                                           FontSize="13"
+                                           FontAttributes="Bold"
+                                           TextColor="{DynamicResource TextSecondary}"
+                                           VerticalOptions="Center" />
+                                    <Grid.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnShareClicked" />
+                                    </Grid.GestureRecognizers>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Log card -->
+                <Border x:Name="LogFrame"
+                        BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="0"
+                        IsVisible="False">
+                    <VerticalStackLayout>
+                        <Grid ColumnDefinitions="Auto,*" Padding="16,14,16,12">
+                            <Label Grid.Column="0"
+                                   Text="{DynamicResource IconTerminal}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="16"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,10,0" />
+                            <Label Grid.Column="1"
+                                   Text="Output Log"
+                                   FontSize="12"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                        </Grid>
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" />
+                        <ScrollView x:Name="LogScroll" HeightRequest="200" Padding="16,12">
+                            <Label x:Name="LogLabel"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   FontSize="11"
+                                   LineBreakMode="WordWrap" />
+                        </ScrollView>
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+
+</ContentPage>

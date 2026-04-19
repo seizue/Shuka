@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Shuka.Android/Shuka.Android.csproj" />
+  <Project Path="Shuka.Core/Shuka.Core.csproj" />
+  <Project Path="Shuka.csproj" />
+</Solution>

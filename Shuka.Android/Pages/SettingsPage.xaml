@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Pages.SettingsPage"
+             BackgroundColor="{DynamicResource BgPage}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Top Bar -->
+        <Grid Grid.Row="0"
+              ColumnDefinitions="Auto,*"
+              Padding="20,52,20,18"
+              BackgroundColor="{DynamicResource BgCard}">
+            <Border Grid.Column="0"
+                    BackgroundColor="{DynamicResource AccentContainer}"
+                    StrokeThickness="0"
+                    StrokeShape="RoundRectangle 12"
+                    WidthRequest="40" HeightRequest="40"
+                    VerticalOptions="Center"
+                    Margin="0,0,14,0">
+                <Label Text="{DynamicResource IconSettings}"
+                       FontFamily="{DynamicResource IconFont}"
+                       FontSize="20"
+                       TextColor="{DynamicResource AccentLight}"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+            </Border>
+            <Label Grid.Column="1"
+                   Text="Settings"
+                   FontSize="22"
+                   FontAttributes="Bold"
+                   TextColor="{DynamicResource TextPrimary}"
+                   VerticalOptions="Center" />
+        </Grid>
+
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout Padding="16,20,16,40" Spacing="8">
+
+                <!-- ── APPEARANCE ──────────────────────────── -->
+                <Label Text="APPEARANCE"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource AccentLight}"
+                       CharacterSpacing="1.5"
+                       Margin="4,0,0,6" />
+
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="0">
+                    <VerticalStackLayout>
+
+                        <!-- Obsidian -->
+                        <Grid ColumnDefinitions="Auto,*,Auto"
+                              Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="#2E1F1F"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconDarkMode}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Obsidian"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Warm charcoal · modern dark"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label x:Name="RadioObsidian"
+                                   Grid.Column="2"
+                                   Text="{DynamicResource IconRadioOff}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="24"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnThemeObsidian" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- Rosewood -->
+                        <Grid ColumnDefinitions="Auto,*,Auto"
+                              Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="#3D2422"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconPalette}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="#C4AEA9"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Rosewood"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Warm brown-dark · harmonious"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label x:Name="RadioRosewood"
+                                   Grid.Column="2"
+                                   Text="{DynamicResource IconRadioOff}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="24"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnThemeRosewood" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- Slate -->
+                        <Grid ColumnDefinitions="Auto,*,Auto"
+                              Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="#1A1D27"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconContrast}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="#9FA8C0"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Slate"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Cool blue-grey · high contrast"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label x:Name="RadioSlate"
+                                   Grid.Column="2"
+                                   Text="{DynamicResource IconRadioOn}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="24"
+                                   TextColor="{DynamicResource Accent}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnThemeSlate" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- Frost -->
+                        <Grid ColumnDefinitions="Auto,*,Auto"
+                              Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="#F2E8E8"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconLightMode}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="#7A4E4F"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Frost"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Clean white · modern light"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label x:Name="RadioParchment"
+                                   Grid.Column="2"
+                                   Text="{DynamicResource IconRadioOff}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="24"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnThemeParchment" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- ── SUPPORT ─────────────────────────────── -->
+                <Label Text="SUPPORT"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource AccentLight}"
+                       CharacterSpacing="1.5"
+                       Margin="4,16,0,6" />
+
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="0">
+                    <VerticalStackLayout>
+
+                        <!-- Bug Report -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconBug}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource Danger}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Report a Bug"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Open a GitHub issue"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label Grid.Column="2"
+                                   Text="{DynamicResource IconChevronRight}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="22"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnBugReportTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- About -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource AccentContainer}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconInfo}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="About Shuka"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Version, licenses &amp; credits"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label Grid.Column="2"
+                                   Text="{DynamicResource IconChevronRight}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="22"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnAboutTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Version -->
+                <Label Text="Shuka v1.0  ·  seizue"
+                       FontSize="12"
+                       TextColor="{DynamicResource TextMuted}"
+                       HorizontalOptions="Center"
+                       Margin="0,16,0,0" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+
+</ContentPage>

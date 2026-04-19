@@ -28,7 +28,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "bin\publish\Shuka.exe";                          DestDir: "{app}"; Flags: ignoreversion
-Source: "Shuka.ico";                                      DestDir: "{app}"; Flags: ignoreversion
+Source: "ShukaIcon.ico";                                  DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.dll";                          DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.deps.json";                    DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\Shuka.runtimeconfig.json";           DestDir: "{app}"; Flags: ignoreversion
@@ -41,8 +41,8 @@ Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtim
 Source: "download-epub.bat";                              DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\Shuka.ico"
-Name: "{userdesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\Shuka.ico"; Tasks: desktopicon
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\ShukaIcon.ico"
+Name: "{userdesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\ShukaIcon.ico"; Tasks: desktopicon
 
 [Run]
 ; Install Playwright Chromium browser (needed for Cloudflare-protected sites)

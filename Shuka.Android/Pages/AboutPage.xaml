@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Pages.AboutPage"
+             BackgroundColor="{DynamicResource BgPage}"
+             Title="About">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Top Bar -->
+        <Grid Grid.Row="0"
+              ColumnDefinitions="Auto,*"
+              Padding="8,52,20,16"
+              BackgroundColor="{DynamicResource BgCard}">
+            <Border Grid.Column="0"
+                    BackgroundColor="Transparent"
+                    StrokeThickness="0"
+                    WidthRequest="48" HeightRequest="48"
+                    VerticalOptions="Center">
+                <Label Text="&#xE5C4;"
+                       FontFamily="{DynamicResource IconFont}"
+                       FontSize="24"
+                       TextColor="{DynamicResource TextPrimary}"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnBackTapped" />
+                    </Label.GestureRecognizers>
+                </Label>
+            </Border>
+            <Label Grid.Column="1"
+                   Text="About"
+                   FontSize="22"
+                   FontAttributes="Bold"
+                   TextColor="{DynamicResource TextPrimary}"
+                   VerticalOptions="Center" />
+        </Grid>
+
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout Padding="16,24,16,40" Spacing="14">
+
+                <!-- App identity card -->
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="24,28">
+                    <VerticalStackLayout Spacing="10" HorizontalOptions="Center">
+                        <Border BackgroundColor="{DynamicResource AccentContainer}"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 20"
+                                WidthRequest="72" HeightRequest="72"
+                                HorizontalOptions="Center">
+                            <Image Source="lily.png"
+                                   WidthRequest="44"
+                                   HeightRequest="44"
+                                   HorizontalOptions="Center"
+                                   VerticalOptions="Center" />
+                        </Border>
+                        <Label Text="Shuka"
+                               FontSize="26"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}"
+                               HorizontalOptions="Center" />
+                        <Label Text="Version 1.0.0"
+                               FontSize="13"
+                               TextColor="{DynamicResource TextMuted}"
+                               HorizontalOptions="Center" />
+                        <Label Text="Downloads Chinese web novels, translates them to English, and saves as EPUB."
+                               FontSize="13"
+                               TextColor="{DynamicResource TextSecondary}"
+                               HorizontalOptions="Center"
+                               HorizontalTextAlignment="Center"
+                               Margin="0,8,0,0" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Links section -->
+                <Label Text="LINKS"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource AccentLight}"
+                       CharacterSpacing="1.5"
+                       Margin="4,8,0,4" />
+
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="0">
+                    <VerticalStackLayout>
+
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconCode}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Source Code"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="github.com/seizue/Shuka"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label Grid.Column="2"
+                                   Text="{DynamicResource IconOpenExternal}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="20"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnGitHubTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,16,16,16">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconBug}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource Danger}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Report a Bug"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="github.com/seizue/Shuka/issues"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label Grid.Column="2"
+                                   Text="{DynamicResource IconOpenExternal}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="20"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnBugTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Credits -->
+                <Label Text="BUILT WITH"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource AccentLight}"
+                       CharacterSpacing="1.5"
+                       Margin="4,8,0,4" />
+
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="20,18">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text=".NET MAUI  ·  Microsoft" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="HtmlAgilityPack  ·  Simon Mourier" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="Google Translate API  (unofficial)" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="MyMemory Translation API" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="Material Symbols  ·  Google" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="Nord Color Palette  ·  Arctic Ice Studio" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+
+</ContentPage>

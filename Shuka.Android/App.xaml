@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.App">
+    <Application.Resources>
+        <ResourceDictionary>
+
+            <!-- ══════════════════════════════════════════
+                 SLATE  (default — first-run theme)
+                 Cool blue-grey · high contrast
+            ══════════════════════════════════════════ -->
+            <Color x:Key="BgPage">#0F1117</Color>
+            <Color x:Key="BgCard">#1A1D27</Color>
+            <Color x:Key="BgInput">#1A1D27</Color>
+            <Color x:Key="Stroke">#2E3245</Color>
+            <Color x:Key="Divider">#22253A</Color>
+            <Color x:Key="EntryLine">#2E3245</Color>
+            <Color x:Key="EntryLineFocused">#8B5E5F</Color>
+            <Color x:Key="Accent">#533738</Color>
+            <Color x:Key="AccentLight">#8B5E5F</Color>
+            <Color x:Key="AccentContainer">#2A1E2E</Color>
+            <Color x:Key="Success">#4ADE80</Color>
+            <Color x:Key="SuccessContainer">#0D2A1A</Color>
+            <Color x:Key="Warning">#FACC15</Color>
+            <Color x:Key="Danger">#F87171</Color>
+            <Color x:Key="TextPrimary">#E8EAF6</Color>
+            <Color x:Key="TextSecondary">#9FA8C0</Color>
+            <Color x:Key="TextMuted">#4A5270</Color>
+            <Color x:Key="TextOnAccent">#E8EAF6</Color>
+            <Color x:Key="ProgressTrack">#252836</Color>
+            <Color x:Key="NavBar">#1A1D27</Color>
+            <Color x:Key="NavBarSelected">#8B5E5F</Color>
+            <Color x:Key="NavBarUnselected">#4A5270</Color>
+
+            <!-- Material Symbols font -->
+            <x:String x:Key="IconFont">MaterialSymbols</x:String>
+
+            <!-- ── Icon codepoints (Material Symbols Rounded) ── -->
+            <!-- Download / cloud_download -->
+            <x:String x:Key="IconDownload">&#xF090;</x:String>
+            <!-- ios_share -->
+            <x:String x:Key="IconShare">&#xE6B8;</x:String>
+            <!-- check_circle -->
+            <x:String x:Key="IconCheck">&#xE86C;</x:String>
+            <!-- link -->
+            <x:String x:Key="IconLink">&#xE157;</x:String>
+            <!-- image -->
+            <x:String x:Key="IconImage">&#xE3F4;</x:String>
+            <!-- format_list_numbered -->
+            <x:String x:Key="IconNumbers">&#xE242;</x:String>
+            <!-- dark_mode -->
+            <x:String x:Key="IconDarkMode">&#xE51C;</x:String>
+            <!-- light_mode -->
+            <x:String x:Key="IconLightMode">&#xE518;</x:String>
+            <!-- contrast -->
+            <x:String x:Key="IconContrast">&#xE3A6;</x:String>
+            <!-- terminal -->
+            <x:String x:Key="IconTerminal">&#xEB8E;</x:String>
+            <!-- auto_stories (open book) -->
+            <x:String x:Key="IconBook">&#xEA78;</x:String>
+            <!-- tune (settings) -->
+            <x:String x:Key="IconSettings">&#xE429;</x:String>
+            <!-- bug_report -->
+            <x:String x:Key="IconBug">&#xE868;</x:String>
+            <!-- info -->
+            <x:String x:Key="IconInfo">&#xE88E;</x:String>
+            <!-- palette -->
+            <x:String x:Key="IconPalette">&#xE40A;</x:String>
+            <!-- chevron_right -->
+            <x:String x:Key="IconChevronRight">&#xE5CC;</x:String>
+            <!-- open_in_new -->
+            <x:String x:Key="IconOpenExternal">&#xE89E;</x:String>
+            <!-- code -->
+            <x:String x:Key="IconCode">&#xE86F;</x:String>
+            <!-- folder_open -->
+            <x:String x:Key="IconFolder">&#xE2C8;</x:String>
+            <!-- translate -->
+            <x:String x:Key="IconTranslate">&#xE8E2;</x:String>
+            <!-- check (simple tick) -->
+            <x:String x:Key="IconTick">&#xE876;</x:String>
+            <!-- arrow_back -->
+            <x:String x:Key="IconBack">&#xE5C4;</x:String>
+            <!-- radio_button_checked -->
+            <x:String x:Key="IconRadioOn">&#xE837;</x:String>
+            <!-- radio_button_unchecked -->
+            <x:String x:Key="IconRadioOff">&#xE836;</x:String>
+
+            <!-- Global Entry style -->
+            <Style TargetType="Entry">
+                <Setter Property="TextColor" Value="{DynamicResource TextPrimary}" />
+                <Setter Property="PlaceholderColor" Value="{DynamicResource TextMuted}" />
+                <Setter Property="BackgroundColor" Value="Transparent" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="HeightRequest" Value="48" />
+                <Setter Property="Margin" Value="0" />
+            </Style>
+
+            <!-- Global Label style -->
+            <Style TargetType="Label">
+                <Setter Property="TextColor" Value="{DynamicResource TextSecondary}" />
+                <Setter Property="FontSize" Value="14" />
+            </Style>
+
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
