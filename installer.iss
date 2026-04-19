@@ -37,7 +37,7 @@ Source: "bin\publish\Microsoft.Bcl.AsyncInterfaces.dll";  DestDir: "{app}"; Flag
 Source: "bin\publish\System.Text.Encoding.CodePages.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\playwright.ps1";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\.playwright\*";                      DestDir: "{app}\.playwright"; Flags: ignoreversion recursesubdirs
-Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs
+Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 Source: "download-epub.bat";                              DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
