@@ -142,6 +142,21 @@ public partial class App : Application
         // Re-tint all active Entry underlines to match the new theme
 #if ANDROID
         Platforms.Android.ThemedEntryHandler.RefreshAll();
+
+        // Update the system status bar to match the page background
+        if (MainActivity.Instance is { } activity)
+        {
+            var bgColor = (Color)Application.Current!.Resources["BgPage"];
+            // Light icons for dark themes, dark icons for Frost (light theme)
+            bool lightIcons = theme != AppTheme.Frost;
+            var androidColor = global::Android.Graphics.Color.Argb(
+                (int)(bgColor.Alpha * 255),
+                (int)(bgColor.Red   * 255),
+                (int)(bgColor.Green * 255),
+                (int)(bgColor.Blue  * 255));
+            MainThread.BeginInvokeOnMainThread(() =>
+                activity.ApplyStatusBarColor(androidColor, lightIcons));
+        }
 #endif
     }
 }

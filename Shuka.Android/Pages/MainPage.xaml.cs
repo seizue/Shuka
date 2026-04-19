@@ -56,9 +56,18 @@ public partial class MainPage : ContentPage
                 });
             });
 
-            string dir  = GetOutputDirectory();
-            string name = SanitizeFileName(book.TitleEn ?? book.Title);
-            _lastEpubPath = await service.ProcessBook(book, Path.Combine(dir, name + ".epub"), progress, Log);
+            string dir = GetOutputDirectory();
+            // Use a temp path during processing; ProcessBook translates the title first,
+            // so we rename to the English title once it's available.
+            string tempPath = Path.Combine(dir, "_shuka_temp.epub");
+            _lastEpubPath = await service.ProcessBook(book, tempPath, progress, Log);
+
+            // Rename to the English title now that translation is done
+            string finalName = SanitizeFileName(book.TitleEn ?? book.Title);
+            string finalPath = Path.Combine(dir, finalName + ".epub");
+            if (File.Exists(finalPath)) File.Delete(finalPath);
+            File.Move(_lastEpubPath, finalPath);
+            _lastEpubPath = finalPath;
 
             Log($"Saved: {_lastEpubPath}");
             ResultLabel.Text      = Path.GetFileName(_lastEpubPath);
@@ -142,8 +151,15 @@ public partial class MainPage : ContentPage
 
     private static string GetOutputDirectory()
     {
+#if ANDROID
+        // Save to the public Downloads folder so the file is visible in any file manager
+        var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+            global::Android.OS.Environment.DirectoryDownloads)!.AbsolutePath;
+        string dir = Path.Combine(downloads, "Shuka");
+#else
         string dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Shuka");
+#endif
         Directory.CreateDirectory(dir);
         return dir;
     }

@@ -6,7 +6,9 @@ on:
       - "v*.*.*"
 
 jobs:
-  build:
+  # ── Windows installer ────────────────────────────────────────────────────────
+  windows:
+    name: Build Windows Installer
     runs-on: windows-latest
     permissions:
       contents: write
@@ -32,10 +34,80 @@ jobs:
           path: installer.iss
           options: /DMyAppVersion=${{ github.ref_name }}
 
-      - name: Create GitHub Release
+      - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           name: Shuka ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          files: installer_output/Shuka_Setup.exe
           generate_release_notes: true
+          files: installer_output/Shuka_Setup.exe
+
+  # ── Android APK ──────────────────────────────────────────────────────────────
+  android:
+    name: Build Android APK
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: "17"
+
+      - name: Decode keystore
+        run: |
+          $bytes = [Convert]::FromBase64String("${{ secrets.KEYSTORE_BASE64 }}")
+          [IO.File]::WriteAllBytes("${{ github.workspace }}\shuka.keystore", $bytes)
+        shell: pwsh
+
+      - name: Build Release APK
+        run: >
+          dotnet publish Shuka.Android/Shuka.Android.csproj
+          -f net9.0-android
+          -c Release
+          -p:RuntimeIdentifier=android-arm64
+          -p:AndroidSigningKeyStore=${{ github.workspace }}\shuka.keystore
+          -p:AndroidSigningKeyAlias=${{ secrets.KEY_ALIAS }}
+          -p:AndroidSigningKeyPass=${{ secrets.KEY_PASSWORD }}
+          -p:AndroidSigningStorePass=${{ secrets.STORE_PASSWORD }}
+          -p:AndroidPackageFormats=apk
+          -o publish_output
+
+      - name: Locate APK
+        id: find_apk
+        shell: pwsh
+        run: |
+          $apk = Get-ChildItem -Recurse -Filter "*.apk" publish_output | Select-Object -First 1
+          echo "APK_PATH=$($apk.FullName)" >> $env:GITHUB_OUTPUT
+          echo "APK_NAME=$($apk.Name)"     >> $env:GITHUB_OUTPUT
+
+      - name: Rename APK
+        id: rename_apk
+        shell: pwsh
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $newName = "Shuka-Android-$tag.apk"
+          $newPath = Join-Path (Split-Path "${{ steps.find_apk.outputs.APK_PATH }}") $newName
+          Move-Item "${{ steps.find_apk.outputs.APK_PATH }}" $newPath
+          echo "APK_PATH=$newPath" >> $env:GITHUB_OUTPUT
+          echo "APK_NAME=$newName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Shuka ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.rename_apk.outputs.APK_PATH }}

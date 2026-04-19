@@ -10,7 +10,7 @@
        Shell.TabBarTitleColor="{DynamicResource NavBarSelected}">
 
     <TabBar>
-        <ShellContent Title="Download"
+        <ShellContent Title="Home"
                       Icon="tab_home.png"
                       ContentTemplate="{DataTemplate pages:MainPage}"
                       Route="MainPage" />
