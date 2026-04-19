@@ -113,7 +113,8 @@ class MySiteAdapter : ISiteAdapter
 ```
 
 ## Screenshot
-<img width="1600" height="850" alt="explorer_N6cKxWskRo" src="https://github.com/user-attachments/assets/b9c80f81-aaa1-4542-b954-d612b4a739a7" />
+<img width="1366" height="736" alt="Shuka" src="https://github.com/user-attachments/assets/b66d8ef3-858b-4ff9-a8a9-981a830a41a3" />
+
 
 
 ## License
