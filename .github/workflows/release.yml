@@ -22,11 +22,8 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
-      - name: Install workloads
-        run: dotnet workload restore
-
       - name: Publish
-        run: dotnet publish -c Release -r win-x64 --self-contained false -o bin/publish
+        run: dotnet publish Shuka.csproj -c Release -r win-x64 --self-contained false -o bin/publish
 
       - name: Install Playwright browsers
         run: bin/publish/Shuka.exe playwright install chromium
