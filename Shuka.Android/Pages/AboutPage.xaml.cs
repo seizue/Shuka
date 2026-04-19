@@ -18,7 +18,7 @@ public partial class AboutPage : ContentPage
 
     private async void OnBugTapped(object sender, TappedEventArgs e)
     {
-        try { await Launcher.Default.OpenAsync(new Uri("https://github.com/seizure/Shuka/issues/new")); }
+        try { await Launcher.Default.OpenAsync(new Uri("https://github.com/seizue/Shuka/issues/new")); }
         catch { await DisplayAlert("Error", "Could not open browser.", "OK"); }
     }
 }
