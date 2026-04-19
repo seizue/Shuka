@@ -27,15 +27,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-Source: "bin\publish\Shuka.exe";                          DestDir: "{app}"; Flags: ignoreversion
+; All root-level publish files (includes .NET runtime for self-contained app)
+Source: "bin\publish\*";                                  DestDir: "{app}"; Flags: ignoreversion
 Source: "ShukaIcon.ico";                                  DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\Shuka.dll";                          DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\Shuka.deps.json";                    DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\Shuka.runtimeconfig.json";           DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\Microsoft.Playwright.dll";           DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\Microsoft.Bcl.AsyncInterfaces.dll";  DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\System.Text.Encoding.CodePages.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\publish\playwright.ps1";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "bin\publish\.playwright\*";                      DestDir: "{app}\.playwright"; Flags: ignoreversion recursesubdirs
 Source: "bin\publish\runtimes\*";                         DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 Source: "download-epub.bat";                              DestDir: "{app}"; Flags: ignoreversion
