@@ -133,9 +133,9 @@ public partial class App : Application
                 r["TextMuted"]        = Color.FromArgb("#8E8E93");  // iOS tertiary label
                 r["TextOnAccent"]     = Color.FromArgb("#FFFFFF");
                 r["ProgressTrack"]    = Color.FromArgb("#E5E5EA");
-                r["NavBar"]           = Color.FromArgb("#F2F2F7");
-                r["NavBarSelected"]   = Color.FromArgb("#533738");
-                r["NavBarUnselected"] = Color.FromArgb("#8E8E93");
+                r["NavBar"]           = Color.FromArgb("#FFFFFF");  // pure white bar — clean separation from page
+                r["NavBarSelected"]   = Color.FromArgb("#533738");  // burgundy accent — clear active state
+                r["NavBarUnselected"] = Color.FromArgb("#AEAEB2");  // soft grey — visible but not competing
                 break;
         }
 

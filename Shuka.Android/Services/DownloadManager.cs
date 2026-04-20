@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using Shuka.Core;
 using Shuka.Android.Platform;
 
@@ -107,8 +108,19 @@ public class DownloadManager
 
             ct.ThrowIfCancellationRequested();
 
-            // Rename to English title
-            string finalName = SanitizeFileName(book.TitleEn ?? book.Title);
+            // Build the final filename — prefer English title, fall back to URL slug
+            string rawTitle  = book.TitleEn ?? book.Title;
+            string finalName = IsEnglishTitle(rawTitle)
+                ? SanitizeFileName(rawTitle)
+                : SanitizeFileName(book.Title);   // keep original CJK if translation failed
+
+            // If both are unusable, fall back to the URL slug
+            if (string.IsNullOrWhiteSpace(finalName))
+                finalName = SanitizeFileName(
+                    Regex.Match(book.IndexUrl, @"/n/([^/?#]+)").Groups[1].Value);
+            if (string.IsNullOrWhiteSpace(finalName))
+                finalName = $"novel_{item.Id:N8}";
+
             string finalPath = Path.Combine(dir, finalName + ".epub");
             if (File.Exists(finalPath)) File.Delete(finalPath);
             File.Move(epubPath, finalPath);
@@ -183,10 +195,18 @@ public class DownloadManager
         return dir;
     }
 
+    /// <summary>
+    /// Returns true if the title is predominantly Latin/English
+    /// (i.e. translation actually worked and didn't return Chinese).
+    /// </summary>
+    private static bool IsEnglishTitle(string title) =>
+        !Regex.IsMatch(title, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f]");
+
     private static string SanitizeFileName(string name)
     {
         foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-        name = name.Trim('_');
-        return name[..Math.Min(name.Length, 60)];
+        // Collapse multiple underscores and trim
+        name = Regex.Replace(name, @"_+", "_").Trim('_');
+        return name.Length > 80 ? name[..80] : name;
     }
 }
