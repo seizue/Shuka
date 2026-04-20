@@ -1,3 +1,5 @@
+using Shuka.Android.Services;
+
 namespace Shuka.Android.Pages;
 
 public partial class SettingsPage : ContentPage
@@ -6,12 +8,14 @@ public partial class SettingsPage : ContentPage
     {
         InitializeComponent();
         RefreshRadios(App.CurrentTheme);
+        RefreshDownloadPath();
     }
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
         RefreshRadios(App.CurrentTheme);
+        RefreshDownloadPath();
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
@@ -44,6 +48,57 @@ public partial class SettingsPage : ContentPage
         RadioRosewood.TextColor  = theme == AppTheme.Rosewood ? accent : muted;
         RadioSlate.TextColor     = theme == AppTheme.Slate    ? accent : muted;
         RadioParchment.TextColor = theme == AppTheme.Frost    ? accent : muted;
+    }
+
+    // ── Download location ─────────────────────────────────────────────────────
+
+    private void RefreshDownloadPath()
+    {
+        DownloadPathLabel.Text = DownloadManager.GetOutputDirectory();
+    }
+
+    private async void OnChangeDownloadFolderTapped(object sender, TappedEventArgs e)
+    {
+        // On Android we can't use a native folder picker without SAF/intent plumbing,
+        // so we let the user type a path manually via a prompt.
+        string current = DownloadManager.GetOutputDirectory();
+        string? result = await DisplayPromptAsync(
+            "Download Location",
+            "Enter the full folder path where EPUBs will be saved:",
+            initialValue: current,
+            maxLength: 300,
+            keyboard: Keyboard.Url);
+
+        if (result == null) return; // cancelled
+
+        result = result.Trim();
+        if (string.IsNullOrWhiteSpace(result))
+        {
+            await DisplayAlert("Invalid Path", "Path cannot be empty.", "OK");
+            return;
+        }
+
+        // Try to create the directory to validate the path
+        try
+        {
+            Directory.CreateDirectory(result);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Invalid Path", $"Could not create folder:\n{ex.Message}", "OK");
+            return;
+        }
+
+        DownloadManager.SetOutputDirectory(result);
+        RefreshDownloadPath();
+        await DisplayAlert("Saved", $"Downloads will now be saved to:\n{result}", "OK");
+    }
+
+    private async void OnResetDownloadFolderTapped(object sender, TappedEventArgs e)
+    {
+        DownloadManager.ResetOutputDirectory();
+        RefreshDownloadPath();
+        await DisplayAlert("Reset", $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
     }
 
     // ── Support ───────────────────────────────────────────────────────────────

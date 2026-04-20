@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <path fill="#533738" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+  <!-- Shadow/back layer — darker tone -->
+  <path fill="#2E1F1F" d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3z"/>
+  <!-- Front layer — accent highlight on roof and door -->
+  <path fill="#8B5E5F" d="M12 3l-7 6.5V20h4v-6h6v6h4V9.5z" opacity="0.55"/>
+  <!-- Door cutout highlight -->
+  <rect fill="#533738" x="10" y="14" width="4" height="6"/>
+  <!-- Roof peak highlight -->
+  <polygon fill="#C49A9B" points="12,4.5 4.5,11 19.5,11" opacity="0.4"/>
 </svg>

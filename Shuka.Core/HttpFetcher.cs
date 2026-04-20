@@ -25,23 +25,26 @@ public class HttpFetcher : IDisposable
         _site.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
     }
 
-    public async Task<string> Fetch(string url, int retries = 4, Action<string>? log = null)
+    public async Task<string> Fetch(string url, int retries = 4, Action<string>? log = null,
+        CancellationToken ct = default)
     {
         int delay = 1000;
         Exception? last = null;
 
         for (int i = 0; i <= retries; i++)
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 var uri = new Uri(url);
                 req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var resp = await _site.SendAsync(req, cts.Token);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                linked.CancelAfter(TimeSpan.FromSeconds(30));
+                var resp = await _site.SendAsync(req, linked.Token);
 
-                // Detect Cloudflare block
+                // Detect Cloudflare block (403/503 with cf-ray header or cloudflare server)
                 bool isCf = resp.Headers.Contains("cf-ray") || resp.Headers.Server.ToString().Contains("cloudflare");
                 if (isCf && ((int)resp.StatusCode == 403 || (int)resp.StatusCode == 503))
                 {
@@ -53,17 +56,50 @@ public class HttpFetcher : IDisposable
                     throw new Exception("Cloudflare blocked the request and no bypass is configured.");
                 }
 
-                resp.EnsureSuccessStatusCode();
-                byte[] bytes = await resp.Content.ReadAsByteArrayAsync();
-                string ascii = Encoding.ASCII.GetString(bytes);
-                var cm = Regex.Match(ascii, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
-                string charset = cm.Success ? cm.Groups[1].Value.Trim() : "utf-8";
-                Encoding enc;
-                try   { enc = Encoding.GetEncoding(charset); }
-                catch { enc = Encoding.UTF8; }
-                return enc.GetString(bytes);
+                // czbooks.net sometimes returns 200 but with a CF challenge page — detect it
+                if (resp.IsSuccessStatusCode)
+                {
+                    byte[] rawBytes = await resp.Content.ReadAsByteArrayAsync(ct);
+                    string ascii = Encoding.ASCII.GetString(rawBytes);
+
+                    bool isCfChallenge = ascii.Contains("cf-browser-verification") ||
+                                         ascii.Contains("jschl-answer") ||
+                                         ascii.Contains("challenge-form") ||
+                                         (ascii.Contains("cloudflare") && ascii.Contains("checking your browser"));
+
+                    // Also detect the czbooks login-wall stub (tiny page with no real content)
+                    bool isLoginWall = rawBytes.Length < 2000 &&
+                                       (ascii.Contains("Facebook") || ascii.Contains("Google") || ascii.Contains("Line")) &&
+                                       ascii.Contains("czbooks");
+
+                    if (isCfChallenge || isLoginWall)
+                    {
+                        if (_cfBypass != null)
+                        {
+                            log?.Invoke(isCfChallenge
+                                ? "[cloudflare] JS challenge detected, using bypass..."
+                                : "[cloudflare] Login wall detected, using bypass...");
+                            return await _cfBypass.FetchAsync(url);
+                        }
+                        throw new Exception("Cloudflare/login wall detected and no bypass is configured.");
+                    }
+
+                    var cm = Regex.Match(ascii, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
+                    string charset = cm.Success ? cm.Groups[1].Value.Trim() : "utf-8";
+                    Encoding enc;
+                    try   { enc = Encoding.GetEncoding(charset); }
+                    catch { enc = Encoding.UTF8; }
+                    return enc.GetString(rawBytes);
+                }
+
+                resp.EnsureSuccessStatusCode(); // throws for non-success
+                return ""; // unreachable
             }
-            catch (Exception ex) { last = ex; await Task.Delay(delay); delay = Math.Min(delay * 2, 16000); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // propagate user cancellation immediately
+            }
+            catch (Exception ex) { last = ex; await Task.Delay(delay, ct); delay = Math.Min(delay * 2, 16000); }
         }
 
         throw new Exception($"Fetch failed: {url} — {last?.Message}");

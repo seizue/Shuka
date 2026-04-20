@@ -31,13 +31,14 @@ public class BookService
     // ── Public API ────────────────────────────────────────────────────────────
 
     public async Task<BookInfo> GatherBookInfo(string indexUrl, int chapterLimit = 0,
-        string? forceCoverUrl = null, Action<string>? log = null)
+        string? forceCoverUrl = null, Action<string>? log = null,
+        CancellationToken ct = default)
     {
         var adapter = DetectAdapter(indexUrl);
         indexUrl = adapter.NormalizeUrl(indexUrl);
         log?.Invoke($"Gathering [{adapter.SiteName}]: {indexUrl}");
 
-        string html = await _fetcher.Fetch(indexUrl, log: log);
+        string html = await _fetcher.Fetch(indexUrl, log: log, ct: ct);
         var info = adapter.ParseIndex(html, indexUrl);
         int total = chapterLimit > 0 ? Math.Min(chapterLimit, info.ChapterUrls.Count) : info.ChapterUrls.Count;
         string? coverUrl = forceCoverUrl ?? info.CoverUrl ?? TryExtractCover(html, indexUrl);
@@ -46,16 +47,20 @@ public class BookService
     }
 
     public async Task<string> ProcessBook(BookInfo book, string outputPath,
-        IProgress<ProgressEventArgs>? progress = null, Action<string>? log = null)
+        IProgress<ProgressEventArgs>? progress = null, Action<string>? log = null,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         log?.Invoke($"Translating title/author...");
         book.TitleEn  = await _translator.Translate(book.Title,  log);
         book.AuthorEn = await _translator.Translate(book.Author, log);
         log?.Invoke($"Title (EN): {book.TitleEn}  Author (EN): {book.AuthorEn}");
 
+        ct.ThrowIfCancellationRequested();
         var (coverBytes, coverMime) = await DownloadCover(book.CoverUrl, log);
-        var chapters = await DownloadChapters(book, progress, log);
+        var chapters = await DownloadChapters(book, progress, log, ct);
 
+        ct.ThrowIfCancellationRequested();
         log?.Invoke("Building EPUB...");
         if (File.Exists(outputPath)) File.Delete(outputPath);
         EpubBuilder.Build(outputPath, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
@@ -67,14 +72,15 @@ public class BookService
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private async Task<List<(int Idx, string Title, string Text)>> DownloadChapters(
-        BookInfo book, IProgress<ProgressEventArgs>? progress, Action<string>? log)
+        BookInfo book, IProgress<ProgressEventArgs>? progress, Action<string>? log,
+        CancellationToken ct = default)
     {
         var fetchSem = new SemaphoreSlim(3);
 
         var fetchTasks = book.ChapterUrls.Take(book.Total).Select(async (ch, i) =>
         {
-            await fetchSem.WaitAsync();
-            try   { return (i, title: ch.Title, html: await _fetcher.Fetch(ch.Url, log: log)); }
+            await fetchSem.WaitAsync(ct);
+            try   { return (i, title: ch.Title, html: await _fetcher.Fetch(ch.Url, log: log, ct: ct)); }
             finally { fetchSem.Release(); }
         }).ToArray();
 
@@ -82,6 +88,8 @@ public class BookService
 
         for (int i = 0; i < book.Total; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             progress?.Report(new ProgressEventArgs
             {
                 Current = i + 1,

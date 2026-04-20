@@ -62,7 +62,7 @@
                                FontAttributes="Bold"
                                TextColor="{DynamicResource TextPrimary}"
                                HorizontalOptions="Center" />
-                        <Label Text="Version 1.0.0"
+                        <Label Text="Version 1.0.2"
                                FontSize="13"
                                TextColor="{DynamicResource TextMuted}"
                                HorizontalOptions="Center" />

@@ -36,6 +36,7 @@
     <MauiFont Include="Resources\Fonts\MaterialSymbols.ttf" />
     <MauiImage Include="Resources\Images\tab_home.svg" />
     <MauiImage Include="Resources\Images\tab_settings.svg" />
+    <MauiImage Include="Resources\Images\tab_downloads.svg" />
     <MauiImage Include="Resources\Images\lily.svg" />
   </ItemGroup>
 

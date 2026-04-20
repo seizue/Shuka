@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Tray / base — darker tone -->
+  <rect fill="#2E1F1F" x="3" y="17" width="18" height="3" rx="1.5"/>
+  <!-- Arrow body — mid tone -->
+  <rect fill="#533738" x="11" y="3" width="2" height="10"/>
+  <!-- Arrow head — accent highlight -->
+  <polygon fill="#8B5E5F" points="12,16 6,10 18,10"/>
+  <!-- Tray highlight strip -->
+  <rect fill="#C49A9B" x="3" y="17" width="18" height="1" rx="0.5" opacity="0.45"/>
+</svg>

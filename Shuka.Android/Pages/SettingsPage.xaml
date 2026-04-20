@@ -212,6 +212,123 @@
                     </VerticalStackLayout>
                 </Border>
 
+                <!-- ── DOWNLOADS ──────────────────────────── -->
+                <Label Text="DOWNLOADS"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource AccentLight}"
+                       CharacterSpacing="1.5"
+                       Margin="4,16,0,6" />
+
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        Stroke="{DynamicResource Stroke}"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 20"
+                        Padding="0">
+                    <VerticalStackLayout>
+
+                        <!-- Current path display -->
+                        <Grid ColumnDefinitions="Auto,*" Padding="16,16,16,12">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource AccentContainer}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Start"
+                                    Margin="0,0,14,0">
+                                <Label Text="{DynamicResource IconFolder}"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                                <Label Text="Download Location"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label x:Name="DownloadPathLabel"
+                                       FontSize="11"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       LineBreakMode="TailTruncation"
+                                       MaxLines="2" />
+                            </VerticalStackLayout>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- Change button -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,14,16,14">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="&#xE2C8;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Change Folder"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Pick a custom save location"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Label Grid.Column="2"
+                                   Text="{DynamicResource IconChevronRight}"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="22"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnChangeDownloadFolderTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                        <BoxView HeightRequest="1" BackgroundColor="{DynamicResource Divider}" Margin="16,0" />
+
+                        <!-- Reset to default -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" Padding="16,14,16,14">
+                            <Border Grid.Column="0"
+                                    BackgroundColor="{DynamicResource BgInput}"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    WidthRequest="40" HeightRequest="40"
+                                    VerticalOptions="Center"
+                                    Margin="0,0,14,0">
+                                <Label Text="&#xE042;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="20"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="Reset to Default"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                                <Label Text="Downloads/Shuka"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource TextMuted}" />
+                            </VerticalStackLayout>
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnResetDownloadFolderTapped" />
+                            </Grid.GestureRecognizers>
+                        </Grid>
+
+                    </VerticalStackLayout>
+                </Border>
+
                 <!-- ── SUPPORT ─────────────────────────────── -->
                 <Label Text="SUPPORT"
                        FontSize="11"
@@ -305,7 +422,7 @@
                 </Border>
 
                 <!-- Version -->
-                <Label Text="Shuka v1.0.0  ·  Seizue"
+                <Label Text="Shuka v1.0.2  ·  Seizue"
                        FontSize="12"
                        TextColor="{DynamicResource TextMuted}"
                        HorizontalOptions="Center"

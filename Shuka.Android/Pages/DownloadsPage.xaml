@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Pages.DownloadsPage"
+             BackgroundColor="{DynamicResource BgPage}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- ── Top App Bar ──────────────────────────────────── -->
+        <Grid Grid.Row="0"
+              ColumnDefinitions="Auto,*,Auto,12,Auto"
+              Padding="20,52,20,16"
+              BackgroundColor="{DynamicResource BgCard}">
+
+            <!-- Icon -->
+            <Border Grid.Column="0"
+                    BackgroundColor="{DynamicResource AccentContainer}"
+                    StrokeThickness="0"
+                    StrokeShape="RoundRectangle 12"
+                    WidthRequest="40" HeightRequest="40"
+                    VerticalOptions="Center"
+                    Margin="0,0,14,0">
+                <Label Text="&#xF090;"
+                       FontFamily="{DynamicResource IconFont}"
+                       FontSize="20"
+                       TextColor="{DynamicResource AccentLight}"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+            </Border>
+
+            <!-- Title -->
+            <Label Grid.Column="1"
+                   Text="Downloads"
+                   FontSize="22" FontAttributes="Bold"
+                   TextColor="{DynamicResource TextPrimary}"
+                   VerticalOptions="Center" />
+
+            <!-- Clear History -->
+            <Border Grid.Column="2"
+                    x:Name="ClearHistoryBtn"
+                    BackgroundColor="{DynamicResource BgInput}"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 10"
+                    Padding="12,8"
+                    VerticalOptions="Center">
+                <HorizontalStackLayout Spacing="6">
+                    <Label Text="&#xE872;"
+                           FontFamily="{DynamicResource IconFont}"
+                           FontSize="16"
+                           TextColor="{DynamicResource TextMuted}"
+                           VerticalOptions="Center" />
+                    <Label Text="Clear"
+                           FontSize="12" FontAttributes="Bold"
+                           TextColor="{DynamicResource TextMuted}"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnClearHistoryClicked" />
+                </Border.GestureRecognizers>
+            </Border>
+
+            <!-- Cancel All -->
+            <Border Grid.Column="4"
+                    x:Name="CancelAllBtn"
+                    BackgroundColor="{DynamicResource BgInput}"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 10"
+                    Padding="12,8"
+                    VerticalOptions="Center">
+                <HorizontalStackLayout Spacing="6">
+                    <Label Text="&#xE5C9;"
+                           FontFamily="{DynamicResource IconFont}"
+                           FontSize="16"
+                           TextColor="{DynamicResource Danger}"
+                           VerticalOptions="Center" />
+                    <Label Text="Cancel All"
+                           FontSize="12" FontAttributes="Bold"
+                           TextColor="{DynamicResource Danger}"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCancelAllClicked" />
+                </Border.GestureRecognizers>
+            </Border>
+        </Grid>
+
+        <!-- ── Body ─────────────────────────────────────────── -->
+        <Grid Grid.Row="1">
+
+            <!-- Empty state -->
+            <VerticalStackLayout x:Name="EmptyState"
+                                 Spacing="14"
+                                 HorizontalOptions="Center"
+                                 VerticalOptions="Center">
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        StrokeThickness="0"
+                        StrokeShape="RoundRectangle 32"
+                        WidthRequest="80" HeightRequest="80"
+                        HorizontalOptions="Center">
+                    <Label Text="&#xF090;"
+                           FontFamily="{DynamicResource IconFont}"
+                           FontSize="40"
+                           TextColor="{DynamicResource TextMuted}"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Border>
+                <Label Text="No downloads yet"
+                       FontSize="16" FontAttributes="Bold"
+                       TextColor="{DynamicResource TextSecondary}"
+                       HorizontalOptions="Center" />
+                <Label Text="Start a download from the Home tab"
+                       FontSize="13"
+                       TextColor="{DynamicResource TextMuted}"
+                       HorizontalOptions="Center" />
+            </VerticalStackLayout>
+
+            <!-- Scrollable list — cards injected from code-behind -->
+            <ScrollView x:Name="ListScroll" IsVisible="False">
+                <VerticalStackLayout x:Name="CardList"
+                                     Padding="16,20,16,40"
+                                     Spacing="12" />
+            </ScrollView>
+
+        </Grid>
+    </Grid>
+
+</ContentPage>
