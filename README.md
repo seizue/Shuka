@@ -1,6 +1,6 @@
 # Shuka
 
-A Windows tool that downloads Chinese web novels, translates them to English via Google Translate, and saves them as `.epub` files ready for any e-reader.
+A tool that downloads Chinese web novels, translates them to English via Google Translate, and saves them as `.epub` files ready for any e-reader. Available on Windows (PowerShell) and Android.
 
 ![Github Downloads](https://img.shields.io/github/downloads/seizue/Shuka/total?cacheSeconds=60)
 
