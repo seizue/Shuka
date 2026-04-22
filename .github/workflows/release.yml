@@ -63,11 +63,17 @@ jobs:
           $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
           if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
 
-          $log = git log "$prev..HEAD" --pretty=format:"- %s (%h)" --no-merges
-          if (-not $log) { $log = "- Initial release" }
+          $commits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges
+          if (-not $commits) {
+            $bullets = "- Initial release"
+          } else {
+            # Prefix each line with "- " and join with Unix newlines
+            $bullets = ($commits -split "`n" | ForEach-Object { "- $_" }) -join "`n"
+          }
 
-          # Write to a file to avoid multiline env-var issues
-          $log | Out-File -FilePath changelog.txt -Encoding utf8
+          # Write with Unix line endings so GitHub renders bullets correctly
+          $content = $bullets
+          [IO.File]::WriteAllText("changelog.txt", $content + "`n")
           echo "FILE=changelog.txt" >> $env:GITHUB_OUTPUT
 
       - name: Upload to Release
@@ -161,14 +167,19 @@ jobs:
           $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
           if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
 
-          $log = git log "$prev..HEAD" --pretty=format:"- %s (%h)" --no-merges
-          if (-not $log) { $log = "- Initial release" }
+          $commits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges
+          if (-not $commits) {
+            $bullets = "- Initial release"
+          } else {
+            # Prefix each line with "- " and join with Unix newlines
+            $bullets = ($commits -split "`n" | ForEach-Object { "- $_" }) -join "`n"
+          }
 
           $body = @"
           ## Shuka ${{ github.ref_name }}
 
           ### What's changed
-          $log
+          $bullets
 
           ### 🪟 Windows
           Run ``Shuka-Windows-vx.x.x.exe`` — no admin rights required. Installs to ``%LocalAppData%\Shuka``.
@@ -188,7 +199,8 @@ jobs:
           - czbooks.net (Cloudflare bypass)
           "@
 
-          $body | Out-File -FilePath release_body.txt -Encoding utf8
+          # Write with Unix line endings
+          [IO.File]::WriteAllText("release_body.txt", $body + "`n")
           echo "FILE=release_body.txt" >> $env:GITHUB_OUTPUT
 
       - name: Upload to Release
