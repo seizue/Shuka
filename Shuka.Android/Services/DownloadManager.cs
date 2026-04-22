@@ -2,6 +2,9 @@ using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 using Shuka.Core;
 using Shuka.Android.Platform;
+#if ANDROID
+using Shuka.Android.Platforms.Android;
+#endif
 
 namespace Shuka.Android.Services;
 
@@ -17,9 +20,17 @@ public class DownloadManager
 
     private DownloadManager() { }
 
-    /// <summary>Enqueue a new download and start it immediately.</summary>
-    public DownloadItem Enqueue(string url, int chapters, string? coverUrl)
+    /// <summary>
+    /// Enqueue a new download. Returns null if the URL is already active or queued.
+    /// </summary>
+    public DownloadItem? Enqueue(string url, int chapters, string? coverUrl)
     {
+        bool alreadyActive = Downloads.Any(d =>
+            string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase) && d.IsRunning);
+
+        if (alreadyActive)
+            return null;
+
         var item = new DownloadItem
         {
             Url      = url,
@@ -56,7 +67,25 @@ public class DownloadManager
         });
     }
 
+    /// <summary>Retry a failed or cancelled download by re-enqueuing it.</summary>
+    public DownloadItem? Retry(DownloadItem failed)
+    {
+        if (!failed.IsFailed && !failed.IsCancelled) return null;
+
+        MainThread.BeginInvokeOnMainThread(() => Downloads.Remove(failed));
+
+        return Enqueue(failed.Url, failed.Chapters, failed.CoverUrl);
+    }
+
+    /// <summary>Dismiss a failed or cancelled item from the list without retrying.</summary>
+    public void Dismiss(DownloadItem item)
+    {
+        if (!item.IsFinished) return;
+        MainThread.BeginInvokeOnMainThread(() => Downloads.Remove(item));
+    }
+
     private const string PrefKeyDownloadPath = "download_output_path";
+    private const int MaxRetries = 5;
 
     private async Task RunAsync(DownloadItem item)
     {
@@ -65,6 +94,10 @@ public class DownloadManager
         void Log(string msg) =>
             MainThread.BeginInvokeOnMainThread(() =>
                 item.LogText += msg + "\n");
+
+#if ANDROID
+        DownloadForegroundService.Start();
+#endif
 
         try
         {
@@ -104,25 +137,46 @@ public class DownloadManager
             string dir      = GetOutputDirectory();
             string tempPath = Path.Combine(dir, $"_shuka_{item.Id:N}.epub");
 
-            string epubPath = await service.ProcessBook(book, tempPath, progress, Log, ct);
+            string epubPath = "";
+            int attempt = 0;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    epubPath = await service.ProcessBook(book, tempPath, progress, Log, ct);
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (attempt < MaxRetries)
+                {
+                    attempt++;
+                    int delaySec = attempt * 5;
+                    Log($"Error (attempt {attempt}/{MaxRetries}): {ex.Message}. Retrying in {delaySec}s...");
+                    MainThread.BeginInvokeOnMainThread(() =>
+                        item.StatusText = $"Retrying ({attempt}/{MaxRetries})...");
+                    await Task.Delay(TimeSpan.FromSeconds(delaySec), ct);
+                }
+            }
 
             ct.ThrowIfCancellationRequested();
 
-            // Build the final filename — prefer English title, fall back to URL slug
+            // Build the final filename
             string rawTitle  = book.TitleEn ?? book.Title;
             string finalName = IsEnglishTitle(rawTitle)
                 ? SanitizeFileName(rawTitle)
-                : SanitizeFileName(book.Title);   // keep original CJK if translation failed
+                : SanitizeFileName(book.Title);
 
-            // If both are unusable, fall back to the URL slug
             if (string.IsNullOrWhiteSpace(finalName))
                 finalName = SanitizeFileName(
                     Regex.Match(book.IndexUrl, @"/n/([^/?#]+)").Groups[1].Value);
             if (string.IsNullOrWhiteSpace(finalName))
                 finalName = $"novel_{item.Id:N8}";
 
-            string finalPath = Path.Combine(dir, finalName + ".epub");
-            if (File.Exists(finalPath)) File.Delete(finalPath);
+            string finalPath = ResolveUniqueFilePath(dir, finalName);
             File.Move(epubPath, finalPath);
 
             Log($"Saved: {finalPath}");
@@ -155,9 +209,18 @@ public class DownloadManager
                 item.Status     = DownloadStatus.Failed;
             });
         }
-    }
+        finally
+        {
+            // Clean up any leftover temp file
+            string tempGlob = Path.Combine(GetOutputDirectory(), $"_shuka_{item.Id:N}.epub");
+            try { if (File.Exists(tempGlob)) File.Delete(tempGlob); } catch { }
 
-    // ── Output directory (configurable, persisted) ────────────────────────────
+#if ANDROID
+            if (!Downloads.Any(d => d.IsRunning))
+                DownloadForegroundService.Stop();
+#endif
+        }
+    }
 
     public static string GetOutputDirectory()
     {
@@ -195,18 +258,34 @@ public class DownloadManager
         return dir;
     }
 
-    /// <summary>
-    /// Returns true if the title is predominantly Latin/English
-    /// (i.e. translation actually worked and didn't return Chinese).
-    /// </summary>
     private static bool IsEnglishTitle(string title) =>
         !Regex.IsMatch(title, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f]");
 
     private static string SanitizeFileName(string name)
     {
         foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-        // Collapse multiple underscores and trim
         name = Regex.Replace(name, @"_+", "_").Trim('_');
         return name.Length > 80 ? name[..80] : name;
+    }
+
+    /// <summary>
+    /// Returns a path that doesn't collide with any existing file.
+    /// e.g. Title.epub → Title (2).epub → Title (3).epub …
+    /// </summary>
+    private static string ResolveUniqueFilePath(string dir, string baseName)
+    {
+        string candidate = Path.Combine(dir, baseName + ".epub");
+        if (!File.Exists(candidate))
+            return candidate;
+
+        int n = 2;
+        do
+        {
+            candidate = Path.Combine(dir, $"{baseName} ({n}).epub");
+            n++;
+        }
+        while (File.Exists(candidate));
+
+        return candidate;
     }
 }

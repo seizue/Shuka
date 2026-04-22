@@ -11,6 +11,8 @@ public class DownloadCard : ContentView
     public event Action<DownloadItem>? CancelRequested;
     public event Action<DownloadItem>? ShareRequested;
     public event Action<DownloadItem>? OpenRequested;
+    public event Action<DownloadItem>? RetryRequested;
+    public event Action<DownloadItem>? DismissRequested;
 
     private readonly DownloadItem _item;
 
@@ -25,6 +27,7 @@ public class DownloadCard : ContentView
     private readonly Border _cancelBtn;
     private readonly View   _progressSection;
     private readonly View   _actionRow;
+    private readonly View   _retryRow;
 
     // Track card width for progress fill calculation
     private double _cardWidth = 0;
@@ -33,7 +36,6 @@ public class DownloadCard : ContentView
     {
         _item = item;
 
-        // ── Status dot ────────────────────────────────────────────────────────
         _statusIconLabel = new Label
         {
             FontFamily      = "MaterialSymbols",
@@ -53,7 +55,6 @@ public class DownloadCard : ContentView
             Content         = _statusIconLabel
         };
 
-        // ── Title / author / status text ──────────────────────────────────────
         _titleLabel = new Label
         {
             FontSize        = 14,
@@ -86,7 +87,6 @@ public class DownloadCard : ContentView
             Children        = { _titleLabel, _authorLabel, _statusTextLabel }
         };
 
-        // ── Cancel button ─────────────────────────────────────────────────────
         var cancelLabel = new Label
         {
             Text           = "Cancel",
@@ -111,7 +111,6 @@ public class DownloadCard : ContentView
             Command = new Command(() => CancelRequested?.Invoke(_item))
         });
 
-        // ── Header grid ───────────────────────────────────────────────────────
         var headerGrid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitionCollection
@@ -126,7 +125,6 @@ public class DownloadCard : ContentView
         headerGrid.Add(textStack,   1, 0);
         headerGrid.Add(_cancelBtn,  2, 0);
 
-        // ── Progress bar ──────────────────────────────────────────────────────
         var progressTrack = new Border
         {
             StrokeThickness = 0,
@@ -182,7 +180,6 @@ public class DownloadCard : ContentView
             Children = { progressRow }
         };
 
-        // ── Action row (done state) ───────────────────────────────────────────
         var shareLabel = new Label
         {
             Text           = "Share",
@@ -277,10 +274,103 @@ public class DownloadCard : ContentView
         actionGrid.Add(openBtn,  2, 0);
         _actionRow = actionGrid;
 
-        // ── Assemble card ─────────────────────────────────────────────────────
+        var retryLabel = new Label
+        {
+            Text            = "Retry",
+            FontSize        = 13,
+            FontAttributes  = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
+        retryLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+
+        var retryIcon = new Label
+        {
+            Text            = "\uE5D5",
+            FontFamily      = "MaterialSymbols",
+            FontSize        = 18,
+            VerticalOptions = LayoutOptions.Center,
+            Margin          = new Thickness(0, 0, 8, 0)
+        };
+        retryIcon.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+
+        var retryInner = new Grid { Padding = new Thickness(14, 0) };
+        retryInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        retryInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        retryInner.Add(retryIcon,  0, 0);
+        retryInner.Add(retryLabel, 1, 0);
+
+        var retryBtn = new Border
+        {
+            StrokeThickness = 0,
+            StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
+            HeightRequest   = 46,
+            Padding         = new Thickness(0),
+            Content         = retryInner
+        };
+        retryBtn.SetDynamicResource(Border.BackgroundColorProperty, "Accent");
+        retryBtn.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(() => RetryRequested?.Invoke(_item))
+        });
+
+        var dismissLabel = new Label
+        {
+            Text            = "Dismiss",
+            FontSize        = 13,
+            FontAttributes  = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
+        dismissLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
+
+        var dismissIcon = new Label
+        {
+            Text            = "\uE5CD",
+            FontFamily      = "MaterialSymbols",
+            FontSize        = 18,
+            VerticalOptions = LayoutOptions.Center,
+            Margin          = new Thickness(0, 0, 8, 0)
+        };
+        dismissIcon.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
+
+        var dismissInner = new Grid { Padding = new Thickness(14, 0) };
+        dismissInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        dismissInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        dismissInner.Add(dismissIcon,  0, 0);
+        dismissInner.Add(dismissLabel, 1, 0);
+
+        var dismissBtn = new Border
+        {
+            StrokeThickness = 1,
+            StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
+            HeightRequest   = 46,
+            Padding         = new Thickness(0),
+            Content         = dismissInner
+        };
+        dismissBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+        dismissBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
+        dismissBtn.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(() => DismissRequested?.Invoke(_item))
+        });
+
+        var retryGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new ColumnDefinition { Width = GridLength.Star },
+                new ColumnDefinition { Width = new GridLength(12) },
+                new ColumnDefinition { Width = GridLength.Star }
+            },
+            Padding   = new Thickness(18, 0, 18, 16),
+            IsVisible = false
+        };
+        retryGrid.Add(retryBtn,   0, 0);
+        retryGrid.Add(dismissBtn, 2, 0);
+        _retryRow = retryGrid;
+
         var cardInner = new VerticalStackLayout
         {
-            Children = { headerGrid, _progressSection, _actionRow }
+            Children = { headerGrid, _progressSection, _actionRow, _retryRow }
         };
 
         var card = new Border
@@ -308,8 +398,6 @@ public class DownloadCard : ContentView
         // Apply initial state
         Refresh();
     }
-
-    // ── Live update ───────────────────────────────────────────────────────────
 
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -340,6 +428,7 @@ public class DownloadCard : ContentView
         _cancelBtn.IsVisible       = running;
         _progressSection.IsVisible = running;
         _actionRow.IsVisible       = done;
+        _retryRow.IsVisible        = _item.IsFailed || _item.IsCancelled;
 
         // Card border accent for done/failed
         if (done)

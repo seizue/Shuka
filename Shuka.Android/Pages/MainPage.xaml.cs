@@ -30,7 +30,13 @@ public partial class MainPage : ContentPage
         ChaptersEntry.IsEnabled = true;
 
         // Enqueue — runs in background, no busy lock needed
-        DownloadManager.Instance.Enqueue(url, chapters, coverUrl);
+        var queued = DownloadManager.Instance.Enqueue(url, chapters, coverUrl);
+        if (queued == null)
+        {
+            await DisplayAlert("Already Downloading",
+                "This URL is already in the active download queue.", "OK");
+            return;
+        }
 
         // Clear inputs for next novel
         UrlEntry.Text      = "";

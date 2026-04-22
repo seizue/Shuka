@@ -22,8 +22,6 @@ public partial class DownloadsPage : ContentPage
         RefreshEmptyState();
     }
 
-    // ── Collection changes ────────────────────────────────────────────────────
-
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -45,9 +43,11 @@ public partial class DownloadsPage : ContentPage
         if (_cards.ContainsKey(item.Id)) return;
 
         var card = new DownloadCard(item);
-        card.CancelRequested += OnCardCancelRequested;
-        card.ShareRequested  += OnCardShareRequested;
-        card.OpenRequested   += OnCardOpenRequested;
+        card.CancelRequested  += OnCardCancelRequested;
+        card.ShareRequested   += OnCardShareRequested;
+        card.OpenRequested    += OnCardOpenRequested;
+        card.RetryRequested   += OnCardRetryRequested;
+        card.DismissRequested += OnCardDismissRequested;
 
         _cards[item.Id] = card;
         CardList.Insert(0, card); // newest on top
@@ -66,8 +66,6 @@ public partial class DownloadsPage : ContentPage
         EmptyState.IsVisible = !hasItems;
         ListScroll.IsVisible  = hasItems;
     }
-
-    // ── Button handlers ───────────────────────────────────────────────────────
 
     private async void OnCancelAllClicked(object sender, TappedEventArgs e)
     {
@@ -103,6 +101,12 @@ public partial class DownloadsPage : ContentPage
 
     private void OnCardCancelRequested(DownloadItem item)
         => DownloadManager.Instance.Cancel(item);
+
+    private void OnCardRetryRequested(DownloadItem item)
+        => DownloadManager.Instance.Retry(item);
+
+    private void OnCardDismissRequested(DownloadItem item)
+        => DownloadManager.Instance.Dismiss(item);
 
     private async void OnCardShareRequested(DownloadItem item)
     {

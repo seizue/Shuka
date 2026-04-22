@@ -1,4 +1,10 @@
 using Shuka.Android.Services;
+#if ANDROID
+using Android.OS;
+using Android.Provider;
+using Android.Content;
+using AndroidUri = Android.Net.Uri;
+#endif
 
 namespace Shuka.Android.Pages;
 
@@ -17,8 +23,6 @@ public partial class SettingsPage : ContentPage
         RefreshRadios(App.CurrentTheme);
         RefreshDownloadPath();
     }
-
-    // ── Theme ─────────────────────────────────────────────────────────────────
 
     private void OnThemeObsidian(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Obsidian);
     private void OnThemeRosewood(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Rosewood);
@@ -50,8 +54,6 @@ public partial class SettingsPage : ContentPage
         RadioParchment.TextColor = theme == AppTheme.Frost    ? accent : muted;
     }
 
-    // ── Download location ─────────────────────────────────────────────────────
-
     private void RefreshDownloadPath()
     {
         DownloadPathLabel.Text = DownloadManager.GetOutputDirectory();
@@ -59,8 +61,28 @@ public partial class SettingsPage : ContentPage
 
     private async void OnChangeDownloadFolderTapped(object sender, TappedEventArgs e)
     {
-        // On Android we can't use a native folder picker without SAF/intent plumbing,
-        // so we let the user type a path manually via a prompt.
+#if ANDROID
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
+        {
+#pragma warning disable CA1416
+            if (!global::Android.OS.Environment.IsExternalStorageManager)
+            {
+                bool proceed = await DisplayAlert(
+                    "Storage Permission Required",
+                    "Shuka needs 'All Files Access' to save EPUBs to a custom folder. " +
+                    "You'll be taken to the system settings to grant this.",
+                    "Open Settings", "Cancel");
+
+                if (!proceed) return;
+
+                var intent = new Intent(Settings.ActionManageAllFilesAccessPermission);
+                global::Android.App.Application.Context.StartActivity(
+                    intent.AddFlags(ActivityFlags.NewTask));
+#pragma warning restore CA1416
+                return;
+            }
+        }
+#endif
         string current = DownloadManager.GetOutputDirectory();
         string? result = await DisplayPromptAsync(
             "Download Location",
@@ -69,7 +91,7 @@ public partial class SettingsPage : ContentPage
             maxLength: 300,
             keyboard: Keyboard.Url);
 
-        if (result == null) return; // cancelled
+        if (result == null) return;
 
         result = result.Trim();
         if (string.IsNullOrWhiteSpace(result))
@@ -78,7 +100,6 @@ public partial class SettingsPage : ContentPage
             return;
         }
 
-        // Try to create the directory to validate the path
         try
         {
             Directory.CreateDirectory(result);
@@ -100,8 +121,6 @@ public partial class SettingsPage : ContentPage
         RefreshDownloadPath();
         await DisplayAlert("Reset", $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
     }
-
-    // ── Support ───────────────────────────────────────────────────────────────
 
     private async void OnBugReportTapped(object sender, TappedEventArgs e)
     {
