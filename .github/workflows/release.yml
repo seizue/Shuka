@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 jobs:
-  # Windows installer ────────────────────────────────────────────────────────
+  # Windows installer
   windows:
     name: Build Windows Installer
     runs-on: windows-latest
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff tags
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -34,15 +36,30 @@ jobs:
           path: installer.iss
           options: /DMyAppVersion=${{ github.ref_name }}
 
+      - name: Build changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          # Get the previous tag; fall back to first commit if this is the first tag
+          $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
+
+          $log = git log "$prev..HEAD" --pretty=format:"- %s (%h)" --no-merges
+          if (-not $log) { $log = "- Initial release" }
+
+          # Write to a file to avoid multiline env-var issues
+          $log | Out-File -FilePath changelog.txt -Encoding utf8
+          echo "FILE=changelog.txt" >> $env:GITHUB_OUTPUT
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           name: Shuka ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: changelog.txt
           files: installer_output/Shuka_Setup.exe
 
-  # Android APK ──────────────────────────────────────────────────────────────
+  # Android APK
   android:
     name: Build Android APK
     runs-on: windows-latest
@@ -52,6 +69,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff tags
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -114,29 +133,48 @@ jobs:
           Compress-Archive -Path "${{ steps.rename_apk.outputs.APK_PATH }}" -DestinationPath $zipName
           echo "ZIP_PATH=$zipName" >> $env:GITHUB_OUTPUT
 
+      - name: Build changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
+
+          $log = git log "$prev..HEAD" --pretty=format:"- %s (%h)" --no-merges
+          if (-not $log) { $log = "- Initial release" }
+
+          $body = @"
+          ## Shuka ${{ github.ref_name }}
+
+          ### What's changed
+          $log
+
+          ### 🪟 Windows
+          Run ``Shuka_Setup.exe`` — no admin rights required. Installs to ``%LocalAppData%\Shuka``.
+
+          ### 🤖 Android
+          Download the APK and install it. Enable **Install from unknown sources** if prompted.
+
+          | File | Platform |
+          |------|----------|
+          | ``Shuka_Setup.exe`` | Windows installer |
+          | ``Shuka-Android-${{ github.ref_name }}.apk`` | Android direct install |
+          | ``Shuka-Android-${{ github.ref_name }}.zip`` | Android APK in ZIP |
+
+          ### Supported sites
+          - 52shuku.net
+          - czbooks.net (Cloudflare bypass)
+          "@
+
+          $body | Out-File -FilePath release_body.txt -Encoding utf8
+          echo "FILE=release_body.txt" >> $env:GITHUB_OUTPUT
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           name: Shuka ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          body: |
-            ## Shuka ${{ github.ref_name }}
-
-            ### 🪟 Windows
-            Run `Shuka_Setup.exe` — no admin rights required. Installs to `%LocalAppData%\Shuka`.
-
-            ### 🤖 Android
-            Download the APK and install it. Enable **Install from unknown sources** if prompted.
-
-            | File | Platform |
-            |------|----------|
-            | `Shuka_Setup.exe` | Windows installer |
-            | `Shuka-Android-${{ github.ref_name }}.apk` | Android direct install |
-            | `Shuka-Android-${{ github.ref_name }}.zip` | Android APK in ZIP |
-
-            ### Supported sites
-            - 52shuku.net
-            - czbooks.net (Cloudflare bypass)
+          body_path: release_body.txt
           files: |
             ${{ steps.rename_apk.outputs.APK_PATH }}
             ${{ steps.zip_apk.outputs.ZIP_PATH }}
