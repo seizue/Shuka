@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history so we can diff tags
+          fetch-depth: 0  
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -35,6 +35,25 @@ jobs:
         with:
           path: installer.iss
           options: /DMyAppVersion=${{ github.ref_name }}
+
+      - name: Rename installer
+        id: rename_installer
+        shell: pwsh
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $newName = "Shuka-Windows-$tag.exe"
+          Move-Item "installer_output\Shuka_Setup.exe" "installer_output\$newName"
+          echo "INSTALLER_PATH=installer_output\$newName" >> $env:GITHUB_OUTPUT
+          echo "INSTALLER_NAME=$newName"                  >> $env:GITHUB_OUTPUT
+
+      - name: Zip installer
+        id: zip_installer
+        shell: pwsh
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $zipName = "Shuka-Windows-$tag.zip"
+          Compress-Archive -Path "${{ steps.rename_installer.outputs.INSTALLER_PATH }}" -DestinationPath $zipName
+          echo "ZIP_PATH=$zipName" >> $env:GITHUB_OUTPUT
 
       - name: Build changelog
         id: changelog
@@ -57,7 +76,9 @@ jobs:
           name: Shuka ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           body_path: changelog.txt
-          files: installer_output/Shuka_Setup.exe
+          files: |
+            ${{ steps.rename_installer.outputs.INSTALLER_PATH }}
+            ${{ steps.zip_installer.outputs.ZIP_PATH }}
 
   # Android APK
   android:
@@ -70,7 +91,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history so we can diff tags
+          fetch-depth: 0  
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -157,7 +178,8 @@ jobs:
 
           | File | Platform |
           |------|----------|
-          | ``Shuka_Setup.exe`` | Windows installer |
+          | ``Shuka-Windows-${{ github.ref_name }}.exe`` | Windows installer |
+          | ``Shuka-Windows-${{ github.ref_name }}.zip`` | Windows installer in ZIP |
           | ``Shuka-Android-${{ github.ref_name }}.apk`` | Android direct install |
           | ``Shuka-Android-${{ github.ref_name }}.zip`` | Android APK in ZIP |
 
