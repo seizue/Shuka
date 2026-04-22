@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using Shuka.Core.Adapters;
 
 namespace Shuka.Core;
@@ -71,39 +72,90 @@ public class BookService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// True parallel fetch + translate pipeline.
+    /// Up to 4 chapters are fetched concurrently; up to 3 are translated concurrently.
+    /// Translation starts as soon as a chapter's HTML arrives — no waiting for the
+    /// whole fetch batch to finish first.
+    /// Results are collected in original order.
+    /// </summary>
     private async Task<List<(int Idx, string Title, string Text)>> DownloadChapters(
         BookInfo book, IProgress<ProgressEventArgs>? progress, Action<string>? log,
         CancellationToken ct = default)
     {
-        var fetchSem = new SemaphoreSlim(3);
+        var chapterList = book.ChapterUrls.Take(book.Total).ToList();
+        int total = chapterList.Count;
 
-        var fetchTasks = book.ChapterUrls.Take(book.Total).Select(async (ch, i) =>
-        {
-            await fetchSem.WaitAsync(ct);
-            try   { return (i, title: ch.Title, html: await _fetcher.Fetch(ch.Url, log: log, ct: ct)); }
-            finally { fetchSem.Release(); }
-        }).ToArray();
-
-        var chapters = new List<(int Idx, string Title, string Text)>(book.Total);
-
-        for (int i = 0; i < book.Total; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            progress?.Report(new ProgressEventArgs
+        // Channel carries (index, title, raw html) from fetchers to translators
+        var channel = Channel.CreateBounded<(int i, string title, string html)>(
+            new BoundedChannelOptions(8)
             {
-                Current = i + 1,
-                Total   = book.Total,
-                Message = $"Translating chapter {i + 1} of {book.Total}..."
+                SingleWriter = false,
+                SingleReader = false,
+                FullMode     = BoundedChannelFullMode.Wait
             });
 
-            var (_, chTitle, html) = await fetchTasks[i];
-            var paras = book.Adapter.ExtractChapterText(html);
-            string english = await _translator.Translate(string.Join("\n", paras), log);
-            chapters.Add((i + 1, chTitle, english));
-        }
+        var fetchSem     = new SemaphoreSlim(4);   // max 4 concurrent fetches
+        var translateSem = new SemaphoreSlim(3);   // max 3 concurrent translations
 
-        return chapters;
+        // ── Stage 1: fetch all chapters, write to channel ─────────────────────
+        var fetchProducer = Task.Run(async () =>
+        {
+            try
+            {
+                var fetchTasks = chapterList.Select(async (ch, i) =>
+                {
+                    await fetchSem.WaitAsync(ct);
+                    try
+                    {
+                        string html = await _fetcher.Fetch(ch.Url, log: log, ct: ct);
+                        await channel.Writer.WriteAsync((i, ch.Title, html), ct);
+                    }
+                    finally { fetchSem.Release(); }
+                });
+
+                await Task.WhenAll(fetchTasks);
+            }
+            finally
+            {
+                channel.Writer.Complete();
+            }
+        }, ct);
+
+        // ── Stage 2: read from channel, translate in parallel, store results ──
+        var results = new (string title, string text)?[total];
+        int completed = 0;
+
+        var translateTasks = Enumerable.Range(0, 3).Select(_ => Task.Run(async () =>
+        {
+            await foreach (var (i, chTitle, html) in channel.Reader.ReadAllAsync(ct))
+            {
+                await translateSem.WaitAsync(ct);
+                try
+                {
+                    var paras   = book.Adapter.ExtractChapterText(html);
+                    string text = await _translator.Translate(string.Join("\n", paras), log);
+                    results[i]  = (chTitle, text);
+
+                    int done = Interlocked.Increment(ref completed);
+                    progress?.Report(new ProgressEventArgs
+                    {
+                        Current = done,
+                        Total   = total,
+                        Message = $"Translated chapter {done} of {total}..."
+                    });
+                }
+                finally { translateSem.Release(); }
+            }
+        }, ct)).ToArray();
+
+        await Task.WhenAll(fetchProducer);
+        await Task.WhenAll(translateTasks);
+
+        // Assemble in original order
+        return results
+            .Select((r, i) => (i + 1, r!.Value.title, r!.Value.text))
+            .ToList();
     }
 
     private async Task<(byte[]? bytes, string mime)> DownloadCover(string? coverUrl, Action<string>? log)
