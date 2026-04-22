@@ -53,14 +53,12 @@ public class DownloadForegroundService : Service
 
     public override void OnDestroy()
     {
-#pragma warning disable CA1416
+#pragma warning disable CA1416, CA1422
         if (Build.VERSION.SdkInt >= BuildVersionCodes.N)
-#pragma warning disable CA1422
             StopForeground(StopForegroundFlags.Remove);
-#pragma warning restore CA1422
         else
             StopForeground(true);
-#pragma warning restore CA1416
+#pragma warning restore CA1416, CA1422
         base.OnDestroy();
     }
 
