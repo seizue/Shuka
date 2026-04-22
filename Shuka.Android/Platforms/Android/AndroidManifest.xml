@@ -17,6 +17,9 @@
     <!-- Bug 4 fix: request broad storage access on Android 11+ for custom paths -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!-- Completion notifications on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:label="Shuka"
         android:allowBackup="true"

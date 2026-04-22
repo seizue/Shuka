@@ -61,6 +61,19 @@ public class MainActivity : MauiAppCompatActivity
         base.OnCreate(savedInstanceState);
         Instance = this;
 
+        // Request POST_NOTIFICATIONS permission on Android 13+
+#pragma warning disable CA1416
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
+        {
+            if (CheckSelfPermission(global::Android.Manifest.Permission.PostNotifications)
+                != global::Android.Content.PM.Permission.Granted)
+            {
+                RequestPermissions(
+                    [global::Android.Manifest.Permission.PostNotifications], 1002);
+            }
+        }
+#pragma warning restore CA1416
+
         var bgColor = (Microsoft.Maui.Graphics.Color)Microsoft.Maui.Controls.Application.Current!.Resources["BgPage"];
         bool lightIcons = App.CurrentTheme != AppTheme.Frost;
         var androidColor = global::Android.Graphics.Color.Argb(

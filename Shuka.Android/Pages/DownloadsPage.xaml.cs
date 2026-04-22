@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.ComponentModel;
 using Shuka.Android.Services;
 
 namespace Shuka.Android.Pages;
@@ -20,6 +21,7 @@ public partial class DownloadsPage : ContentPage
             AddCard(item);
 
         RefreshEmptyState();
+        RefreshSummary();
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -35,6 +37,7 @@ public partial class DownloadsPage : ContentPage
                     RemoveCard(item);
 
             RefreshEmptyState();
+            RefreshSummary();
         });
     }
 
@@ -49,15 +52,26 @@ public partial class DownloadsPage : ContentPage
         card.RetryRequested   += OnCardRetryRequested;
         card.DismissRequested += OnCardDismissRequested;
 
+        // Watch status changes to keep the summary pill live
+        item.PropertyChanged += OnItemPropertyChanged;
+
         _cards[item.Id] = card;
         CardList.Insert(0, card); // newest on top
     }
 
     private void RemoveCard(DownloadItem item)
     {
+        item.PropertyChanged -= OnItemPropertyChanged;
+
         if (!_cards.TryGetValue(item.Id, out var card)) return;
         CardList.Remove(card);
         _cards.Remove(item.Id);
+    }
+
+    private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DownloadItem.Status))
+            MainThread.BeginInvokeOnMainThread(RefreshSummary);
     }
 
     private void RefreshEmptyState()
@@ -65,6 +79,22 @@ public partial class DownloadsPage : ContentPage
         bool hasItems = DownloadManager.Instance.Downloads.Count > 0;
         EmptyState.IsVisible = !hasItems;
         ListScroll.IsVisible  = hasItems;
+    }
+
+    private void RefreshSummary()
+    {
+        var all     = DownloadManager.Instance.Downloads;
+        int running = all.Count(d => d.IsRunning);
+        int done    = all.Count(d => d.IsDone);
+
+        bool showPill = running > 0 || done > 0;
+        SummaryPill.IsVisible = showPill;
+
+        RunningBadge.IsVisible = running > 0;
+        RunningLabel.Text      = running == 1 ? "1 in progress" : $"{running} in progress";
+
+        DoneBadge.IsVisible = done > 0;
+        DoneLabel.Text      = done == 1 ? "1 done" : $"{done} done";
     }
 
     private async void OnCancelAllClicked(object sender, TappedEventArgs e)

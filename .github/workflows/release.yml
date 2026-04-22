@@ -171,7 +171,7 @@ jobs:
           $log
 
           ### 🪟 Windows
-          Run ``Shuka_Setup.exe`` — no admin rights required. Installs to ``%LocalAppData%\Shuka``.
+          Run ``Shuka-Windows-vx.x.x.exe`` — no admin rights required. Installs to ``%LocalAppData%\Shuka``.
 
           ### 🤖 Android
           Download the APK and install it. Enable **Install from unknown sources** if prompted.

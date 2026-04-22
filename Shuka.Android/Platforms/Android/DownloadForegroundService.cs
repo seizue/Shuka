@@ -12,8 +12,9 @@ namespace Shuka.Android.Platforms.Android;
 [Service(ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeDataSync)]
 public class DownloadForegroundService : Service
 {
-    private const string ChannelId    = "shuka_download_channel";
-    private const int    NotificationId = 1001;
+    private const string ChannelId        = "shuka_download_channel";
+    private const string DoneChannelId    = "shuka_done_channel";
+    private const int    NotificationId   = 1001;
 
     public static void Start()
     {
@@ -31,6 +32,41 @@ public class DownloadForegroundService : Service
     {
         var ctx = global::Android.App.Application.Context;
         ctx.StopService(new Intent(ctx, typeof(DownloadForegroundService)));
+    }
+
+    /// <summary>
+    /// Post a "download complete" heads-up notification.
+    /// Safe to call from any thread.
+    /// </summary>
+    public static void NotifyDone(string title)
+    {
+        var ctx = global::Android.App.Application.Context;
+        EnsureDoneChannel(ctx);
+
+        var launchIntent = ctx.PackageManager!
+            .GetLaunchIntentForPackage(ctx.PackageName!)!
+            .SetFlags(ActivityFlags.SingleTop);
+
+#pragma warning disable CA1416
+        var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
+            ? PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable
+            : PendingIntentFlags.UpdateCurrent;
+#pragma warning restore CA1416
+
+        var pendingIntent = PendingIntent.GetActivity(ctx, title.GetHashCode(), launchIntent, pendingFlags);
+
+        var notification = new NotificationCompat.Builder(ctx, DoneChannelId)
+            .SetContentTitle("Download complete")
+            .SetContentText(title)
+            .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownloadDone)
+            .SetAutoCancel(true)
+            .SetContentIntent(pendingIntent)
+            .SetPriority(NotificationCompat.PriorityDefault)
+            .Build()!;
+
+        var mgr = NotificationManagerCompat.From(ctx);
+        // Use a unique ID per title so multiple completions don't collapse into one
+        mgr.Notify(Math.Abs(title.GetHashCode() % 9000) + 2000, notification);
     }
 
     public override IBinder? OnBind(Intent? intent) => null;
@@ -101,6 +137,25 @@ public class DownloadForegroundService : Service
             NotificationImportance.Low)
         {
             Description = "Shuka novel download progress"
+        };
+        mgr?.CreateNotificationChannel(channel);
+#pragma warning restore CA1416
+    }
+
+    private static void EnsureDoneChannel(global::Android.Content.Context ctx)
+    {
+        if (Build.VERSION.SdkInt < BuildVersionCodes.O) return;
+
+#pragma warning disable CA1416
+        var mgr = (NotificationManager?)ctx.GetSystemService(NotificationService);
+        if (mgr?.GetNotificationChannel(DoneChannelId) != null) return;
+
+        var channel = new NotificationChannel(
+            DoneChannelId,
+            "Download complete",
+            NotificationImportance.Default)
+        {
+            Description = "Notifies when a novel EPUB has finished downloading"
         };
         mgr?.CreateNotificationChannel(channel);
 #pragma warning restore CA1416

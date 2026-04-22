@@ -28,12 +28,52 @@
                        VerticalOptions="Center" />
             </Border>
 
-            <!-- Title -->
-            <Label Grid.Column="1"
-                   Text="Downloads"
-                   FontSize="22" FontAttributes="Bold"
-                   TextColor="{DynamicResource TextPrimary}"
-                   VerticalOptions="Center" />
+            <!-- Title + summary pill -->
+            <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                <Label Text="Downloads"
+                       FontSize="22" FontAttributes="Bold"
+                       TextColor="{DynamicResource TextPrimary}" />
+                <HorizontalStackLayout x:Name="SummaryPill" Spacing="10" IsVisible="False">
+                    <!-- In-progress badge -->
+                    <Border x:Name="RunningBadge"
+                            BackgroundColor="{DynamicResource AccentContainer}"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 8"
+                            Padding="8,3"
+                            IsVisible="False">
+                        <HorizontalStackLayout Spacing="4">
+                            <Label Text="&#xE2C4;"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="12"
+                                   TextColor="{DynamicResource AccentLight}"
+                                   VerticalOptions="Center" />
+                            <Label x:Name="RunningLabel"
+                                   FontSize="11" FontAttributes="Bold"
+                                   TextColor="{DynamicResource AccentLight}"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                    </Border>
+                    <!-- Done badge -->
+                    <Border x:Name="DoneBadge"
+                            BackgroundColor="#1A30D158"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 8"
+                            Padding="8,3"
+                            IsVisible="False">
+                        <HorizontalStackLayout Spacing="4">
+                            <Label Text="&#xE876;"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="12"
+                                   TextColor="#30D158"
+                                   VerticalOptions="Center" />
+                            <Label x:Name="DoneLabel"
+                                   FontSize="11" FontAttributes="Bold"
+                                   TextColor="#30D158"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </HorizontalStackLayout>
+            </VerticalStackLayout>
 
             <!-- Clear History -->
             <Border Grid.Column="2"

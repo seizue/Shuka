@@ -192,6 +192,10 @@ public class DownloadManager
                 item.StatusText = "Done";
                 item.Status     = DownloadStatus.Done;
             });
+
+#if ANDROID
+            DownloadForegroundService.NotifyDone(book.TitleEn ?? book.Title);
+#endif
         }
         catch (OperationCanceledException)
         {

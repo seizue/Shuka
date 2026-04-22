@@ -37,12 +37,12 @@ A tool that downloads Chinese web novels, translates them to English via Google 
 ## Installation
 
 ### Windows
-Download and run `Shuka_Setup.exe` from the [Releases](../../releases) page. No admin rights required.
+Download and run `Shuka-Windows-vX.X.X.exe` from the [Releases](https://github.com/seizue/Shuka/releases) page. No admin rights required.
 
 The installer places everything in `%LocalAppData%\Shuka`, creates a Start Menu shortcut, and installs the Chromium browser needed for Cloudflare bypass.
 
 ### Android
-Download `Shuka-Android-vX.X.X.apk` from the [Releases](../../releases) page and install it. Enable **Install from unknown sources** if prompted.
+Download `Shuka-Android-vX.X.X.apk` from the [Releases](https://github.com/seizue/Shuka/releases) page and install it. Enable **Install from unknown sources** if prompted.
 
 Default save location is `Downloads/Shuka` on internal storage. You can change this in **Settings → Download Location**.
 
