@@ -82,7 +82,20 @@ public partial class SettingsPage : ContentPage
                 return;
             }
         }
-#endif
+
+        // Use the native folder picker
+        if (MainActivity.Instance is { } activity)
+        {
+            var treeUri = await activity.PickFolderAsync();
+            if (treeUri == null) return;
+
+            DownloadManager.SetOutputDirectoryFromUri(treeUri);
+            RefreshDownloadPath();
+            await DisplayAlert("Saved", $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
+            return;
+        }
+#else
+        // Fallback: manual text entry (non-Android)
         string current = DownloadManager.GetOutputDirectory();
         string? result = await DisplayPromptAsync(
             "Download Location",
@@ -113,6 +126,7 @@ public partial class SettingsPage : ContentPage
         DownloadManager.SetOutputDirectory(result);
         RefreshDownloadPath();
         await DisplayAlert("Saved", $"Downloads will now be saved to:\n{result}", "OK");
+#endif
     }
 
     private async void OnResetDownloadFolderTapped(object sender, TappedEventArgs e)

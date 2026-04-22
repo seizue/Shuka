@@ -84,7 +84,8 @@ public class DownloadManager
         MainThread.BeginInvokeOnMainThread(() => Downloads.Remove(item));
     }
 
-    private const string PrefKeyDownloadPath = "download_output_path";
+    private const string PrefKeyDownloadPath    = "download_output_path";
+    private const string PrefKeyDownloadTreeUri = "download_tree_uri";
     private const int MaxRetries = 5;
 
     private async Task RunAsync(DownloadItem item)
@@ -224,6 +225,31 @@ public class DownloadManager
 
     public static string GetOutputDirectory()
     {
+        // Prefer the tree-URI path (set via folder picker)
+#if ANDROID
+        string treeUriStr = Preferences.Default.Get(PrefKeyDownloadTreeUri, "");
+        if (!string.IsNullOrWhiteSpace(treeUriStr))
+        {
+            try
+            {
+                var uri  = global::Android.Net.Uri.Parse(treeUriStr)!;
+                var docId = global::Android.Provider.DocumentsContract.GetTreeDocumentId(uri);
+                // Convert content URI → real file path for the public Downloads tree
+                if (docId != null && docId.StartsWith("primary:"))
+                {
+                    string rel  = docId["primary:".Length..];
+#pragma warning disable CA1422
+                    string root = global::Android.OS.Environment
+                        .ExternalStorageDirectory!.AbsolutePath;
+#pragma warning restore CA1422
+                    string path = Path.Combine(root, rel);
+                    Directory.CreateDirectory(path);
+                    return path;
+                }
+            }
+            catch { /* fall through */ }
+        }
+#endif
         string saved = Preferences.Default.Get(PrefKeyDownloadPath, "");
         if (!string.IsNullOrWhiteSpace(saved))
         {
@@ -239,9 +265,18 @@ public class DownloadManager
         Preferences.Default.Set(PrefKeyDownloadPath, path);
     }
 
+#if ANDROID
+    /// <summary>Persist a folder chosen via ACTION_OPEN_DOCUMENT_TREE.</summary>
+    public static void SetOutputDirectoryFromUri(global::Android.Net.Uri treeUri)    {
+        Preferences.Default.Set(PrefKeyDownloadTreeUri, treeUri.ToString());
+        Preferences.Default.Remove(PrefKeyDownloadPath); // clear any old manual path
+    }
+#endif
+
     public static void ResetOutputDirectory()
     {
         Preferences.Default.Remove(PrefKeyDownloadPath);
+        Preferences.Default.Remove(PrefKeyDownloadTreeUri);
     }
 
     private static string GetDefaultOutputDirectory()

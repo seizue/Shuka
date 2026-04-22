@@ -1,7 +1,9 @@
 using Android.App;
+using Android.Content;
 using Android.Content.PM;
 using Android.OS;
 using Android.Views;
+using AndroidUri = Android.Net.Uri;
 
 namespace Shuka.Android;
 
@@ -16,6 +18,43 @@ namespace Shuka.Android;
 public class MainActivity : MauiAppCompatActivity
 {
     public static MainActivity? Instance { get; private set; }
+
+    // Folder picker support
+    public const int FolderPickerRequestCode = 9001;
+    private TaskCompletionSource<AndroidUri?>? _folderPickerTcs;
+
+    /// <summary>
+    /// Opens the system folder picker and returns the selected tree URI, or null if cancelled.
+    /// </summary>
+    public Task<AndroidUri?> PickFolderAsync()
+    {
+        _folderPickerTcs = new TaskCompletionSource<AndroidUri?>();
+        var intent = new Intent(Intent.ActionOpenDocumentTree);
+        intent.AddFlags(ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantWriteUriPermission);
+        StartActivityForResult(intent, FolderPickerRequestCode);
+        return _folderPickerTcs.Task;
+    }
+
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == FolderPickerRequestCode)
+        {
+            if (resultCode == Result.Ok && data?.Data is AndroidUri uri)
+            {
+                // Persist permission across reboots
+                var flags = ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantWriteUriPermission;
+                ContentResolver?.TakePersistableUriPermission(uri, flags);
+                _folderPickerTcs?.TrySetResult(uri);
+            }
+            else
+            {
+                _folderPickerTcs?.TrySetResult(null);
+            }
+            _folderPickerTcs = null;
+        }
+    }
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
