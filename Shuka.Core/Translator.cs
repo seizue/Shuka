@@ -7,6 +7,10 @@ public class Translator
 {
     private readonly HttpClient _http;
 
+    // Shared across ALL Translator instances — caps total concurrent translate
+    // calls globally so multiple simultaneous downloads don't flood the API.
+    private static readonly SemaphoreSlim _globalSem = new(3);
+
     public Translator(HttpClient http)
     {
         _http = http;
@@ -30,13 +34,12 @@ public class Translator
         }
         if (cur.Length > 0) chunks.Add(cur.ToString());
 
-        // Translate all chunks in parallel (max 3 concurrent to avoid rate-limiting)
-        var sem = new SemaphoreSlim(3);
+        // Translate all chunks in parallel, gated by the global semaphore
         var tasks = chunks.Select(async (chunk, i) =>
         {
-            await sem.WaitAsync();
+            await _globalSem.WaitAsync();
             try   { return (i, text: await TranslateChunk(chunk, log)); }
-            finally { sem.Release(); }
+            finally { _globalSem.Release(); }
         }).ToList();
 
         var results = await Task.WhenAll(tasks);

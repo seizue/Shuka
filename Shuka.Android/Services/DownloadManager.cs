@@ -165,12 +165,13 @@ public class DownloadManager
 
             ct.ThrowIfCancellationRequested();
 
-            // Build the final filename
+            // Build the final filename — prefer the translated title; only fall back
+            // to the Chinese title if TitleEn was never populated at all.
             string rawTitle  = book.TitleEn ?? book.Title;
-            string finalName = IsEnglishTitle(rawTitle)
-                ? SanitizeFileName(rawTitle)
-                : SanitizeFileName(book.Title);
+            string finalName = SanitizeFileName(rawTitle);
 
+            if (string.IsNullOrWhiteSpace(finalName))
+                finalName = SanitizeFileName(book.Title);
             if (string.IsNullOrWhiteSpace(finalName))
                 finalName = SanitizeFileName(
                     Regex.Match(book.IndexUrl, @"/n/([^/?#]+)").Groups[1].Value);
@@ -292,9 +293,6 @@ public class DownloadManager
         Directory.CreateDirectory(dir);
         return dir;
     }
-
-    private static bool IsEnglishTitle(string title) =>
-        !Regex.IsMatch(title, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f]");
 
     private static string SanitizeFileName(string name)
     {
