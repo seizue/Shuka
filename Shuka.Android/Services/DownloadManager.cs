@@ -21,16 +21,12 @@ public class DownloadManager
     private DownloadManager() { }
 
     /// <summary>
-    /// Enqueue a new download. Returns null if the URL is already active or queued.
+    /// Enqueue a new download.
+    /// Returns the new item, or null if the URL is already actively running/queued.
+    /// Use <see cref="FindExisting"/> first to check for duplicates before calling this.
     /// </summary>
-    public DownloadItem? Enqueue(string url, int chapters, string? coverUrl)
+    public DownloadItem Enqueue(string url, int chapters, string? coverUrl)
     {
-        bool alreadyActive = Downloads.Any(d =>
-            string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase) && d.IsRunning);
-
-        if (alreadyActive)
-            return null;
-
         var item = new DownloadItem
         {
             Url      = url,
@@ -42,6 +38,13 @@ public class DownloadManager
         _ = RunAsync(item);
         return item;
     }
+
+    /// <summary>
+    /// Returns any existing download item for the given URL, or null if none.
+    /// </summary>
+    public DownloadItem? FindExisting(string url) =>
+        Downloads.FirstOrDefault(d =>
+            string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Cancel a single download.</summary>
     public void Cancel(DownloadItem item)
