@@ -18,6 +18,7 @@ if (args.Length == 0)
     Console.WriteLine("  Supported sites:");
     Console.WriteLine("    52shuku.net  — e.g. https://www.52shuku.net/bl/09_b/bkd7d.html");
     Console.WriteLine("    czbooks.net  — e.g. https://czbooks.net/n/clgajm");
+    Console.WriteLine("    dmxs.org     — e.g. https://www.dmxs.org/GLBH/1840.html");
     return;
 }
 
@@ -422,9 +423,9 @@ async Task ProcessBook(BookInfo book, string? outFile = null)
 // Detect which adapter handles this URL
 static ISiteAdapter DetectAdapter(string url)
 {
-    ISiteAdapter[] adapters = [new ShukuAdapter(), new CzBooksAdapter()];
+    ISiteAdapter[] adapters = [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter()];
     return adapters.FirstOrDefault(a => a.Matches(url))
-        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported sites: 52shuku.net, czbooks.net");
+        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported sites: 52shuku.net, czbooks.net, dmxs.org");
 }
 
 // Gather book info using the appropriate site adapter
@@ -895,6 +896,113 @@ class CzBooksAdapter : ISiteAdapter
         {
             string trimmed = line.Trim().TrimStart('\u3000').Trim();
             if (trimmed.Length > 0 && Regex.IsMatch(trimmed, @"[\u4e00-\u9fff\u3400-\u4dbf]"))
+                result.Add(trimmed);
+        }
+        return result;
+    }
+}
+
+// dmxs.org adapter (Chinese novel site)
+// Index URL: https://www.dmxs.org/{category}/{bookId}.html
+// Chapter URL: https://www.dmxs.org/view/{classId}-{bookId}-{chapterNum}.html
+class DmxsAdapter : ISiteAdapter
+{
+    public string SiteName => "dmxs.org";
+
+    public bool Matches(string url) =>
+        url.Contains("dmxs.org", StringComparison.OrdinalIgnoreCase);
+
+    public string NormalizeUrl(string url)
+    {
+        if (!url.StartsWith("http")) url = "https://" + url;
+        // Strip query/fragment; keep only the index page path
+        var m = Regex.Match(url,
+            @"(https?://(?:www\.)?dmxs\.org/[^/?#]+/\d+\.html)",
+            RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : url;
+    }
+
+    public IndexInfo ParseIndex(string html, string indexUrl)
+    {
+        // Title from <h1>
+        string title = Regex.Match(html, @"<h1[^>]*>\s*([^<]+?)\s*</h1>",
+            RegexOptions.IgnoreCase).Groups[1].Value.Trim();
+        if (string.IsNullOrWhiteSpace(title))
+            title = Regex.Match(html, @"<title[^>]*>([^<|_–-]+)",
+                RegexOptions.IgnoreCase).Groups[1].Value.Trim();
+
+        // Author: 作者：<a>name</a> or 作者：name
+        string author = "Unknown";
+        var am = Regex.Match(html, @"作者[：:]\s*<a[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
+        if (!am.Success) am = Regex.Match(html, @"作者[：:]\s*([^\s<\n,，]+)");
+        if (am.Success) author = am.Groups[1].Value.Trim();
+
+        // Chapter links: /view/{classId}-{bookId}-{num}.html
+        var chapters = Regex.Matches(html,
+                @"href=[""'](?:https?://(?:www\.)?dmxs\.org)?/view/(\d+)-(\d+)-(\d+)\.html[""'][^>]*>([^<]*)</a>",
+                RegexOptions.IgnoreCase)
+            .Cast<Match>()
+            .Select(m => new {
+                ClassId = m.Groups[1].Value,
+                BookId  = m.Groups[2].Value,
+                Num     = int.Parse(m.Groups[3].Value),
+                Title   = System.Net.WebUtility.HtmlDecode(m.Groups[4].Value.Trim()),
+                Url     = $"https://www.dmxs.org/view/{m.Groups[1].Value}-{m.Groups[2].Value}-{m.Groups[3].Value}.html"
+            })
+            .DistinctBy(x => x.Num)
+            .OrderBy(x => x.Num)
+            .Select(x => new ChapterRef(x.Url,
+                string.IsNullOrWhiteSpace(x.Title) ? $"Chapter {x.Num}" : x.Title))
+            .ToList();
+
+        // Cover from og:image (dmxs rarely has one, but check anyway)
+        string? cover = null;
+        var ogM = Regex.Match(html,
+            @"<meta[^>]+property=[""']og:image[""'][^>]+content=[""']([^""']+)[""']",
+            RegexOptions.IgnoreCase);
+        if (!ogM.Success)
+            ogM = Regex.Match(html,
+                @"<meta[^>]+content=[""']([^""']+)[""'][^>]+property=[""']og:image[""']",
+                RegexOptions.IgnoreCase);
+        if (ogM.Success) cover = ogM.Groups[1].Value.Trim();
+
+        return new IndexInfo(title, author, chapters, cover);
+    }
+
+    public List<string> ExtractChapterText(string html)
+    {
+        html = Regex.Replace(html, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, @"<style[\s\S]*?</style>",   "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, @"<nav[\s\S]*?</nav>",       "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, @"<header[\s\S]*?</header>", "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, @"<footer[\s\S]*?</footer>", "", RegexOptions.IgnoreCase);
+
+        // dmxs wraps chapter text in <div id="content">
+        string? content = null;
+        foreach (var pattern in new[]
+        {
+            @"<div[^>]+id=[""']content[""'][^>]*>([\s\S]*?)</div>",
+            @"<div[^>]+class=[""'][^""']*\bcontent\b[^""']*[""'][^>]*>([\s\S]*?)</div>",
+            @"<article[^>]*>([\s\S]*?)</article>",
+        })
+        {
+            var m = Regex.Match(html, pattern, RegexOptions.IgnoreCase);
+            if (m.Success && m.Groups[1].Value.Length > 100)
+            { content = m.Groups[1].Value; break; }
+        }
+        content ??= html;
+
+        content = Regex.Replace(content, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
+        content = Regex.Replace(content, @"<p[^>]*>",  "\n", RegexOptions.IgnoreCase);
+        content = Regex.Replace(content, @"<[^>]+>",   "");
+        content = System.Net.WebUtility.HtmlDecode(content);
+
+        var result = new List<string>();
+        foreach (var line in content.Split('\n'))
+        {
+            string trimmed = line.Trim().TrimStart('\u3000').Trim();
+            if (trimmed.Length > 0 &&
+                Regex.IsMatch(trimmed, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"))
                 result.Add(trimmed);
         }
         return result;

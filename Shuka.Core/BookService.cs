@@ -15,7 +15,7 @@ public class BookService
     private readonly Translator  _translator;
 
     private static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter()];
 
     public BookService(ICloudflareBypass? cfBypass = null)
     {
@@ -185,7 +185,7 @@ public class BookService
 
     private static ISiteAdapter DetectAdapter(string url) =>
         Adapters.FirstOrDefault(a => a.Matches(url))
-        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net");
+        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org");
 
     private static string? TryExtractCover(string html, string baseUrl)
     {

@@ -197,6 +197,7 @@ jobs:
           ### Supported sites
           - 52shuku.net
           - czbooks.net (Cloudflare bypass)
+          - dmxs.org
           "@
 
           # Write with Unix line endings
