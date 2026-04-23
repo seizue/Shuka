@@ -144,7 +144,7 @@ class MySiteAdapter : ISiteAdapter
 
 ## Screenshot
 
-<img width="1366" height="736" alt="Shuka" src="https://github.com/user-attachments/assets/b66d8ef3-858b-4ff9-a8a9-981a830a41a3" />
+<img width="1366" height="736" alt="Shuka" src="https://github.com/user-attachments/assets/83cb7f5b-fa75-4038-97f3-fce2f3578894" />
 
 ## License
 
