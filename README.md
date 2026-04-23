@@ -10,13 +10,14 @@ A tool that downloads Chinese web novels, translates them to English via Google 
 <img width="1366" height="736" alt="Shuka" src="https://github.com/user-attachments/assets/83cb7f5b-fa75-4038-97f3-fce2f3578894" />
 
 
-## Supported Sites
 
-| Site | Genre | Example URL |
-|------|-------|-------------|
-| [52shuku.net](https://www.52shuku.net) | BL / General | `https://www.52shuku.net/bl/09_b/bkd7d.html` |
-| [czbooks.net](https://czbooks.net) | General | `https://czbooks.net/n/clgajm` |
-| [dmxs.org](https://www.dmxs.org) | General | `https://www.dmxs.org/gdjk/22982.html` |
+### Supported Sites
+
+| Site | Example URL |
+|------|------------|
+| [52shuku.net](https://www.52shuku.net) | `https://www.52shuku.net/bl/09_b/bkd7d.html` |
+| [czbooks.net](https://czbooks.net) | `https://czbooks.net/n/clgajm` |
+| [dmxs.org](https://www.dmxs.org) | `https://www.dmxs.org/gdjk/22982.html` |
 
 > **czbooks.net** is protected by Cloudflare. Shuka handles this automatically using a headless browser on Windows and a hidden WebView on Android — no extra setup needed.
 
@@ -101,14 +102,6 @@ Shuka.exe <url> 0 "" <cover-url>
 # Batch from a text file (one URL per line, # for comments)
 Shuka.exe --batch urls.txt
 ```
-
-Example URLs:
-```
-https://www.52shuku.net/bl/09_b/bkd7d.html
-https://czbooks.net/n/clgajm
-https://www.dmxs.org/gdjk/22982.html
-```
-
 Output is saved to `%USERPROFILE%\Downloads` by default.
 
 ### Android
