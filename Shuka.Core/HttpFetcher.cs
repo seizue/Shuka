@@ -62,21 +62,25 @@ public class HttpFetcher : IDisposable
                     throw new Exception("Cloudflare blocked the request and no bypass is configured.");
                 }
 
-                // czbooks.net sometimes returns 200 but with a CF challenge page — detect it
                 if (resp.IsSuccessStatusCode)
                 {
                     byte[] rawBytes = await resp.Content.ReadAsByteArrayAsync(ct);
-                    string ascii = Encoding.ASCII.GetString(rawBytes);
 
-                    bool isCfChallenge = ascii.Contains("cf-browser-verification") ||
-                                         ascii.Contains("jschl-answer") ||
-                                         ascii.Contains("challenge-form") ||
-                                         (ascii.Contains("cloudflare") && ascii.Contains("checking your browser"));
+                    // Use Latin-1 (ISO-8859-1) to scan the raw bytes — it maps all 256
+                    // byte values 1:1, so ASCII-range content (like charset declarations
+                    // and CF challenge markers) is preserved intact even in GBK/Big5 pages.
+                    // Using ASCII would replace bytes > 127 with '?' and break the regex.
+                    string latin1 = Encoding.Latin1.GetString(rawBytes);
+
+                    bool isCfChallenge = latin1.Contains("cf-browser-verification") ||
+                                         latin1.Contains("jschl-answer") ||
+                                         latin1.Contains("challenge-form") ||
+                                         (latin1.Contains("cloudflare") && latin1.Contains("checking your browser"));
 
                     // Also detect the czbooks login-wall stub (tiny page with no real content)
                     bool isLoginWall = rawBytes.Length < 2000 &&
-                                       (ascii.Contains("Facebook") || ascii.Contains("Google") || ascii.Contains("Line")) &&
-                                       ascii.Contains("czbooks");
+                                       (latin1.Contains("Facebook") || latin1.Contains("Google") || latin1.Contains("Line")) &&
+                                       latin1.Contains("czbooks");
 
                     if (isCfChallenge || isLoginWall)
                     {
@@ -90,15 +94,28 @@ public class HttpFetcher : IDisposable
                         throw new Exception("Cloudflare/login wall detected and no bypass is configured.");
                     }
 
-                    var cm = Regex.Match(ascii, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
-                    string charset = cm.Success ? cm.Groups[1].Value.Trim() : "utf-8";
+                    // Detect charset from HTTP Content-Type header first (most reliable),
+                    // then fall back to the HTML meta tag declaration.
+                    string charset = "utf-8";
+                    string? ctHeader = resp.Content.Headers.ContentType?.CharSet;
+                    if (!string.IsNullOrWhiteSpace(ctHeader))
+                    {
+                        charset = ctHeader.Trim().Trim('"');
+                    }
+                    else
+                    {
+                        // Scan only the first 4KB — charset is always in <head>
+                        string head = latin1[..Math.Min(latin1.Length, 4096)];
+                        var cm = Regex.Match(head, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
+                        if (cm.Success) charset = cm.Groups[1].Value.Trim();
+                    }
 
                     // Normalize common aliases that .NET may not recognise by name
                     charset = charset.ToLowerInvariant() switch
                     {
-                        "gb2312" or "gb_2312" or "csgb2312" or "x-gbk" => "gbk",
-                        "big5"   or "csbig5"                            => "big5",
-                        _                                               => charset
+                        "gb2312" or "gb_2312" or "csgb2312" or "x-gbk" or "chinese" => "gbk",
+                        "big5"   or "csbig5"  or "x-x-big5"                         => "big5",
+                        _                                                             => charset
                     };
 
                     Encoding enc;

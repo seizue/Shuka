@@ -68,9 +68,34 @@ async Task<string> Fetch(string url, int retries = 4)
 
             resp.EnsureSuccessStatusCode();
             byte[] bytes = await resp.Content.ReadAsByteArrayAsync();
-            string ascii = Encoding.ASCII.GetString(bytes);
-            var cm = Regex.Match(ascii, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
-            string charset = cm.Success ? cm.Groups[1].Value.Trim() : "utf-8";
+
+            // Use Latin-1 (ISO-8859-1) — maps all 256 bytes 1:1, so ASCII-range
+            // charset declarations are preserved even in GBK/Big5 pages.
+            // ASCII would replace bytes > 127 with '?' and break the regex.
+            string latin1 = Encoding.Latin1.GetString(bytes);
+
+            // Check HTTP Content-Type header first, then HTML meta tag
+            string charset = "utf-8";
+            string? ctHeader = resp.Content.Headers.ContentType?.CharSet;
+            if (!string.IsNullOrWhiteSpace(ctHeader))
+            {
+                charset = ctHeader.Trim().Trim('"');
+            }
+            else
+            {
+                string head = latin1[..Math.Min(latin1.Length, 4096)];
+                var cm = Regex.Match(head, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
+                if (cm.Success) charset = cm.Groups[1].Value.Trim();
+            }
+
+            // Normalize common aliases
+            charset = charset.ToLowerInvariant() switch
+            {
+                "gb2312" or "gb_2312" or "csgb2312" or "x-gbk" or "chinese" => "gbk",
+                "big5"   or "csbig5"  or "x-x-big5"                         => "big5",
+                _                                                             => charset
+            };
+
             Encoding enc;
             try   { enc = Encoding.GetEncoding(charset); }
             catch { enc = Encoding.UTF8; }
