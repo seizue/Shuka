@@ -13,6 +13,12 @@ public class HttpFetcher : IDisposable
     private readonly HttpClient _site;
     private readonly ICloudflareBypass? _cfBypass;
 
+    // Register extended encodings (GBK, GB2312, Big5, etc.) once per process
+    static HttpFetcher()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     public HttpFetcher(ICloudflareBypass? cfBypass = null)
     {
         _cfBypass = cfBypass;
@@ -86,6 +92,15 @@ public class HttpFetcher : IDisposable
 
                     var cm = Regex.Match(ascii, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
                     string charset = cm.Success ? cm.Groups[1].Value.Trim() : "utf-8";
+
+                    // Normalize common aliases that .NET may not recognise by name
+                    charset = charset.ToLowerInvariant() switch
+                    {
+                        "gb2312" or "gb_2312" or "csgb2312" or "x-gbk" => "gbk",
+                        "big5"   or "csbig5"                            => "big5",
+                        _                                               => charset
+                    };
+
                     Encoding enc;
                     try   { enc = Encoding.GetEncoding(charset); }
                     catch { enc = Encoding.UTF8; }
