@@ -1,26 +1,31 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:Shuka.Android.Controls"
              x:Class="Shuka.Android.Pages.MainPage"
              BackgroundColor="{DynamicResource BgPage}">
 
     <Grid RowDefinitions="Auto,*">
 
+        <!-- Loading overlay -->
+        <controls:LoadingOverlay x:Name="LoadingOverlay" Grid.RowSpan="2" />
+
         <!-- ── Top App Bar ──────────────────────────────────── -->
         <Grid Grid.Row="0"
               ColumnDefinitions="Auto,*"
-              Padding="20,52,20,16"
-              BackgroundColor="{DynamicResource BgCard}">
+              Padding="20,52,20,20"
+              BackgroundColor="{DynamicResource BgCard}"
+              HeightRequest="120">
 
             <Border Grid.Column="0"
                     BackgroundColor="{DynamicResource AccentContainer}"
                     StrokeThickness="0"
-                    StrokeShape="RoundRectangle 14"
-                    WidthRequest="44" HeightRequest="44"
+                    StrokeShape="RoundRectangle 12"
+                    WidthRequest="40" HeightRequest="40"
                     VerticalOptions="Center"
                     Margin="0,0,14,0">
                 <Image Source="lily.png"
-                       WidthRequest="26" HeightRequest="26"
+                       WidthRequest="22" HeightRequest="22"
                        HorizontalOptions="Center"
                        VerticalOptions="Center" />
             </Border>
@@ -36,7 +41,7 @@
         </Grid>
 
         <!-- ── Body ─────────────────────────────────────────── -->
-        <ScrollView Grid.Row="1">
+        <ScrollView Grid.Row="1" x:Name="BodyScrollView">
             <VerticalStackLayout Padding="16,20,16,40" Spacing="14">
 
                 <!-- ── Input card ──────────────────────────── -->
@@ -151,6 +156,7 @@
                                VerticalOptions="Center"
                                Margin="0,0,14,0" />
                         <Label Grid.Column="1"
+                               x:Name="DownloadBtnLabel"
                                Text="Download &amp; Translate"
                                FontSize="15" FontAttributes="Bold"
                                TextColor="{DynamicResource TextOnAccent}"

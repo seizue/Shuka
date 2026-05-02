@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Controls.LoadingOverlay"
+             IsVisible="False">
+
+    <Grid BackgroundColor="#80000000">
+        
+        <!-- Loading card -->
+        <Border BackgroundColor="{DynamicResource BgCard}"
+                Stroke="{DynamicResource Stroke}"
+                StrokeThickness="1"
+                StrokeShape="RoundRectangle 20"
+                Padding="24,20"
+                WidthRequest="200"
+                HorizontalOptions="Center"
+                VerticalOptions="Center">
+            
+            <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+                
+                <!-- Animated loading icon -->
+                <Border x:Name="LoadingIcon"
+                        BackgroundColor="{DynamicResource AccentContainer}"
+                        StrokeThickness="0"
+                        StrokeShape="RoundRectangle 20"
+                        WidthRequest="40" HeightRequest="40"
+                        HorizontalOptions="Center">
+                    <Label Text="&#xE2C4;"
+                           FontFamily="{DynamicResource IconFont}"
+                           FontSize="20"
+                           TextColor="{DynamicResource AccentLight}"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Border>
+                
+                <!-- Loading text -->
+                <VerticalStackLayout Spacing="4" HorizontalOptions="Center">
+                    <Label x:Name="LoadingTitle"
+                           Text="Loading..."
+                           FontSize="16"
+                           FontAttributes="Bold"
+                           TextColor="{DynamicResource TextPrimary}"
+                           HorizontalOptions="Center" />
+                    <Label x:Name="LoadingSubtitle"
+                           Text="Please wait"
+                           FontSize="12"
+                           TextColor="{DynamicResource TextMuted}"
+                           HorizontalOptions="Center" />
+                </VerticalStackLayout>
+                
+            </VerticalStackLayout>
+            
+        </Border>
+        
+    </Grid>
+
+</ContentView>

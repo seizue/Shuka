@@ -12,6 +12,7 @@ public partial class SettingsPage : ContentPage
 {
     private ReleaseInfo? _pendingRelease;
     private bool         _isUpdating;
+    private bool         _isPageLoaded = false;
 
     public SettingsPage()
     {
@@ -21,26 +22,127 @@ public partial class SettingsPage : ContentPage
         RefreshUpdateSection();
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
+        
+        if (!_isPageLoaded)
+        {
+            await AnimatePageLoad();
+            _isPageLoaded = true;
+        }
+        
         RefreshRadios(App.CurrentTheme);
         RefreshDownloadPath();
         RefreshUpdateSection();
     }
 
+    private async Task AnimatePageLoad()
+    {
+        // Simple, consistent page load animation
+        var mainContent = (Grid)Content;
+        mainContent.Opacity = 0;
+
+        // Brief delay for smooth transition
+        await Task.Delay(50);
+
+        // Smooth fade in
+        await mainContent.FadeToAsync(1.0, 250, Easing.CubicOut);
+
+        // Animate settings sections with subtle stagger
+        await AnimateSettingsSections();
+    }
+
+    private async Task AnimateSettingsSections()
+    {
+        var stackLayout = (VerticalStackLayout)BodyScrollView.Content;
+        
+        // Get all the setting cards (Border elements)
+        var settingCards = stackLayout.Children
+            .Where(c => c is Border)
+            .Cast<Border>()
+            .ToList();
+
+        // Start with cards hidden
+        foreach (var card in settingCards)
+        {
+            card.Opacity = 0;
+            card.TranslationY = 8;
+        }
+
+        // Animate each section with subtle stagger
+        for (int i = 0; i < settingCards.Count; i++)
+        {
+            var card = settingCards[i];
+            int index = i;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(index * 50); // Subtle stagger
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await Task.WhenAll(
+                        card.FadeToAsync(1.0, 200, Easing.CubicOut),
+                        card.TranslateToAsync(0, 0, 200, Easing.CubicOut)
+                    );
+                });
+            });
+        }
+    }
+
     // ── Theme ─────────────────────────────────────────────────────────────────
 
-    private void OnThemeObsidian(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Obsidian);
-    private void OnThemeRosewood(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Rosewood);
-    private void OnThemeSlate(object sender, TappedEventArgs e)     => ApplyAndRefresh(AppTheme.Slate);
-    private void OnThemeParchment(object sender, TappedEventArgs e) => ApplyAndRefresh(AppTheme.Frost);
+    private async void OnThemeObsidian(object sender, TappedEventArgs e)  
+    {
+        await AnimateThemeSelection((Grid)sender);
+        ApplyAndRefresh(AppTheme.Obsidian);
+    }
+    
+    private async void OnThemeRosewood(object sender, TappedEventArgs e)  
+    {
+        await AnimateThemeSelection((Grid)sender);
+        ApplyAndRefresh(AppTheme.Rosewood);
+    }
+    
+    private async void OnThemeSlate(object sender, TappedEventArgs e)     
+    {
+        await AnimateThemeSelection((Grid)sender);
+        ApplyAndRefresh(AppTheme.Slate);
+    }
+    
+    private async void OnThemeParchment(object sender, TappedEventArgs e) 
+    {
+        await AnimateThemeSelection((Grid)sender);
+        ApplyAndRefresh(AppTheme.Frost);
+    }
 
-    private void ApplyAndRefresh(AppTheme theme)
+    private async Task AnimateThemeSelection(Grid themeGrid)
+    {
+        // Quick selection animation
+        await themeGrid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await themeGrid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+        
+        // Subtle flash effect
+        var originalOpacity = themeGrid.Opacity;
+        await themeGrid.FadeToAsync(0.7, 50);
+        await themeGrid.FadeToAsync(originalOpacity, 150);
+    }
+
+    private async void ApplyAndRefresh(AppTheme theme)
     {
         App.ApplyTheme(theme);
         BackgroundColor = (Color)Application.Current!.Resources["BgPage"];
+        
+        // Animate theme change
+        await AnimateThemeChange();
         RefreshRadios(theme);
+    }
+
+    private async Task AnimateThemeChange()
+    {
+        // Subtle page flash to indicate theme change
+        var mainContent = (Grid)Content;
+        await mainContent.FadeToAsync(0.8, 100);
+        await mainContent.FadeToAsync(1.0, 200);
     }
 
     private void RefreshRadios(AppTheme theme)
@@ -70,6 +172,11 @@ public partial class SettingsPage : ContentPage
 
     private async void OnChangeDownloadFolderTapped(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var grid = (Grid)sender;
+        await grid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await grid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
 #if ANDROID
         if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
         {
@@ -98,6 +205,7 @@ public partial class SettingsPage : ContentPage
             if (treeUri == null) return;
 
             DownloadManager.SetOutputDirectoryFromUri(treeUri);
+            await AnimatePathUpdate();
             RefreshDownloadPath();
             await DisplayAlertAsync("Saved",
                 $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
@@ -124,14 +232,28 @@ public partial class SettingsPage : ContentPage
             return;
         }
         DownloadManager.SetOutputDirectory(result);
+        await AnimatePathUpdate();
         RefreshDownloadPath();
         await DisplayAlertAsync("Saved", $"Downloads will now be saved to:\n{result}", "OK");
 #endif
     }
 
+    private async Task AnimatePathUpdate()
+    {
+        // Animate the path label update
+        await DownloadPathLabel.FadeToAsync(0.3, 150);
+        await DownloadPathLabel.FadeToAsync(1.0, 150);
+    }
+
     private async void OnResetDownloadFolderTapped(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var grid = (Grid)sender;
+        await grid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await grid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
         DownloadManager.ResetOutputDirectory();
+        await AnimatePathUpdate();
         RefreshDownloadPath();
         await DisplayAlertAsync("Reset",
             $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
@@ -166,6 +288,11 @@ public partial class SettingsPage : ContentPage
 
     private async void OnUpdateTapped(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var grid = (Grid)sender;
+        await grid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await grid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
         if (_isUpdating) return;
 
         // If we already fetched a pending release, go straight to install
@@ -176,13 +303,13 @@ public partial class SettingsPage : ContentPage
         }
 
         // ── Step 1: Check for updates ─────────────────────────────────────────
-        SetUpdateUI(checking: true);
+        await SetUpdateUIWithAnimation(checking: true);
 
         var release = await UpdateService.GetLatestReleaseAsync();
 
         if (release == null)
         {
-            SetUpdateUI(checking: false);
+            await SetUpdateUIWithAnimation(checking: false);
             await DisplayAlertAsync("Check Failed",
                 "Could not reach GitHub. Check your internet connection.", "OK");
             return;
@@ -192,7 +319,7 @@ public partial class SettingsPage : ContentPage
 
         if (!release.IsNewerThan(installed))
         {
-            SetUpdateUI(checking: false);
+            await SetUpdateUIWithAnimation(checking: false);
             UpdateStatusLabel.Text      = $"Up to date (v{installed})";
             UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["TextMuted"];
             UpdateActionLabel.Text      = "Check for Updates";
@@ -204,7 +331,7 @@ public partial class SettingsPage : ContentPage
 
         // ── Step 2: Prompt to install ─────────────────────────────────────────
         _pendingRelease = release;
-        SetUpdateUI(checking: false);
+        await SetUpdateUIWithAnimation(checking: false);
 
         UpdateStatusLabel.Text      = $"⬆ v{release.Version} available";
         UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["Success"];
@@ -227,6 +354,20 @@ public partial class SettingsPage : ContentPage
         await StartInstallAsync(release);
     }
 
+    private async Task SetUpdateUIWithAnimation(bool checking)
+    {
+        UpdateActionLabel.Text = checking ? "Checking..." : "Check for Updates";
+        UpdateActionSub.Text   = checking ? "Contacting GitHub..." : "Tap to check GitHub releases";
+        UpdateChevron.IsVisible = !checking;
+        
+        // Animate the status change
+        if (checking)
+        {
+            await UpdateActionIcon.RotateToAsync(360, 1000, Easing.Linear);
+            UpdateActionIcon.Rotation = 0;
+        }
+    }
+
     private async Task StartInstallAsync(ReleaseInfo release)
     {
         _isUpdating = true;
@@ -234,6 +375,14 @@ public partial class SettingsPage : ContentPage
         UpdateProgressStack.IsVisible = true;
         UpdateActionLabel.Text        = "Downloading...";
         UpdateActionSub.Text          = $"v{release.Version} · {release.SizeMb:F1} MB";
+
+        // Animate progress stack appearance
+        UpdateProgressStack.Opacity = 0;
+        UpdateProgressStack.Scale = 0.8;
+        await Task.WhenAll(
+            UpdateProgressStack.FadeToAsync(1.0, 200),
+            UpdateProgressStack.ScaleToAsync(1.0, 200)
+        );
 
         try
         {
@@ -266,6 +415,12 @@ public partial class SettingsPage : ContentPage
         {
             _isUpdating                   = false;
             UpdateChevron.IsVisible       = true;
+            
+            // Animate progress stack disappearance
+            await Task.WhenAll(
+                UpdateProgressStack.FadeToAsync(0, 200),
+                UpdateProgressStack.ScaleToAsync(0.8, 200)
+            );
             UpdateProgressStack.IsVisible = false;
             UpdateProgressBar.Progress    = 0;
         }
@@ -282,10 +437,22 @@ public partial class SettingsPage : ContentPage
 
     private async void OnBugReportTapped(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var grid = (Grid)sender;
+        await grid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await grid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
         try { await Launcher.Default.OpenAsync(new Uri("https://github.com/seizue/Shuka/issues/new")); }
         catch { await DisplayAlertAsync("Error", "Could not open browser.", "OK"); }
     }
 
     private async void OnAboutTapped(object sender, TappedEventArgs e)
-        => await Navigation.PushAsync(new AboutPage());
+    {
+        // Button press animation
+        var grid = (Grid)sender;
+        await grid.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await grid.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
+        await Navigation.PushAsync(new AboutPage());
+    }
 }

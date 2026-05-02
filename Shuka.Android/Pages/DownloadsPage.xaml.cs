@@ -7,6 +7,7 @@ namespace Shuka.Android.Pages;
 public partial class DownloadsPage : ContentPage
 {
     private readonly Dictionary<Guid, DownloadCard> _cards = new();
+    private bool _isPageLoaded = false;
 
     public DownloadsPage()
     {
@@ -20,21 +21,125 @@ public partial class DownloadsPage : ContentPage
         RefreshSummary();
     }
 
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        
+        if (!_isPageLoaded)
+        {
+            await AnimatePageLoad();
+            _isPageLoaded = true;
+        }
+    }
+
+    private async Task AnimatePageLoad()
+    {
+        // Simple, consistent page load animation
+        var mainContent = (Grid)Content;
+        mainContent.Opacity = 0;
+        
+        // Brief delay for smooth transition
+        await Task.Delay(50);
+        
+        // Smooth fade in
+        await mainContent.FadeToAsync(1.0, 250, Easing.CubicOut);
+
+        // Animate cards if they exist
+        if (CardList.Children.Count > 0)
+        {
+            await AnimateCardsLoad();
+        }
+    }
+
+    private async Task AnimateCardsLoad()
+    {
+        var cards = CardList.Children.ToList();
+        
+        // Start with cards hidden
+        foreach (var card in cards)
+        {
+            if (card is VisualElement visualCard)
+            {
+                visualCard.Opacity = 0;
+                visualCard.TranslationY = 8;
+            }
+        }
+
+        // Animate each card with subtle stagger
+        for (int i = 0; i < cards.Count; i++)
+        {
+            var card = cards[i];
+            int index = i;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(index * 40); // Subtle stagger
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    if (card is VisualElement visualCard)
+                    {
+                        await Task.WhenAll(
+                            visualCard.FadeToAsync(1.0, 200, Easing.CubicOut),
+                            visualCard.TranslateToAsync(0, 0, 200, Easing.CubicOut)
+                        );
+                    }
+                });
+            });
+        }
+    }
+
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
             if (e.NewItems != null)
+            {
                 foreach (DownloadItem item in e.NewItems)
-                    AddCard(item);
+                {
+                    await AddCardWithAnimation(item);
+                }
+            }
 
             if (e.OldItems != null)
+            {
                 foreach (DownloadItem item in e.OldItems)
-                    RemoveCard(item);
+                {
+                    await RemoveCardWithAnimation(item);
+                }
+            }
 
             RefreshEmptyState();
             RefreshSummary();
         });
+    }
+
+    private async Task AddCardWithAnimation(DownloadItem item)
+    {
+        if (_cards.ContainsKey(item.Id)) return;
+
+        var card = new DownloadCard(item);
+        card.CancelRequested  += OnCardCancelRequested;
+        card.ShareRequested   += OnCardShareRequested;
+        card.OpenRequested    += OnCardOpenRequested;
+        card.RetryRequested   += OnCardRetryRequested;
+        card.DismissRequested += OnCardDismissRequested;
+
+        item.PropertyChanged += OnItemPropertyChanged;
+
+        _cards[item.Id] = card;
+        
+        // Start hidden and animate in
+        card.Opacity = 0;
+        card.TranslationY = -30;
+        card.Scale = 0.9;
+        
+        CardList.Insert(0, card);
+        
+        // Animate in
+        await Task.WhenAll(
+            card.FadeToAsync(1.0, 400, Easing.CubicOut),
+            card.TranslateToAsync(0, 0, 400, Easing.CubicOut),
+            card.ScaleToAsync(1.0, 400, Easing.CubicOut)
+        );
     }
 
     private void AddCard(DownloadItem item)
@@ -54,6 +159,23 @@ public partial class DownloadsPage : ContentPage
         CardList.Insert(0, card);
     }
 
+    private async Task RemoveCardWithAnimation(DownloadItem item)
+    {
+        item.PropertyChanged -= OnItemPropertyChanged;
+
+        if (!_cards.TryGetValue(item.Id, out var card)) return;
+        
+        // Animate out
+        await Task.WhenAll(
+            card.FadeToAsync(0, 300, Easing.CubicIn),
+            card.TranslateToAsync(-50, 0, 300, Easing.CubicIn),
+            card.ScaleToAsync(0.8, 300, Easing.CubicIn)
+        );
+        
+        CardList.Remove(card);
+        _cards.Remove(item.Id);
+    }
+
     private void RemoveCard(DownloadItem item)
     {
         item.PropertyChanged -= OnItemPropertyChanged;
@@ -69,21 +191,66 @@ public partial class DownloadsPage : ContentPage
             MainThread.BeginInvokeOnMainThread(RefreshSummary);
     }
 
-    private void RefreshEmptyState()
+    private async void RefreshEmptyState()
     {
         bool hasItems = DownloadManager.Instance.Downloads.Count > 0;
-        EmptyState.IsVisible = !hasItems;
-        ListScroll.IsVisible  = hasItems;
+        
+        if (hasItems && EmptyState.IsVisible)
+        {
+            // Hide empty state with animation
+            await EmptyState.FadeToAsync(0, 200);
+            EmptyState.IsVisible = false;
+            
+            // Show list with animation
+            ListScroll.Opacity = 0;
+            ListScroll.IsVisible = true;
+            await ListScroll.FadeToAsync(1.0, 300);
+        }
+        else if (!hasItems && !EmptyState.IsVisible)
+        {
+            // Hide list with animation
+            await ListScroll.FadeToAsync(0, 200);
+            ListScroll.IsVisible = false;
+            
+            // Show empty state with animation
+            EmptyState.Opacity = 0;
+            EmptyState.TranslationY = 20;
+            EmptyState.IsVisible = true;
+            await Task.WhenAll(
+                EmptyState.FadeToAsync(1.0, 400, Easing.CubicOut),
+                EmptyState.TranslateToAsync(0, 0, 400, Easing.CubicOut)
+            );
+        }
     }
 
-    private void RefreshSummary()
+    private async void RefreshSummary()
     {
         var all     = DownloadManager.Instance.Downloads;
         int running = all.Count(d => d.IsRunning);
         int done    = all.Count(d => d.IsDone);
 
         bool showPill = running > 0 || done > 0;
-        SummaryPill.IsVisible = showPill;
+        
+        if (showPill && !SummaryPill.IsVisible)
+        {
+            // Show pill with animation
+            SummaryPill.Opacity = 0;
+            SummaryPill.TranslationY = -10;
+            SummaryPill.IsVisible = true;
+            await Task.WhenAll(
+                SummaryPill.FadeToAsync(1.0, 250, Easing.CubicOut),
+                SummaryPill.TranslateToAsync(0, 0, 250, Easing.CubicOut)
+            );
+        }
+        else if (!showPill && SummaryPill.IsVisible)
+        {
+            // Hide pill with animation
+            await Task.WhenAll(
+                SummaryPill.FadeToAsync(0, 200, Easing.CubicIn),
+                SummaryPill.TranslateToAsync(0, -10, 200, Easing.CubicIn)
+            );
+            SummaryPill.IsVisible = false;
+        }
 
         RunningBadge.IsVisible = running > 0;
         RunningLabel.Text      = running == 1 ? "1 in progress" : $"{running} in progress";
@@ -94,6 +261,11 @@ public partial class DownloadsPage : ContentPage
 
     private async void OnCancelAllClicked(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var button = (Border)sender;
+        await button.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await button.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
         bool hasActive = DownloadManager.Instance.Downloads.Any(d => d.IsRunning);
         if (!hasActive) return;
 
@@ -108,6 +280,11 @@ public partial class DownloadsPage : ContentPage
 
     private async void OnClearHistoryClicked(object sender, TappedEventArgs e)
     {
+        // Button press animation
+        var button = (Border)sender;
+        await button.ScaleToAsync(0.95, 100, Easing.CubicOut);
+        await button.ScaleToAsync(1.0, 100, Easing.CubicOut);
+
         bool hasFinished = DownloadManager.Instance.Downloads.Any(d => d.IsFinished);
         if (!hasFinished)
         {

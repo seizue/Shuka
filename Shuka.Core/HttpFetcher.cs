@@ -24,7 +24,7 @@ public class HttpFetcher : IDisposable
         _cfBypass = cfBypass;
 
         var sh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
-        _site = new HttpClient(sh) { Timeout = TimeSpan.FromSeconds(60) }; // outer safety net
+        _site = new HttpClient(sh) { Timeout = TimeSpan.FromSeconds(45) }; // outer safety net
         _site.DefaultRequestHeaders.Add("User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
         _site.DefaultRequestHeaders.Add("Accept-Language", "zh-TW,zh;q=0.9,zh-CN;q=0.8");
@@ -46,10 +46,10 @@ public class HttpFetcher : IDisposable
                 var uri = new Uri(url);
                 req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
 
-                // 15s per attempt — fast enough to detect dead connections,
+                // 10s per attempt — fast enough to detect dead connections,
                 // long enough for slow servers. Retries handle transient failures.
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                linked.CancelAfter(TimeSpan.FromSeconds(15));
+                linked.CancelAfter(TimeSpan.FromSeconds(10));
                 var resp = await _site.SendAsync(req, linked.Token);
 
                 // Detect Cloudflare block (403/503 with cf-ray header or cloudflare server)

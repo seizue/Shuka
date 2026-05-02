@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Controls.LoadingSkeleton">
+
+    <ContentView.Resources>
+        <ResourceDictionary>
+            <!-- Shimmer animation for skeleton loading -->
+            <Style x:Key="SkeletonStyle" TargetType="Border">
+                <Setter Property="BackgroundColor" Value="{DynamicResource BgInput}" />
+                <Setter Property="StrokeThickness" Value="0" />
+                <Setter Property="StrokeShape" Value="RoundRectangle 8" />
+            </Style>
+            
+            <Style x:Key="SkeletonTextStyle" TargetType="Border" BasedOn="{StaticResource SkeletonStyle}">
+                <Setter Property="HeightRequest" Value="16" />
+            </Style>
+            
+            <Style x:Key="SkeletonTitleStyle" TargetType="Border" BasedOn="{StaticResource SkeletonStyle}">
+                <Setter Property="HeightRequest" Value="20" />
+            </Style>
+        </ResourceDictionary>
+    </ContentView.Resources>
+
+    <VerticalStackLayout x:Name="SkeletonContainer" Spacing="16" Padding="16">
+        
+        <!-- Header skeleton -->
+        <Grid ColumnDefinitions="60,*" ColumnSpacing="14">
+            <Border Grid.Column="0" 
+                    Style="{StaticResource SkeletonStyle}"
+                    WidthRequest="60" HeightRequest="60"
+                    StrokeShape="RoundRectangle 16" />
+            <VerticalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                <Border Style="{StaticResource SkeletonTitleStyle}" WidthRequest="120" />
+                <Border Style="{StaticResource SkeletonTextStyle}" WidthRequest="200" />
+            </VerticalStackLayout>
+        </Grid>
+
+        <!-- Content skeleton cards -->
+        <Border Style="{StaticResource SkeletonStyle}" 
+                HeightRequest="120" 
+                StrokeShape="RoundRectangle 16"
+                Padding="16">
+            <VerticalStackLayout Spacing="12">
+                <Border Style="{StaticResource SkeletonTitleStyle}" WidthRequest="150" />
+                <Border Style="{StaticResource SkeletonTextStyle}" WidthRequest="250" />
+                <Border Style="{StaticResource SkeletonTextStyle}" WidthRequest="180" />
+            </VerticalStackLayout>
+        </Border>
+
+        <Border Style="{StaticResource SkeletonStyle}" 
+                HeightRequest="100" 
+                StrokeShape="RoundRectangle 16"
+                Padding="16">
+            <VerticalStackLayout Spacing="12">
+                <Border Style="{StaticResource SkeletonTitleStyle}" WidthRequest="100" />
+                <Border Style="{StaticResource SkeletonTextStyle}" WidthRequest="220" />
+            </VerticalStackLayout>
+        </Border>
+
+        <Border Style="{StaticResource SkeletonStyle}" 
+                HeightRequest="80" 
+                StrokeShape="RoundRectangle 16"
+                Padding="16">
+            <VerticalStackLayout Spacing="12">
+                <Border Style="{StaticResource SkeletonTitleStyle}" WidthRequest="130" />
+                <Border Style="{StaticResource SkeletonTextStyle}" WidthRequest="190" />
+            </VerticalStackLayout>
+        </Border>
+
+    </VerticalStackLayout>
+
+</ContentView>

@@ -158,7 +158,7 @@ public class DownloadManager
                 catch (Exception ex) when (attempt < MaxRetries)
                 {
                     attempt++;
-                    int delaySec = attempt * 5;
+                    int delaySec = Math.Min(attempt * 2, 8); // 2s, 4s, 6s, 8s, 8s
                     Log($"Error (attempt {attempt}/{MaxRetries}): {ex.Message}. Retrying in {delaySec}s...");
                     MainThread.BeginInvokeOnMainThread(() =>
                         item.StatusText = $"Retrying ({attempt}/{MaxRetries})...");

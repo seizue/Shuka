@@ -7,7 +7,8 @@
        Shell.TabBarBackgroundColor="{DynamicResource NavBar}"
        Shell.TabBarForegroundColor="{DynamicResource NavBarSelected}"
        Shell.TabBarUnselectedColor="{DynamicResource NavBarUnselected}"
-       Shell.TabBarTitleColor="{DynamicResource NavBarSelected}">
+       Shell.TabBarTitleColor="{DynamicResource NavBarSelected}"
+       Shell.FlyoutBehavior="Disabled">
 
     <TabBar>
         <ShellContent Title="Home"

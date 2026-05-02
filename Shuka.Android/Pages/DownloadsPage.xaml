@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:Shuka.Android.Controls"
              x:Class="Shuka.Android.Pages.DownloadsPage"
              BackgroundColor="{DynamicResource BgPage}">
 
@@ -9,8 +10,9 @@
         <!-- ── Top App Bar ──────────────────────────────────── -->
         <Grid Grid.Row="0"
               ColumnDefinitions="Auto,*,Auto,12,Auto"
-              Padding="20,52,20,16"
-              BackgroundColor="{DynamicResource BgCard}">
+              Padding="20,52,20,20"
+              BackgroundColor="{DynamicResource BgCard}"
+              HeightRequest="120">
 
             <!-- Icon -->
             <Border Grid.Column="0"

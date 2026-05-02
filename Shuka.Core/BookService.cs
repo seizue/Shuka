@@ -21,10 +21,16 @@ public class BookService
     {
         _fetcher = new HttpFetcher(cfBypass);
 
-        var gh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
-        _gtClient = new HttpClient(gh) { Timeout = TimeSpan.FromSeconds(45) };
+        var gh = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 3
+        };
+        _gtClient = new HttpClient(gh) { Timeout = TimeSpan.FromSeconds(30) };
         _gtClient.DefaultRequestHeaders.Add("User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+        _gtClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7");
 
         _translator = new Translator(_gtClient);
     }
@@ -94,18 +100,18 @@ public class BookService
         var chapterList = book.ChapterUrls.Take(book.Total).ToList();
         int total = chapterList.Count;
 
-        // Channel buffer = 2× fetch concurrency so translators are never starved
+        // Channel buffer = 3× fetch concurrency so translators are never starved
         var channel = Channel.CreateBounded<(int i, string title, string html)>(
-            new BoundedChannelOptions(16)
+            new BoundedChannelOptions(30)
             {
                 SingleWriter = false,
                 SingleReader = false,
                 FullMode     = BoundedChannelFullMode.Wait
             });
 
-        // 8 concurrent fetches — safe for most sites; CF-protected sites
+        // 12 concurrent fetches — more parallelism; CF-protected sites
         // are serialised anyway by the WebView bypass.
-        var fetchSem = new SemaphoreSlim(8);
+        var fetchSem = new SemaphoreSlim(12);
 
         // ── Stage 1: fetch all chapters → channel ─────────────────────────────
         var fetchProducer = Task.Run(async () =>
@@ -135,8 +141,8 @@ public class BookService
         var results   = new (string title, string text)?[total];
         int completed = 0;
 
-        // 6 consumer workers — matches the global translate semaphore in Translator
-        var translateTasks = Enumerable.Range(0, 6).Select(_ => Task.Run(async () =>
+        // 12 consumer workers — matches the global translate semaphore in Translator
+        var translateTasks = Enumerable.Range(0, 12).Select(_ => Task.Run(async () =>
         {
             await foreach (var (i, chTitle, html) in channel.Reader.ReadAllAsync(ct))
             {

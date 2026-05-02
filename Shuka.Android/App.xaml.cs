@@ -52,11 +52,12 @@ public partial class App : Application
 #if ANDROID
         const string ChannelId = "shuka_update_channel";
         var ctx = global::Android.App.Application.Context;
+        if (ctx is null) return;
 
         // Ensure notification channel exists (Android 8+)
         if (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.O)
         {
-#pragma warning disable CA1416
+#pragma warning disable CA1416, CS8602
             var nm = (global::Android.App.NotificationManager?)
                 ctx.GetSystemService(global::Android.Content.Context.NotificationService);
             if (nm?.GetNotificationChannel(ChannelId) == null)
@@ -69,7 +70,7 @@ public partial class App : Application
                 };
                 nm?.CreateNotificationChannel(ch);
             }
-#pragma warning restore CA1416
+#pragma warning restore CA1416, CS8602
         }
 
         // Build tap intent — opens the app to Settings tab
@@ -90,7 +91,9 @@ public partial class App : Application
         var pi = global::Android.App.PendingIntent.GetActivity(
             ctx, 0, launchIntent, pendingFlags);
 
+#pragma warning disable CS8602
         var notification = new AndroidX.Core.App.NotificationCompat.Builder(ctx, ChannelId)
+#pragma warning restore CS8602
             .SetContentTitle("Shuka update available")
             .SetContentText($"v{release.Version} is ready to install")
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownload)

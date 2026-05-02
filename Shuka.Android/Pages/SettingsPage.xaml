@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:Shuka.Android.Controls"
              x:Class="Shuka.Android.Pages.SettingsPage"
              BackgroundColor="{DynamicResource BgPage}">
 
@@ -9,8 +10,9 @@
         <!-- Top Bar -->
         <Grid Grid.Row="0"
               ColumnDefinitions="Auto,*"
-              Padding="20,52,20,18"
-              BackgroundColor="{DynamicResource BgCard}">
+              Padding="20,52,20,20"
+              BackgroundColor="{DynamicResource BgCard}"
+              HeightRequest="120">
             <Border Grid.Column="0"
                     BackgroundColor="{DynamicResource AccentContainer}"
                     StrokeThickness="0"
@@ -25,15 +27,18 @@
                        HorizontalOptions="Center"
                        VerticalOptions="Center" />
             </Border>
-            <Label Grid.Column="1"
-                   Text="Settings"
-                   FontSize="22"
-                   FontAttributes="Bold"
-                   TextColor="{DynamicResource TextPrimary}"
-                   VerticalOptions="Center" />
+            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                <Label Text="Settings"
+                       FontSize="22"
+                       FontAttributes="Bold"
+                       TextColor="{DynamicResource TextPrimary}" />
+                <Label Text="Customize your experience"
+                       FontSize="12"
+                       TextColor="{DynamicResource TextMuted}" />
+            </VerticalStackLayout>
         </Grid>
 
-        <ScrollView Grid.Row="1">
+        <ScrollView Grid.Row="1" x:Name="BodyScrollView">
             <VerticalStackLayout Padding="16,20,16,40" Spacing="8">
 
                 <!-- ── APPEARANCE ──────────────────────────── -->
