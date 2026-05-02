@@ -102,7 +102,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
@@ -122,7 +122,7 @@ jobs:
       - name: Build Release APK
         run: >
           dotnet publish Shuka.Android/Shuka.Android.csproj
-          -f net9.0-android
+          -f net10.0-android
           -c Release
           -p:RuntimeIdentifier=android-arm64
           -p:AndroidSigningKeyStore=${{ github.workspace }}\shuka.keystore

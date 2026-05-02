@@ -1,5 +1,5 @@
-using AndroidX.AppCompat.Widget;
 using Microsoft.Maui.Handlers;
+using Microsoft.Maui.Platform;
 
 namespace Shuka.Android.Platforms.Android;
 
@@ -9,7 +9,7 @@ namespace Shuka.Android.Platforms.Android;
 /// </summary>
 public class ThemedEntryHandler : EntryHandler
 {
-    protected override AppCompatEditText CreatePlatformView()
+    protected override MauiAppCompatEditText CreatePlatformView()
     {
         var view = base.CreatePlatformView();
         // Null out the background completely — removes the underline drawable
