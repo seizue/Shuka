@@ -12,7 +12,6 @@ public partial class SettingsPage : ContentPage
 {
     private ReleaseInfo? _pendingRelease;
     private bool         _isUpdating;
-    private bool         _isPageLoaded = false;
 
     public SettingsPage()
     {
@@ -25,68 +24,22 @@ public partial class SettingsPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        
-        if (!_isPageLoaded)
-        {
-            await AnimatePageLoad();
-            _isPageLoaded = true;
-        }
-        
+        await AnimateIn();
         RefreshRadios(App.CurrentTheme);
         RefreshDownloadPath();
         RefreshUpdateSection();
     }
 
-    private async Task AnimatePageLoad()
+    private async Task AnimateIn()
     {
-        // Simple, consistent page load animation
-        var mainContent = (Grid)Content;
-        mainContent.Opacity = 0;
+        // Animate body content in — same pattern as all other pages
+        BodyScrollView.Opacity = 0;
+        BodyScrollView.TranslationY = 18;
 
-        // Brief delay for smooth transition
-        await Task.Delay(50);
-
-        // Smooth fade in
-        await mainContent.FadeToAsync(1.0, 250, Easing.CubicOut);
-
-        // Animate settings sections with subtle stagger
-        await AnimateSettingsSections();
-    }
-
-    private async Task AnimateSettingsSections()
-    {
-        var stackLayout = (VerticalStackLayout)BodyScrollView.Content;
-        
-        // Get all the setting cards (Border elements)
-        var settingCards = stackLayout.Children
-            .Where(c => c is Border)
-            .Cast<Border>()
-            .ToList();
-
-        // Start with cards hidden
-        foreach (var card in settingCards)
-        {
-            card.Opacity = 0;
-            card.TranslationY = 8;
-        }
-
-        // Animate each section with subtle stagger
-        for (int i = 0; i < settingCards.Count; i++)
-        {
-            var card = settingCards[i];
-            int index = i;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(index * 50); // Subtle stagger
-                await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    await Task.WhenAll(
-                        card.FadeToAsync(1.0, 200, Easing.CubicOut),
-                        card.TranslateToAsync(0, 0, 200, Easing.CubicOut)
-                    );
-                });
-            });
-        }
+        await Task.WhenAll(
+            BodyScrollView.FadeToAsync(1.0, 220, Easing.CubicOut),
+            BodyScrollView.TranslateToAsync(0, 0, 220, Easing.CubicOut)
+        );
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────

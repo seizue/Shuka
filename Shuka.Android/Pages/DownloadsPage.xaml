@@ -129,7 +129,7 @@
         </Grid>
 
         <!-- ── Body ─────────────────────────────────────────── -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" x:Name="BodyGrid">
 
             <!-- Empty state -->
             <VerticalStackLayout x:Name="EmptyState"

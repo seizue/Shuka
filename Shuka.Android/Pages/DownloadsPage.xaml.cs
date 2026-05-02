@@ -7,7 +7,6 @@ namespace Shuka.Android.Pages;
 public partial class DownloadsPage : ContentPage
 {
     private readonly Dictionary<Guid, DownloadCard> _cards = new();
-    private bool _isPageLoaded = false;
 
     public DownloadsPage()
     {
@@ -24,67 +23,19 @@ public partial class DownloadsPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        
-        if (!_isPageLoaded)
-        {
-            await AnimatePageLoad();
-            _isPageLoaded = true;
-        }
+        await AnimateIn();
     }
 
-    private async Task AnimatePageLoad()
+    private async Task AnimateIn()
     {
-        // Simple, consistent page load animation
-        var mainContent = (Grid)Content;
-        mainContent.Opacity = 0;
-        
-        // Brief delay for smooth transition
-        await Task.Delay(50);
-        
-        // Smooth fade in
-        await mainContent.FadeToAsync(1.0, 250, Easing.CubicOut);
+        // Animate body content in — same pattern as all other pages
+        BodyGrid.Opacity = 0;
+        BodyGrid.TranslationY = 18;
 
-        // Animate cards if they exist
-        if (CardList.Children.Count > 0)
-        {
-            await AnimateCardsLoad();
-        }
-    }
-
-    private async Task AnimateCardsLoad()
-    {
-        var cards = CardList.Children.ToList();
-        
-        // Start with cards hidden
-        foreach (var card in cards)
-        {
-            if (card is VisualElement visualCard)
-            {
-                visualCard.Opacity = 0;
-                visualCard.TranslationY = 8;
-            }
-        }
-
-        // Animate each card with subtle stagger
-        for (int i = 0; i < cards.Count; i++)
-        {
-            var card = cards[i];
-            int index = i;
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(index * 40); // Subtle stagger
-                await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    if (card is VisualElement visualCard)
-                    {
-                        await Task.WhenAll(
-                            visualCard.FadeToAsync(1.0, 200, Easing.CubicOut),
-                            visualCard.TranslateToAsync(0, 0, 200, Easing.CubicOut)
-                        );
-                    }
-                });
-            });
-        }
+        await Task.WhenAll(
+            BodyGrid.FadeToAsync(1.0, 220, Easing.CubicOut),
+            BodyGrid.TranslateToAsync(0, 0, 220, Easing.CubicOut)
+        );
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
