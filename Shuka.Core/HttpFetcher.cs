@@ -24,17 +24,17 @@ public class HttpFetcher : IDisposable
         _cfBypass = cfBypass;
 
         var sh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
-        _site = new HttpClient(sh) { Timeout = TimeSpan.FromSeconds(30) };
+        _site = new HttpClient(sh) { Timeout = TimeSpan.FromSeconds(60) }; // outer safety net
         _site.DefaultRequestHeaders.Add("User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
         _site.DefaultRequestHeaders.Add("Accept-Language", "zh-TW,zh;q=0.9,zh-CN;q=0.8");
         _site.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
     }
 
-    public async Task<string> Fetch(string url, int retries = 4, Action<string>? log = null,
+    public async Task<string> Fetch(string url, int retries = 3, Action<string>? log = null,
         CancellationToken ct = default)
     {
-        int delay = 1000;
+        int delay = 500;
         Exception? last = null;
 
         for (int i = 0; i <= retries; i++)
@@ -46,8 +46,10 @@ public class HttpFetcher : IDisposable
                 var uri = new Uri(url);
                 req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
 
+                // 15s per attempt — fast enough to detect dead connections,
+                // long enough for slow servers. Retries handle transient failures.
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                linked.CancelAfter(TimeSpan.FromSeconds(30));
+                linked.CancelAfter(TimeSpan.FromSeconds(15));
                 var resp = await _site.SendAsync(req, linked.Token);
 
                 // Detect Cloudflare block (403/503 with cf-ray header or cloudflare server)
@@ -129,9 +131,9 @@ public class HttpFetcher : IDisposable
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                throw; // propagate user cancellation immediately
+                throw;
             }
-            catch (Exception ex) { last = ex; await Task.Delay(delay, ct); delay = Math.Min(delay * 2, 16000); }
+            catch (Exception ex) { last = ex; await Task.Delay(delay, ct); delay = Math.Min(delay * 2, 8000); }
         }
 
         throw new Exception($"Fetch failed: {url} — {last?.Message}");

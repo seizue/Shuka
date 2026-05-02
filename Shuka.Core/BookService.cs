@@ -52,13 +52,22 @@ public class BookService
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        log?.Invoke($"Translating title/author...");
-        book.TitleEn  = await _translator.Translate(book.Title,  log);
-        book.AuthorEn = await _translator.Translate(book.Author, log);
+        log?.Invoke("Translating title/author...");
+
+        // Run title/author translation and cover download in parallel
+        var titleTask  = _translator.Translate(book.Title,  log, ct);
+        var authorTask = _translator.Translate(book.Author, log, ct);
+        var coverTask  = DownloadCover(book.CoverUrl, log);
+
+        await Task.WhenAll(titleTask, authorTask, coverTask);
+
+        book.TitleEn  = titleTask.Result;
+        book.AuthorEn = authorTask.Result;
+        var (coverBytes, coverMime) = coverTask.Result;
+
         log?.Invoke($"Title (EN): {book.TitleEn}  Author (EN): {book.AuthorEn}");
 
         ct.ThrowIfCancellationRequested();
-        var (coverBytes, coverMime) = await DownloadCover(book.CoverUrl, log);
         var chapters = await DownloadChapters(book, progress, log, ct);
 
         ct.ThrowIfCancellationRequested();
@@ -74,10 +83,9 @@ public class BookService
 
     /// <summary>
     /// True parallel fetch + translate pipeline.
-    /// Up to 4 chapters are fetched concurrently; up to 3 are translated concurrently.
-    /// Translation starts as soon as a chapter's HTML arrives — no waiting for the
-    /// whole fetch batch to finish first.
-    /// Results are collected in original order.
+    /// Fetches up to 8 chapters concurrently; translates up to 6 concurrently.
+    /// Translation starts as soon as a chapter's HTML arrives.
+    /// Results are assembled in original order.
     /// </summary>
     private async Task<List<(int Idx, string Title, string Text)>> DownloadChapters(
         BookInfo book, IProgress<ProgressEventArgs>? progress, Action<string>? log,
@@ -86,19 +94,20 @@ public class BookService
         var chapterList = book.ChapterUrls.Take(book.Total).ToList();
         int total = chapterList.Count;
 
-        // Channel carries (index, title, raw html) from fetchers to translators
+        // Channel buffer = 2× fetch concurrency so translators are never starved
         var channel = Channel.CreateBounded<(int i, string title, string html)>(
-            new BoundedChannelOptions(8)
+            new BoundedChannelOptions(16)
             {
                 SingleWriter = false,
                 SingleReader = false,
                 FullMode     = BoundedChannelFullMode.Wait
             });
 
-        var fetchSem     = new SemaphoreSlim(4);   // max 4 concurrent fetches
-        var translateSem = new SemaphoreSlim(3);   // max 3 concurrent translations
+        // 8 concurrent fetches — safe for most sites; CF-protected sites
+        // are serialised anyway by the WebView bypass.
+        var fetchSem = new SemaphoreSlim(8);
 
-        // ── Stage 1: fetch all chapters, write to channel ─────────────────────
+        // ── Stage 1: fetch all chapters → channel ─────────────────────────────
         var fetchProducer = Task.Run(async () =>
         {
             try
@@ -122,37 +131,33 @@ public class BookService
             }
         }, ct);
 
-        // ── Stage 2: read from channel, translate in parallel, store results ──
-        var results = new (string title, string text)?[total];
+        // ── Stage 2: translate in parallel, store results ─────────────────────
+        var results   = new (string title, string text)?[total];
         int completed = 0;
 
-        var translateTasks = Enumerable.Range(0, 3).Select(_ => Task.Run(async () =>
+        // 6 consumer workers — matches the global translate semaphore in Translator
+        var translateTasks = Enumerable.Range(0, 6).Select(_ => Task.Run(async () =>
         {
             await foreach (var (i, chTitle, html) in channel.Reader.ReadAllAsync(ct))
             {
-                await translateSem.WaitAsync(ct);
-                try
-                {
-                    var paras   = book.Adapter.ExtractChapterText(html);
-                    string text = await _translator.Translate(string.Join("\n", paras), log);
-                    results[i]  = (chTitle, text);
+                var paras   = book.Adapter.ExtractChapterText(html);
+                string text = await _translator.Translate(
+                    string.Join("\n", paras), log, ct);
+                results[i] = (chTitle, text);
 
-                    int done = Interlocked.Increment(ref completed);
-                    progress?.Report(new ProgressEventArgs
-                    {
-                        Current = done,
-                        Total   = total,
-                        Message = $"Translated chapter {done} of {total}..."
-                    });
-                }
-                finally { translateSem.Release(); }
+                int done = Interlocked.Increment(ref completed);
+                progress?.Report(new ProgressEventArgs
+                {
+                    Current = done,
+                    Total   = total,
+                    Message = $"Translated chapter {done} of {total}..."
+                });
             }
         }, ct)).ToArray();
 
         await Task.WhenAll(fetchProducer);
         await Task.WhenAll(translateTasks);
 
-        // Assemble in original order
         return results
             .Select((r, i) => (i + 1, r!.Value.title, r!.Value.text))
             .ToList();
