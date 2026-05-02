@@ -67,7 +67,7 @@ public partial class SettingsPage : ContentPage
 #pragma warning disable CA1416
             if (!global::Android.OS.Environment.IsExternalStorageManager)
             {
-                bool proceed = await DisplayAlert(
+                bool proceed = await DisplayAlertAsync(
                     "Storage Permission Required",
                     "Shuka needs 'All Files Access' to save EPUBs to a custom folder. " +
                     "You'll be taken to the system settings to grant this.",
@@ -83,7 +83,6 @@ public partial class SettingsPage : ContentPage
             }
         }
 
-        // Use the native folder picker
         if (MainActivity.Instance is { } activity)
         {
             var treeUri = await activity.PickFolderAsync();
@@ -91,11 +90,10 @@ public partial class SettingsPage : ContentPage
 
             DownloadManager.SetOutputDirectoryFromUri(treeUri);
             RefreshDownloadPath();
-            await DisplayAlert("Saved", $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
+            await DisplayAlertAsync("Saved", $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
             return;
         }
 #else
-        // Fallback: manual text entry (non-Android)
         string current = DownloadManager.GetOutputDirectory();
         string? result = await DisplayPromptAsync(
             "Download Location",
@@ -109,7 +107,7 @@ public partial class SettingsPage : ContentPage
         result = result.Trim();
         if (string.IsNullOrWhiteSpace(result))
         {
-            await DisplayAlert("Invalid Path", "Path cannot be empty.", "OK");
+            await DisplayAlertAsync("Invalid Path", "Path cannot be empty.", "OK");
             return;
         }
 
@@ -119,13 +117,13 @@ public partial class SettingsPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlert("Invalid Path", $"Could not create folder:\n{ex.Message}", "OK");
+            await DisplayAlertAsync("Invalid Path", $"Could not create folder:\n{ex.Message}", "OK");
             return;
         }
 
         DownloadManager.SetOutputDirectory(result);
         RefreshDownloadPath();
-        await DisplayAlert("Saved", $"Downloads will now be saved to:\n{result}", "OK");
+        await DisplayAlertAsync("Saved", $"Downloads will now be saved to:\n{result}", "OK");
 #endif
     }
 
@@ -133,13 +131,13 @@ public partial class SettingsPage : ContentPage
     {
         DownloadManager.ResetOutputDirectory();
         RefreshDownloadPath();
-        await DisplayAlert("Reset", $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
+        await DisplayAlertAsync("Reset", $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
     }
 
     private async void OnBugReportTapped(object sender, TappedEventArgs e)
     {
         try { await Launcher.Default.OpenAsync(new Uri("https://github.com/seizue/Shuka/issues/new")); }
-        catch { await DisplayAlert("Error", "Could not open browser.", "OK"); }
+        catch { await DisplayAlertAsync("Error", "Could not open browser.", "OK"); }
     }
 
     private async void OnAboutTapped(object sender, TappedEventArgs e)

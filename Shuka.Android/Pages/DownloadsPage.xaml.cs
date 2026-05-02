@@ -6,17 +6,13 @@ namespace Shuka.Android.Pages;
 
 public partial class DownloadsPage : ContentPage
 {
-    // Maps each DownloadItem.Id → its card view
     private readonly Dictionary<Guid, DownloadCard> _cards = new();
 
     public DownloadsPage()
     {
         InitializeComponent();
-
-        // Observe the shared collection
         DownloadManager.Instance.Downloads.CollectionChanged += OnCollectionChanged;
 
-        // Populate any items that already exist (e.g. page recreated)
         foreach (var item in DownloadManager.Instance.Downloads)
             AddCard(item);
 
@@ -52,11 +48,10 @@ public partial class DownloadsPage : ContentPage
         card.RetryRequested   += OnCardRetryRequested;
         card.DismissRequested += OnCardDismissRequested;
 
-        // Watch status changes to keep the summary pill live
         item.PropertyChanged += OnItemPropertyChanged;
 
         _cards[item.Id] = card;
-        CardList.Insert(0, card); // newest on top
+        CardList.Insert(0, card);
     }
 
     private void RemoveCard(DownloadItem item)
@@ -102,7 +97,7 @@ public partial class DownloadsPage : ContentPage
         bool hasActive = DownloadManager.Instance.Downloads.Any(d => d.IsRunning);
         if (!hasActive) return;
 
-        bool confirm = await DisplayAlert(
+        bool confirm = await DisplayAlertAsync(
             "Cancel All",
             "Cancel all active downloads?",
             "Cancel All", "Keep");
@@ -116,11 +111,11 @@ public partial class DownloadsPage : ContentPage
         bool hasFinished = DownloadManager.Instance.Downloads.Any(d => d.IsFinished);
         if (!hasFinished)
         {
-            await DisplayAlert("Nothing to clear", "No completed downloads to remove.", "OK");
+            await DisplayAlertAsync("Nothing to clear", "No completed downloads to remove.", "OK");
             return;
         }
 
-        bool confirm = await DisplayAlert(
+        bool confirm = await DisplayAlertAsync(
             "Clear History",
             "Remove all completed, cancelled, and failed downloads from the list? Files on disk are not deleted.",
             "Clear", "Cancel");

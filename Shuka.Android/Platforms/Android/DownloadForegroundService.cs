@@ -2,6 +2,7 @@ using Android.App;
 using Android.Content;
 using Android.OS;
 using AndroidX.Core.App;
+#pragma warning disable CS8602 // AndroidX nullability annotations are overly conservative
 
 namespace Shuka.Android.Platforms.Android;
 
@@ -43,9 +44,10 @@ public class DownloadForegroundService : Service
         var ctx = global::Android.App.Application.Context;
         EnsureDoneChannel(ctx);
 
-        var launchIntent = ctx.PackageManager!
-            .GetLaunchIntentForPackage(ctx.PackageName!)!
-            .SetFlags(ActivityFlags.SingleTop);
+        var launchIntent = ctx.PackageManager
+            ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
+            ?.SetFlags(ActivityFlags.SingleTop)
+            ?? new Intent(ctx, typeof(DownloadForegroundService));
 
 #pragma warning disable CA1416
         var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
@@ -66,7 +68,7 @@ public class DownloadForegroundService : Service
 
         var mgr = NotificationManagerCompat.From(ctx);
         // Use a unique ID per title so multiple completions don't collapse into one
-        mgr.Notify(Math.Abs(title.GetHashCode() % 9000) + 2000, notification);
+        mgr?.Notify(Math.Abs(title.GetHashCode() % 9000) + 2000, notification);
     }
 
     public override IBinder? OnBind(Intent? intent) => null;
@@ -102,9 +104,10 @@ public class DownloadForegroundService : Service
     {
         var ctx = global::Android.App.Application.Context;
 
-        var launchIntent = ctx.PackageManager!
-            .GetLaunchIntentForPackage(ctx.PackageName!)!
-            .SetFlags(ActivityFlags.SingleTop);
+        var launchIntent = ctx.PackageManager
+            ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
+            ?.SetFlags(ActivityFlags.SingleTop)
+            ?? new Intent(ctx, typeof(DownloadForegroundService));
 
 #pragma warning disable CA1416
         var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
