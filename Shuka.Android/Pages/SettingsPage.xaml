@@ -530,7 +530,7 @@
                 </Border>
 
                 <!-- Version -->
-                <Label Text="Shuka v1.0.4.2  ·  Seizue"
+                <Label Text="Shuka v1.0.5  ·  Seizue"
                        FontSize="12"
                        TextColor="{DynamicResource TextMuted}"
                        HorizontalOptions="Center"
