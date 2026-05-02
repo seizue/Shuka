@@ -1,3 +1,5 @@
+using Shuka.Android.Services;
+
 namespace Shuka.Android;
 
 public enum AppTheme { Obsidian, Rosewood, Slate, Frost }
@@ -9,16 +11,100 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
-        // Restore saved theme, default to Obsidian
         var saved = Preferences.Default.Get("app_theme", nameof(AppTheme.Slate));
-        // migrate old "Parchment" key to "Frost"
         if (saved == "Parchment") saved = nameof(AppTheme.Frost);
         var theme = Enum.TryParse<AppTheme>(saved, out var t) ? t : AppTheme.Slate;
         ApplyTheme(theme);
+
+        // Background update check — runs once per session, doesn't block startup
+        _ = CheckForUpdateSilentlyAsync();
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
         => new Window(new AppShell());
+
+    // ── Silent update check ───────────────────────────────────────────────────
+
+    private static async Task CheckForUpdateSilentlyAsync()
+    {
+        // Throttle: only check once every 6 hours
+        const long checkIntervalSec = 6 * 3600;
+        string lastCheckStr = Preferences.Default.Get("update_last_check_utc", "0");
+        long lastCheck = long.TryParse(lastCheckStr, out long lc) ? lc : 0;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        if (now - lastCheck < checkIntervalSec) return;
+
+        try
+        {
+            var release = await UpdateService.GetLatestReleaseAsync();
+            if (release == null) return;
+            if (!release.IsNewerThan(UpdateService.InstalledVersion)) return;
+
+            // Post a system notification
+            PostUpdateNotification(release);
+        }
+        catch { /* silent — never crash on background check */ }
+    }
+
+    private static void PostUpdateNotification(ReleaseInfo release)
+    {
+#if ANDROID
+        const string ChannelId = "shuka_update_channel";
+        var ctx = global::Android.App.Application.Context;
+
+        // Ensure notification channel exists (Android 8+)
+        if (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.O)
+        {
+#pragma warning disable CA1416
+            var nm = (global::Android.App.NotificationManager?)
+                ctx.GetSystemService(global::Android.Content.Context.NotificationService);
+            if (nm?.GetNotificationChannel(ChannelId) == null)
+            {
+                var ch = new global::Android.App.NotificationChannel(
+                    ChannelId, "App Updates",
+                    global::Android.App.NotificationImportance.Default)
+                {
+                    Description = "Notifies when a new version of Shuka is available"
+                };
+                nm?.CreateNotificationChannel(ch);
+            }
+#pragma warning restore CA1416
+        }
+
+        // Build tap intent — opens the app to Settings tab
+        var launchIntent = ctx.PackageManager
+            ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
+            ?.SetFlags(global::Android.Content.ActivityFlags.SingleTop)
+            ?? new global::Android.Content.Intent(ctx,
+                   typeof(global::Shuka.Android.MainActivity));
+
+#pragma warning disable CA1416
+        var pendingFlags = global::Android.OS.Build.VERSION.SdkInt >=
+                           global::Android.OS.BuildVersionCodes.M
+            ? global::Android.App.PendingIntentFlags.UpdateCurrent |
+              global::Android.App.PendingIntentFlags.Immutable
+            : global::Android.App.PendingIntentFlags.UpdateCurrent;
+#pragma warning restore CA1416
+
+        var pi = global::Android.App.PendingIntent.GetActivity(
+            ctx, 0, launchIntent, pendingFlags);
+
+        var notification = new AndroidX.Core.App.NotificationCompat.Builder(ctx, ChannelId)
+            .SetContentTitle("Shuka update available")
+            .SetContentText($"v{release.Version} is ready to install")
+            .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownload)
+            .SetAutoCancel(true)
+#pragma warning disable CS8604
+            .SetContentIntent(pi)
+#pragma warning restore CS8604
+            .SetPriority(AndroidX.Core.App.NotificationCompat.PriorityDefault)
+            .Build()!;
+
+        var mgr = AndroidX.Core.App.NotificationManagerCompat.From(ctx);
+        mgr?.Notify(9999, notification);
+#endif
+    }
 
     public static void ApplyTheme(AppTheme theme)
     {

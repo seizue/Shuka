@@ -10,11 +10,15 @@ namespace Shuka.Android.Pages;
 
 public partial class SettingsPage : ContentPage
 {
+    private ReleaseInfo? _pendingRelease;
+    private bool         _isUpdating;
+
     public SettingsPage()
     {
         InitializeComponent();
         RefreshRadios(App.CurrentTheme);
         RefreshDownloadPath();
+        RefreshUpdateSection();
     }
 
     protected override void OnAppearing()
@@ -22,7 +26,10 @@ public partial class SettingsPage : ContentPage
         base.OnAppearing();
         RefreshRadios(App.CurrentTheme);
         RefreshDownloadPath();
+        RefreshUpdateSection();
     }
+
+    // ── Theme ─────────────────────────────────────────────────────────────────
 
     private void OnThemeObsidian(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Obsidian);
     private void OnThemeRosewood(object sender, TappedEventArgs e)  => ApplyAndRefresh(AppTheme.Rosewood);
@@ -53,6 +60,8 @@ public partial class SettingsPage : ContentPage
         RadioSlate.TextColor     = theme == AppTheme.Slate    ? accent : muted;
         RadioParchment.TextColor = theme == AppTheme.Frost    ? accent : muted;
     }
+
+    // ── Download location ─────────────────────────────────────────────────────
 
     private void RefreshDownloadPath()
     {
@@ -90,7 +99,8 @@ public partial class SettingsPage : ContentPage
 
             DownloadManager.SetOutputDirectoryFromUri(treeUri);
             RefreshDownloadPath();
-            await DisplayAlertAsync("Saved", $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
+            await DisplayAlertAsync("Saved",
+                $"Downloads will now be saved to:\n{DownloadManager.GetOutputDirectory()}", "OK");
             return;
         }
 #else
@@ -98,29 +108,21 @@ public partial class SettingsPage : ContentPage
         string? result = await DisplayPromptAsync(
             "Download Location",
             "Enter the full folder path where EPUBs will be saved:",
-            initialValue: current,
-            maxLength: 300,
-            keyboard: Keyboard.Url);
+            initialValue: current, maxLength: 300, keyboard: Keyboard.Url);
 
         if (result == null) return;
-
         result = result.Trim();
         if (string.IsNullOrWhiteSpace(result))
         {
             await DisplayAlertAsync("Invalid Path", "Path cannot be empty.", "OK");
             return;
         }
-
-        try
-        {
-            Directory.CreateDirectory(result);
-        }
+        try { Directory.CreateDirectory(result); }
         catch (Exception ex)
         {
             await DisplayAlertAsync("Invalid Path", $"Could not create folder:\n{ex.Message}", "OK");
             return;
         }
-
         DownloadManager.SetOutputDirectory(result);
         RefreshDownloadPath();
         await DisplayAlertAsync("Saved", $"Downloads will now be saved to:\n{result}", "OK");
@@ -131,8 +133,152 @@ public partial class SettingsPage : ContentPage
     {
         DownloadManager.ResetOutputDirectory();
         RefreshDownloadPath();
-        await DisplayAlertAsync("Reset", $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
+        await DisplayAlertAsync("Reset",
+            $"Download location reset to default:\n{DownloadManager.GetOutputDirectory()}", "OK");
     }
+
+    // ── Update ────────────────────────────────────────────────────────────────
+
+    private void RefreshUpdateSection()
+    {
+        var installed = UpdateService.InstalledVersion;
+        UpdateVersionLabel.Text = $"Installed: v{installed}";
+
+        if (UpdateService.HasCachedUpdate())
+        {
+            UpdateStatusLabel.Text      = "⬆ New version available";
+            UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["Success"];
+            UpdateActionLabel.Text      = "Install Update";
+            UpdateActionSub.Text        = "Tap to download and install";
+            UpdateActionIcon.Text       = "\uF090"; // download icon
+            UpdateActionIcon.TextColor  = (Color)Application.Current.Resources["Success"];
+        }
+        else
+        {
+            UpdateStatusLabel.Text      = "Up to date";
+            UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["TextMuted"];
+            UpdateActionLabel.Text      = "Check for Updates";
+            UpdateActionSub.Text        = "Tap to check GitHub releases";
+            UpdateActionIcon.Text       = "\uE923"; // system_update icon
+            UpdateActionIcon.TextColor  = (Color)Application.Current.Resources["AccentLight"];
+        }
+    }
+
+    private async void OnUpdateTapped(object sender, TappedEventArgs e)
+    {
+        if (_isUpdating) return;
+
+        // If we already fetched a pending release, go straight to install
+        if (_pendingRelease != null && _pendingRelease.IsNewerThan(UpdateService.InstalledVersion))
+        {
+            await StartInstallAsync(_pendingRelease);
+            return;
+        }
+
+        // ── Step 1: Check for updates ─────────────────────────────────────────
+        SetUpdateUI(checking: true);
+
+        var release = await UpdateService.GetLatestReleaseAsync();
+
+        if (release == null)
+        {
+            SetUpdateUI(checking: false);
+            await DisplayAlertAsync("Check Failed",
+                "Could not reach GitHub. Check your internet connection.", "OK");
+            return;
+        }
+
+        var installed = UpdateService.InstalledVersion;
+
+        if (!release.IsNewerThan(installed))
+        {
+            SetUpdateUI(checking: false);
+            UpdateStatusLabel.Text      = $"Up to date (v{installed})";
+            UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["TextMuted"];
+            UpdateActionLabel.Text      = "Check for Updates";
+            UpdateActionSub.Text        = "You have the latest version";
+            await DisplayAlertAsync("Up to Date",
+                $"You're already on the latest version (v{installed}).", "OK");
+            return;
+        }
+
+        // ── Step 2: Prompt to install ─────────────────────────────────────────
+        _pendingRelease = release;
+        SetUpdateUI(checking: false);
+
+        UpdateStatusLabel.Text      = $"⬆ v{release.Version} available";
+        UpdateStatusLabel.TextColor = (Color)Application.Current!.Resources["Success"];
+        UpdateActionLabel.Text      = "Install Update";
+        UpdateActionSub.Text        = $"v{release.Version} · {release.SizeMb:F1} MB";
+        UpdateActionIcon.Text       = "\uF090";
+        UpdateActionIcon.TextColor  = (Color)Application.Current.Resources["Success"];
+
+        bool confirm = await DisplayAlertAsync(
+            $"Update Available — v{release.Version}",
+            $"A new version is available.\n\n" +
+            $"Current: v{installed}\n" +
+            $"Latest:  v{release.Version}\n" +
+            $"Size:    {release.SizeMb:F1} MB\n\n" +
+            "Download and install now?",
+            "Install", "Later");
+
+        if (!confirm) return;
+
+        await StartInstallAsync(release);
+    }
+
+    private async Task StartInstallAsync(ReleaseInfo release)
+    {
+        _isUpdating = true;
+        UpdateChevron.IsVisible       = false;
+        UpdateProgressStack.IsVisible = true;
+        UpdateActionLabel.Text        = "Downloading...";
+        UpdateActionSub.Text          = $"v{release.Version} · {release.SizeMb:F1} MB";
+
+        try
+        {
+            var progress = new Progress<double>(p =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    UpdateProgressBar.Progress  = p;
+                    UpdateProgressLabel.Text    = $"{(int)(p * 100)}%";
+                    UpdateActionLabel.Text      = $"Downloading... {(int)(p * 100)}%";
+                });
+            });
+
+            await UpdateService.DownloadAndInstallAsync(release, progress,
+                log: msg => MainThread.BeginInvokeOnMainThread(
+                    () => UpdateActionSub.Text = msg));
+
+            // The system installer takes over from here.
+            // The app may be killed and reinstalled — nothing more to do.
+            UpdateActionLabel.Text = "Installer launched";
+            UpdateActionSub.Text   = "Follow the system prompt to complete installation";
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Download Failed", ex.Message, "OK");
+            UpdateActionLabel.Text = "Install Update";
+            UpdateActionSub.Text   = "Tap to retry";
+        }
+        finally
+        {
+            _isUpdating                   = false;
+            UpdateChevron.IsVisible       = true;
+            UpdateProgressStack.IsVisible = false;
+            UpdateProgressBar.Progress    = 0;
+        }
+    }
+
+    private void SetUpdateUI(bool checking)
+    {
+        UpdateActionLabel.Text = checking ? "Checking..." : "Check for Updates";
+        UpdateActionSub.Text   = checking ? "Contacting GitHub..." : "Tap to check GitHub releases";
+        UpdateChevron.IsVisible = !checking;
+    }
+
+    // ── Support ───────────────────────────────────────────────────────────────
 
     private async void OnBugReportTapped(object sender, TappedEventArgs e)
     {

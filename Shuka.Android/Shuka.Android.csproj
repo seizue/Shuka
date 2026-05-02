@@ -40,4 +40,10 @@
     <MauiImage Include="Resources\Images\lily.svg" />
   </ItemGroup>
 
+  <!-- Android platform resources -->
+  <ItemGroup>
+    <AndroidResource Include="Platforms\Android\Resources\xml\file_provider_paths.xml"
+                     SubType="Designer" />
+  </ItemGroup>
+
 </Project>
