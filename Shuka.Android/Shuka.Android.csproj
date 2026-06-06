@@ -49,12 +49,11 @@
   </ItemGroup>
 
   <!--
-    Signing — always sign with shuka.keystore (both Debug and Release).
-    For local development: set SHUKA_KEY_ALIAS / SHUKA_KEY_PASS / SHUKA_STORE_PASS
-    environment variables, or pass them on the command line.
-    CI: keystore is provided via GitHub secrets.
+    Signing — only sign with shuka.keystore when the file actually exists
+    (local dev with keystore present, or CI where it's written to disk).
+    Without the keystore the debug key is used automatically.
   -->
-  <PropertyGroup>
+  <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)..\shuka.keystore')">
     <AndroidKeyStore>true</AndroidKeyStore>
     <AndroidSigningKeyStore>$(MSBuildThisFileDirectory)..\shuka.keystore</AndroidSigningKeyStore>
     <AndroidSigningKeyAlias>$(SHUKA_KEY_ALIAS)</AndroidSigningKeyAlias>
