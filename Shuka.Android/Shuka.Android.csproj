@@ -48,18 +48,13 @@
     <AndroidResource Include="Platforms\Android\Resources\xml\file_provider_paths.xml" SubType="Designer" />
   </ItemGroup>
 
-  <!-- Debug: always use the auto-generated debug keystore, never require a real one -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <AndroidKeyStore>false</AndroidKeyStore>
-  </PropertyGroup>
-
   <!--
     Release signing — used by CI (keystore provided via GitHub secrets).
     For local development: place shuka.keystore in the repo root and set
     SHUKA_KEY_ALIAS / SHUKA_KEY_PASS / SHUKA_STORE_PASS environment variables,
     or pass them on the command line. Without the keystore the debug key is used.
   -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Release' And Exists('$(MSBuildThisFileDirectory)..\shuka.keystore')">
+ <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)..\shuka.keystore')">
     <AndroidSigningKeyStore>$(MSBuildThisFileDirectory)..\shuka.keystore</AndroidSigningKeyStore>
     <AndroidSigningKeyAlias>$(SHUKA_KEY_ALIAS)</AndroidSigningKeyAlias>
     <AndroidSigningKeyPass>$(SHUKA_KEY_PASS)</AndroidSigningKeyPass>
