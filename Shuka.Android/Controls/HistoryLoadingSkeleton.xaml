@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Shuka.Android.Controls.HistoryLoadingSkeleton">
+
+    <ContentView.Resources>
+        <ResourceDictionary>
+            <!-- Shimmer animation for skeleton loading -->
+            <Style x:Key="SkeletonStyle" TargetType="Border">
+                <Setter Property="BackgroundColor" Value="{DynamicResource BgInput}" />
+                <Setter Property="StrokeThickness" Value="0" />
+                <Setter Property="StrokeShape" Value="RoundRectangle 8" />
+            </Style>
+        </ResourceDictionary>
+    </ContentView.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout x:Name="SkeletonContainer" Spacing="8" Padding="12,12,12,92">
+            
+            <!-- History Card Skeleton 1 -->
+            <Border Style="{StaticResource SkeletonStyle}" 
+                    HeightRequest="106" 
+                    StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="60,*,40" ColumnSpacing="14" Padding="12">
+                    <!-- Cover placeholder -->
+                    <Border Grid.Column="0" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="60" 
+                            HeightRequest="90"
+                            StrokeShape="RoundRectangle 8"
+                            Opacity="0.7" />
+                    
+                    <!-- Text content placeholder -->
+                    <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="18" 
+                                WidthRequest="180"
+                                Opacity="0.6" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="14" 
+                                WidthRequest="120"
+                                Opacity="0.5" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="160"
+                                Opacity="0.4" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="100"
+                                Opacity="0.4" />
+                    </VerticalStackLayout>
+                    
+                    <!-- More button placeholder -->
+                    <Border Grid.Column="2" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="24" 
+                            HeightRequest="24"
+                            StrokeShape="Ellipse"
+                            VerticalOptions="Center"
+                            Opacity="0.5" />
+                </Grid>
+            </Border>
+
+            <!-- History Card Skeleton 2 -->
+            <Border Style="{StaticResource SkeletonStyle}" 
+                    HeightRequest="106" 
+                    StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="60,*,40" ColumnSpacing="14" Padding="12">
+                    <Border Grid.Column="0" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="60" 
+                            HeightRequest="90"
+                            StrokeShape="RoundRectangle 8"
+                            Opacity="0.7" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="18" 
+                                WidthRequest="200"
+                                Opacity="0.6" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="14" 
+                                WidthRequest="140"
+                                Opacity="0.5" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="150"
+                                Opacity="0.4" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="110"
+                                Opacity="0.4" />
+                    </VerticalStackLayout>
+                    <Border Grid.Column="2" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="24" 
+                            HeightRequest="24"
+                            StrokeShape="Ellipse"
+                            VerticalOptions="Center"
+                            Opacity="0.5" />
+                </Grid>
+            </Border>
+
+            <!-- History Card Skeleton 3 -->
+            <Border Style="{StaticResource SkeletonStyle}" 
+                    HeightRequest="106" 
+                    StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="60,*,40" ColumnSpacing="14" Padding="12">
+                    <Border Grid.Column="0" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="60" 
+                            HeightRequest="90"
+                            StrokeShape="RoundRectangle 8"
+                            Opacity="0.7" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="18" 
+                                WidthRequest="160"
+                                Opacity="0.6" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="14" 
+                                WidthRequest="100"
+                                Opacity="0.5" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="170"
+                                Opacity="0.4" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="120"
+                                Opacity="0.4" />
+                    </VerticalStackLayout>
+                    <Border Grid.Column="2" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="24" 
+                            HeightRequest="24"
+                            StrokeShape="Ellipse"
+                            VerticalOptions="Center"
+                            Opacity="0.5" />
+                </Grid>
+            </Border>
+
+            <!-- History Card Skeleton 4 -->
+            <Border Style="{StaticResource SkeletonStyle}" 
+                    HeightRequest="106" 
+                    StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="60,*,40" ColumnSpacing="14" Padding="12">
+                    <Border Grid.Column="0" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="60" 
+                            HeightRequest="90"
+                            StrokeShape="RoundRectangle 8"
+                            Opacity="0.7" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="18" 
+                                WidthRequest="190"
+                                Opacity="0.6" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="14" 
+                                WidthRequest="130"
+                                Opacity="0.5" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="155"
+                                Opacity="0.4" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="105"
+                                Opacity="0.4" />
+                    </VerticalStackLayout>
+                    <Border Grid.Column="2" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="24" 
+                            HeightRequest="24"
+                            StrokeShape="Ellipse"
+                            VerticalOptions="Center"
+                            Opacity="0.5" />
+                </Grid>
+            </Border>
+
+            <!-- History Card Skeleton 5 -->
+            <Border Style="{StaticResource SkeletonStyle}" 
+                    HeightRequest="106" 
+                    StrokeShape="RoundRectangle 20">
+                <Grid ColumnDefinitions="60,*,40" ColumnSpacing="14" Padding="12">
+                    <Border Grid.Column="0" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="60" 
+                            HeightRequest="90"
+                            StrokeShape="RoundRectangle 8"
+                            Opacity="0.7" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="18" 
+                                WidthRequest="170"
+                                Opacity="0.6" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="14" 
+                                WidthRequest="110"
+                                Opacity="0.5" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="165"
+                                Opacity="0.4" />
+                        <Border Style="{StaticResource SkeletonStyle}" 
+                                HeightRequest="12" 
+                                WidthRequest="115"
+                                Opacity="0.4" />
+                    </VerticalStackLayout>
+                    <Border Grid.Column="2" 
+                            Style="{StaticResource SkeletonStyle}"
+                            WidthRequest="24" 
+                            HeightRequest="24"
+                            StrokeShape="Ellipse"
+                            VerticalOptions="Center"
+                            Opacity="0.5" />
+                </Grid>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentView>

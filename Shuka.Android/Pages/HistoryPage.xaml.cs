@@ -8,6 +8,7 @@ namespace Shuka.Android.Pages;
 public partial class HistoryPage : ContentPage
 {
     private const string PrefKeyViewMode = "history_view_mode";
+    private const int ItemsPerBatch = 20; // Load 20 items per scroll batch for infinite loading
 
     private readonly Dictionary<Guid, HistoryCard> _cards = new();
     private string _searchQuery = "";
@@ -21,6 +22,12 @@ public partial class HistoryPage : ContentPage
     private bool _isCompactView;
     private double _lastWidth = -1;
 
+    // Pagination state
+    private bool _isLoading = false;
+    private int _currentLoadedCount = 0;
+    private List<HistoryEntry> _filteredAndSortedEntries = new();
+    private CancellationTokenSource? _searchDebounceTokenSource;
+
     public HistoryPage()
     {
         InitializeComponent();
@@ -29,11 +36,21 @@ public partial class HistoryPage : ContentPage
         _isCompactView = Preferences.Default.Get(PrefKeyViewMode, false);
         RefreshToggleViewPill();
 
-        RebuildCards();
-
         RefreshSortPills();
-        ApplyFilter();
-        UpdateCountLabel();
+        
+        // Setup scroll view listeners for pagination
+        ListScroll.Scrolled += OnScrolled;
+        GridScroll.Scrolled += OnScrolled;
+        
+        // Show loading skeleton initially
+        ShowLoadingSkeleton();
+        
+        // Load initial batch
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await Task.Delay(100); // Brief delay for smooth animation
+            await LoadInitialBatch();
+        });
     }
 
     protected override async void OnAppearing()
@@ -51,22 +68,140 @@ public partial class HistoryPage : ContentPage
         await Task.CompletedTask;
     }
 
+    // ── Loading & Pagination ──────────────────────────────────────────────────
+
+    private void ShowLoadingSkeleton()
+    {
+        LoadingSkeletonView.IsVisible = true;
+        ListScroll.IsVisible = false;
+        GridScroll.IsVisible = false;
+        EmptyState.IsVisible = false;
+        NoResultsState.IsVisible = false;
+    }
+
+    private async Task HideLoadingSkeleton()
+    {
+        if (LoadingSkeletonView.IsVisible)
+        {
+            await LoadingSkeletonView.FadeOut();
+        }
+    }
+
+    private async Task LoadInitialBatch()
+    {
+        if (_isLoading) return;
+
+        _isLoading = true;
+        _currentLoadedCount = 0;
+
+        try
+        {
+            // Get sorted and filtered entries
+            var sorted = GetSortedEntries();
+            var filtered = string.IsNullOrEmpty(_searchQuery)
+                ? sorted
+                : sorted.Where(e =>
+                    e.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    e.Author.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+
+            _filteredAndSortedEntries = filtered.ToList();
+
+            // Build cards for first batch (infinite loading starts here)
+            int itemsToLoad = Math.Min(ItemsPerBatch, _filteredAndSortedEntries.Count);
+            for (int i = 0; i < itemsToLoad; i++)
+            {
+                var entry = _filteredAndSortedEntries[i];
+                if (!_cards.ContainsKey(entry.Id))
+                {
+                    var card = BuildCard(entry);
+                    _cards[entry.Id] = card;
+                }
+            }
+
+            _currentLoadedCount = itemsToLoad;
+
+            // Hide skeleton and show results
+            await HideLoadingSkeleton();
+            UpdateCountLabel();
+            RenderCurrentBatch();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadMoreItems()
+    {
+        if (_isLoading || _currentLoadedCount >= _filteredAndSortedEntries.Count)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            // Infinite loading: load next batch as user scrolls
+            int itemsToLoad = Math.Min(ItemsPerBatch, _filteredAndSortedEntries.Count - _currentLoadedCount);
+            int startIndex = _currentLoadedCount;
+
+            // Create cards in smaller chunks to avoid UI thread blocking
+            for (int i = 0; i < itemsToLoad; i++)
+            {
+                var entry = _filteredAndSortedEntries[startIndex + i];
+                if (!_cards.ContainsKey(entry.Id))
+                {
+                    var card = BuildCard(entry);
+                    _cards[entry.Id] = card;
+                }
+                
+                // Yield to UI thread every 5 items to prevent blocking
+                if ((i + 1) % 5 == 0)
+                {
+                    await Task.Delay(1);
+                }
+            }
+
+            _currentLoadedCount += itemsToLoad;
+            
+            // Add new items to the view
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                RenderCurrentBatch();
+            });
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void OnScrolled(object? sender, ScrolledEventArgs e)
+    {
+        if (_isLoading || _currentLoadedCount >= _filteredAndSortedEntries.Count)
+            return;
+
+        var scrollView = sender as ScrollView;
+        if (scrollView == null) return;
+
+        // Calculate if we're near the bottom
+        double scrollingSpace = scrollView.ContentSize.Height - scrollView.Height;
+        double threshold = scrollingSpace * 0.8; // Load when 80% scrolled
+
+        if (e.ScrollY >= threshold)
+        {
+            _ = LoadMoreItems();
+        }
+    }
+
     // ── Collection changes ────────────────────────────────────────────────────
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            if (e.NewItems != null)
-                foreach (HistoryEntry entry in e.NewItems)
-                    await AddCardWithAnimationAsync(entry);
-
-            if (e.OldItems != null)
-                foreach (HistoryEntry entry in e.OldItems)
-                    await RemoveCardWithAnimationAsync(entry);
-
-            ApplyFilter();
-            UpdateCountLabel();
+            // Reload from scratch when collection changes
+            _cards.Clear();
+            await LoadInitialBatch();
         });
     }
 
@@ -75,35 +210,6 @@ public partial class HistoryPage : ContentPage
         if (_cards.ContainsKey(entry.Id)) return;
         var card = BuildCard(entry);
         _cards[entry.Id] = card;
-
-        ApplyFilter();
-    }
-
-    private async Task AddCardWithAnimationAsync(HistoryEntry entry)
-    {
-        if (_cards.ContainsKey(entry.Id)) return;
-        var card = BuildCard(entry);
-        card.Opacity = 0;
-        card.TranslationY = -20;
-        card.Scale = 0.95;
-        _cards[entry.Id] = card;
-
-        ApplyFilter();
-
-        await Task.WhenAll(
-            card.FadeToAsync(1.0, 350, Easing.CubicOut),
-            card.TranslateToAsync(0, 0, 350, Easing.CubicOut),
-            card.ScaleToAsync(1.0, 350, Easing.CubicOut));
-    }
-
-    private async Task RemoveCardWithAnimationAsync(HistoryEntry entry)
-    {
-        if (!_cards.TryGetValue(entry.Id, out var card)) return;
-        await Task.WhenAll(
-            card.FadeToAsync(0, 250, Easing.CubicIn),
-            card.ScaleToAsync(0.9, 250, Easing.CubicIn));
-        _cards.Remove(entry.Id);
-        ApplyFilter();
     }
 
     private HistoryCard BuildCard(HistoryEntry entry)
@@ -116,7 +222,7 @@ public partial class HistoryPage : ContentPage
 
     // ── Sort ──────────────────────────────────────────────────────────────────
 
-    private void OnSortDateTapped(object sender, TappedEventArgs e)
+    private async void OnSortDateTapped(object sender, TappedEventArgs e)
     {
         if (_sortField == SortField.Date)
             _sortAscending = !_sortAscending;
@@ -126,10 +232,11 @@ public partial class HistoryPage : ContentPage
             _sortAscending = false; // newest first by default
         }
         RefreshSortPills();
-        ApplyFilter();
+        ShowLoadingSkeleton();
+        await LoadInitialBatch();
     }
 
-    private void OnSortTitleTapped(object sender, TappedEventArgs e)
+    private async void OnSortTitleTapped(object sender, TappedEventArgs e)
     {
         if (_sortField == SortField.Title)
             _sortAscending = !_sortAscending;
@@ -139,10 +246,11 @@ public partial class HistoryPage : ContentPage
             _sortAscending = true; // A→Z by default
         }
         RefreshSortPills();
-        ApplyFilter();
+        ShowLoadingSkeleton();
+        await LoadInitialBatch();
     }
 
-    private void OnSortAuthorTapped(object sender, TappedEventArgs e)
+    private async void OnSortAuthorTapped(object sender, TappedEventArgs e)
     {
         if (_sortField == SortField.Author)
             _sortAscending = !_sortAscending;
@@ -152,7 +260,8 @@ public partial class HistoryPage : ContentPage
             _sortAscending = true; // A→Z by default
         }
         RefreshSortPills();
-        ApplyFilter();
+        ShowLoadingSkeleton();
+        await LoadInitialBatch();
     }
 
     private void RefreshSortPills()
@@ -188,24 +297,49 @@ public partial class HistoryPage : ContentPage
 
     // ── Search ────────────────────────────────────────────────────────────────
 
-    private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+    private async void OnSearchTextChanged(object sender, TextChangedEventArgs e)
     {
         _searchQuery = e.NewTextValue?.Trim() ?? "";
         ClearSearchBtn.IsVisible = !string.IsNullOrEmpty(_searchQuery);
-        ApplyFilter();
+        
+        // Cancel any pending search
+        _searchDebounceTokenSource?.Cancel();
+        _searchDebounceTokenSource = new CancellationTokenSource();
+        var token = _searchDebounceTokenSource.Token;
+        
+        try
+        {
+            // Debounce search for 300ms
+            await Task.Delay(300, token);
+            
+            if (!token.IsCancellationRequested)
+            {
+                ShowLoadingSkeleton();
+                await LoadInitialBatch();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Search was cancelled, ignore
+        }
     }
 
-    private void OnClearSearchTapped(object sender, TappedEventArgs e)
+    private async void OnClearSearchTapped(object sender, TappedEventArgs e)
     {
-        SearchEntry.Text = "";
         _searchQuery = "";
+        SearchEntry.Text = "";
         ClearSearchBtn.IsVisible = false;
-        ApplyFilter();
+        
+        // Cancel any pending search
+        _searchDebounceTokenSource?.Cancel();
+        
+        ShowLoadingSkeleton();
+        await LoadInitialBatch();
     }
 
     // ── Filter + Sort ─────────────────────────────────────────────────────────
 
-    private void ApplyFilter()
+    private void RenderCurrentBatch()
     {
         bool hasEntries  = HistoryService.Instance.Entries.Count > 0;
         bool isSearching = !string.IsNullOrEmpty(_searchQuery);
@@ -216,17 +350,9 @@ public partial class HistoryPage : ContentPage
             NoResultsState.IsVisible = false;
             ListScroll.IsVisible     = false;
             GridScroll.IsVisible     = false;
+            LoadingSkeletonView.IsVisible = false;
             return;
         }
-
-        // Get sorted + filtered entries
-        var sorted = GetSortedEntries();
-        var filtered = isSearching
-            ? sorted.Where(e =>
-                e.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                e.Author.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
-              .ToList()
-            : sorted;
 
         double width = _lastWidth;
         if (width <= 0)
@@ -242,46 +368,59 @@ public partial class HistoryPage : ContentPage
             cardHeight = cardWidth * 1.5;
         }
 
-        // Rebuild card order in CardList and CardGrid to match sorted order
-        CardList.Clear();
-        CardGrid.Children.Clear();
-        CardGrid.RowDefinitions.Clear();
-
-        int index = 0;
-        foreach (var entry in filtered)
+        // Use BeginUpdate/EndUpdate pattern for better performance
+        try
         {
-            if (_cards.TryGetValue(entry.Id, out var card))
+            // Clear and rebuild - but only for items we've loaded so far
+            CardList.Clear();
+            CardGrid.Children.Clear();
+            CardGrid.RowDefinitions.Clear();
+
+            int index = 0;
+            int itemsToRender = Math.Min(_currentLoadedCount, _filteredAndSortedEntries.Count);
+            
+            // Batch add items for better performance
+            for (int i = 0; i < itemsToRender; i++)
             {
-                if (_isCompactView)
+                var entry = _filteredAndSortedEntries[i];
+                if (_cards.TryGetValue(entry.Id, out var card))
                 {
-                    card.WidthRequest = cardWidth;
-                    card.HeightRequest = cardHeight;
-
-                    int row = index / 4;
-                    int col = index % 4;
-
-                    if (col == 0)
+                    if (_isCompactView)
                     {
-                        CardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                    }
+                        card.WidthRequest = cardWidth;
+                        card.HeightRequest = cardHeight;
 
-                    Grid.SetColumn(card, col);
-                    Grid.SetRow(card, row);
-                    CardGrid.Children.Add(card);
+                        int row = index / 4;
+                        int col = index % 4;
+
+                        if (col == 0)
+                        {
+                            CardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        }
+
+                        Grid.SetColumn(card, col);
+                        Grid.SetRow(card, row);
+                        CardGrid.Children.Add(card);
+                    }
+                    else
+                    {
+                        card.WidthRequest = -1;
+                        card.HeightRequest = -1;
+                        CardList.Add(card);
+                    }
+                    index++;
                 }
-                else
-                {
-                    card.WidthRequest = -1;
-                    card.HeightRequest = -1;
-                    CardList.Add(card);
-                }
-                index++;
             }
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] RenderCurrentBatch error: {ex.Message}");
+        }
 
-        int visibleCount = filtered.Count();
+        int visibleCount = _filteredAndSortedEntries.Count;
 
         EmptyState.IsVisible     = false;
+        LoadingSkeletonView.IsVisible = false;
         ListScroll.IsVisible     = visibleCount > 0 && !_isCompactView;
         GridScroll.IsVisible     = visibleCount > 0 && _isCompactView;
         NoResultsState.IsVisible = visibleCount == 0;
@@ -304,8 +443,6 @@ public partial class HistoryPage : ContentPage
             _                         => entries.OrderByDescending(e => e.CompletedAt),
         };
     }
-
-    private void RefreshEmptyState() => ApplyFilter();
 
     private void UpdateCountLabel()
     {
@@ -334,6 +471,11 @@ public partial class HistoryPage : ContentPage
         {
             SearchEntry.Text = "";
             await HistoryService.Instance.ClearAllAsync();
+            _cards.Clear();
+            _currentLoadedCount = 0;
+            _filteredAndSortedEntries.Clear();
+            RenderCurrentBatch();
+            UpdateCountLabel();
         }
     }
 
@@ -563,18 +705,18 @@ public partial class HistoryPage : ContentPage
         if (width > 0 && Math.Abs(_lastWidth - width) > 0.1)
         {
             _lastWidth = width;
-            ApplyFilter();
+            RenderCurrentBatch();
         }
     }
 
     private void RebuildCards()
     {
         _cards.Clear();
-        foreach (var entry in HistoryService.Instance.Entries)
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
-            var card = BuildCard(entry);
-            _cards[entry.Id] = card;
-        }
+            ShowLoadingSkeleton();
+            await LoadInitialBatch();
+        });
     }
 
     private void RefreshToggleViewPill()
@@ -610,6 +752,5 @@ public partial class HistoryPage : ContentPage
 
         RefreshToggleViewPill();
         RebuildCards();
-        ApplyFilter();
     }
 }

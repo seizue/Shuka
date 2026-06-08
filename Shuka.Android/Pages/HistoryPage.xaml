@@ -223,6 +223,10 @@
         <!-- ── Body ─────────────────────────────────────────── -->
         <Grid Grid.Row="3" x:Name="BodyGrid">
 
+            <!-- Loading Skeleton -->
+            <controls:HistoryLoadingSkeleton x:Name="LoadingSkeletonView" 
+                                            IsVisible="False" />
+
             <!-- Empty state (no novels at all) -->
             <VerticalStackLayout x:Name="EmptyState"
                                  Spacing="14"
