@@ -21,6 +21,8 @@ namespace Shuka.Android;
 public class MainActivity : MauiAppCompatActivity
 {
     public static MainActivity? Instance { get; private set; }
+    public static bool PendingNavigationToDownloads = false;
+    private int _navigationRetryCount = 0;
     private int _persistentTabBarHeightPx;
     private int _systemNavBarInsetPx;
     private float _swipeStartX;
@@ -153,6 +155,7 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         Instance = this;
+        HandleNotificationIntent(Intent);
 
 #if DEBUG
         // Enable WebView debugging for logcat output
@@ -193,6 +196,66 @@ public class MainActivity : MauiAppCompatActivity
         // This places it completely outside the MAUI/Shell/fragment hierarchy
         // so it is never affected by page transition animations.
         AddPersistentTabBar();
+    }
+
+    protected override void OnNewIntent(Intent? intent)
+    {
+        base.OnNewIntent(intent);
+        HandleNotificationIntent(intent);
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        TriggerPendingNavigationIfAny();
+    }
+
+    private void HandleNotificationIntent(Intent? intent)
+    {
+        if (intent != null && intent.GetStringExtra("navigate_to") == "DownloadsPage")
+        {
+            intent.RemoveExtra("navigate_to"); // Avoid re-navigating on config changes/recreation
+            PendingNavigationToDownloads = true;
+            TriggerPendingNavigationIfAny();
+        }
+    }
+
+    private void TriggerPendingNavigationIfAny()
+    {
+        if (PendingNavigationToDownloads)
+        {
+            if (Shell.Current != null)
+            {
+                PendingNavigationToDownloads = false;
+                _navigationRetryCount = 0;
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    try
+                    {
+                        Controls.CustomTabBar.SetActive(1);
+                        await Shell.Current.GoToAsync("//DownloadsPage");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainActivity] Pending navigation failed: {ex.Message}");
+                    }
+                });
+            }
+            else if (_navigationRetryCount < 30) // Up to 3 seconds retry
+            {
+                _navigationRetryCount++;
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await Task.Delay(100);
+                    TriggerPendingNavigationIfAny();
+                });
+            }
+            else
+            {
+                PendingNavigationToDownloads = false;
+                _navigationRetryCount = 0;
+            }
+        }
     }
 
     private global::Android.Views.View? _persistentTabBar;
