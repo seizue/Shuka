@@ -357,6 +357,56 @@
                             </Border.GestureRecognizers>
                         </Border>
 
+                        <!-- Pause Download Option -->
+                        <Border x:Name="OptionsSheetPauseBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE034;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Pause Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetPauseTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Resume Download Option -->
+                        <Border x:Name="OptionsSheetResumeBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE037;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Resume Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetResumeTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Cancel Download Option -->
                         <Border x:Name="OptionsSheetCancelBtn"
                                 BackgroundColor="{DynamicResource BgInput}"

@@ -64,7 +64,7 @@ public class HistoryService
     /// </summary>
     public async Task AddAsync(DownloadItem item)
     {
-        if (item.Status != DownloadStatus.Done) return;
+        if (item.Status != DownloadStatus.Completed) return;
 
         // Don't add duplicates
         if (Entries.Any(e => e.Url == item.Url && e.EpubPath == item.EpubPath))

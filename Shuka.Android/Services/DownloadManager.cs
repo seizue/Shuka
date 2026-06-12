@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using Shuka.Core;
 using Shuka.Android.Platform;
 #if ANDROID
@@ -23,7 +25,102 @@ public class DownloadManager
     // Max 2 novels downloading/translating at the same time
     private static readonly SemaphoreSlim _downloadSem = new(2, 2);
 
-    private DownloadManager() { }
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private bool _savePending;
+
+    private DownloadManager()
+    {
+        Downloads.CollectionChanged += (s, e) =>
+        {
+            if (e.OldItems != null)
+            {
+                foreach (DownloadItem item in e.OldItems)
+                    item.PropertyChanged -= OnItemPropertyChanged;
+            }
+            if (e.NewItems != null)
+            {
+                foreach (DownloadItem item in e.NewItems)
+                    RegisterItemChange(item);
+            }
+            _ = SaveQueueAsync();
+        };
+
+        _ = LoadQueueAsync();
+    }
+
+    public async Task SaveQueueAsync()
+    {
+        if (_savePending) return;
+        _savePending = true;
+        // Debounce to avoid rapid-fire writes on progress updates
+        await Task.Delay(500);
+        _savePending = false;
+
+        await _saveLock.WaitAsync();
+        try
+        {
+            var list = Downloads.ToList();
+            string json = JsonSerializer.Serialize(list);
+            string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
+            await File.WriteAllTextAsync(path, json);
+        }
+        catch { }
+        finally { _saveLock.Release(); }
+    }
+
+    private void RegisterItemChange(DownloadItem item)
+    {
+        item.PropertyChanged -= OnItemPropertyChanged;
+        item.PropertyChanged += OnItemPropertyChanged;
+    }
+
+    private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(DownloadItem.Status) or 
+                              nameof(DownloadItem.Progress) or 
+                              nameof(DownloadItem.Title) or 
+                              nameof(DownloadItem.Author) or 
+                              nameof(DownloadItem.EpubPath) or 
+                              nameof(DownloadItem.LogText))
+        {
+            _ = SaveQueueAsync();
+        }
+    }
+
+    private async Task LoadQueueAsync()
+    {
+        try
+        {
+            string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
+            if (!File.Exists(path)) return;
+
+            string json = await File.ReadAllTextAsync(path);
+            var list = JsonSerializer.Deserialize<List<DownloadItem>>(json);
+            if (list == null) return;
+
+            // Load items on the main thread to ensure CollectionChanged triggers and UI updates properly
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                foreach (var item in list)
+                {
+                    item.Cts = new CancellationTokenSource();
+                    Downloads.Add(item);
+                }
+
+                // Auto-recover active/interrupted downloads
+                foreach (var item in list)
+                {
+                    if (item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming or DownloadStatus.Pending)
+                    {
+                        item.Status = DownloadStatus.Pending;
+                        item.StatusText = "Queued — waiting for slot...";
+                        _ = RunAsync(item);
+                    }
+                }
+            });
+        }
+        catch { }
+    }
 
     /// <summary>
     /// Enqueue a new download.
@@ -41,6 +138,7 @@ public class DownloadManager
             CoverUrl     = coverUrl ?? "",
             ChapterFrom  = chapterFrom,
             Translate    = shouldTranslate,
+            Status       = DownloadStatus.Pending
         };
 
         MainThread.BeginInvokeOnMainThread(() => Downloads.Insert(0, item));
@@ -68,6 +166,35 @@ public class DownloadManager
             item.Cts.Cancel();
     }
 
+    /// <summary>Pause a running/queued download.</summary>
+    public void Pause(DownloadItem item)
+    {
+        if (item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                item.StatusText = "Paused";
+                item.Status     = DownloadStatus.Paused;
+            });
+            item.Cts.Cancel();
+        }
+    }
+
+    /// <summary>Resume a paused, failed, or cancelled download.</summary>
+    public void Resume(DownloadItem item)
+    {
+        if (item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                item.Cts = new CancellationTokenSource();
+                item.StatusText = "Queued — waiting for slot...";
+                item.Status     = DownloadStatus.Pending;
+                _ = RunAsync(item);
+            });
+        }
+    }
+
     /// <summary>Remove all finished (done/cancelled/failed) items from the list.</summary>
     public void ClearHistory()
     {
@@ -83,11 +210,8 @@ public class DownloadManager
     public DownloadItem? Retry(DownloadItem failed)
     {
         if (!failed.IsFailed && !failed.IsCancelled) return null;
-
-        MainThread.BeginInvokeOnMainThread(() => Downloads.Remove(failed));
-
-        // Re-enqueue with the same URL — RunAsync will find the checkpoint automatically
-        return Enqueue(failed.Url, failed.Chapters, failed.CoverUrl, failed.ChapterFrom, failed.Translate);
+        Resume(failed);
+        return failed;
     }
 
     /// <summary>Dismiss a failed or cancelled item from the list without retrying.</summary>
@@ -120,8 +244,15 @@ public class DownloadManager
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                item.StatusText = "Cancelled";
-                item.Status     = DownloadStatus.Cancelled;
+                if (item.Status == DownloadStatus.Paused)
+                {
+                    item.StatusText = "Paused";
+                }
+                else
+                {
+                    item.StatusText = "Cancelled";
+                    item.Status     = DownloadStatus.Cancelled;
+                }
             });
             return;
         }
@@ -133,7 +264,7 @@ public class DownloadManager
         string tempPath = "";
         try
         {
-            item.Status     = DownloadStatus.Running;
+            item.Status     = DownloadStatus.Downloading;
             item.StatusText = "Gathering book info...";
 
             var service = new BookService(new WebViewCloudflareBypass());
@@ -217,7 +348,7 @@ public class DownloadManager
                 item.EpubPath   = finalPath;
                 item.Progress   = 1.0;
                 item.StatusText = "Done";
-                item.Status     = DownloadStatus.Done;
+                item.Status     = DownloadStatus.Completed;
             });
 
             // Save to persistent history (cover cached locally)
@@ -229,11 +360,19 @@ public class DownloadManager
         }
         catch (OperationCanceledException)
         {
-            Log("Download cancelled.");
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                item.StatusText = "Cancelled";
-                item.Status     = DownloadStatus.Cancelled;
+                if (item.Status == DownloadStatus.Paused)
+                {
+                    Log("Download paused.");
+                    item.StatusText = "Paused";
+                }
+                else
+                {
+                    Log("Download cancelled.");
+                    item.StatusText = "Cancelled";
+                    item.Status     = DownloadStatus.Cancelled;
+                }
             });
         }
         catch (Shuka.Core.CloudflareExpiredException ex)

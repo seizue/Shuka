@@ -2295,7 +2295,7 @@ public partial class WebBrowsePage : ContentPage
             string title = string.IsNullOrWhiteSpace(existing.Title) || existing.Title == "Loading..."
                 ? "this novel" : $"\"{existing.Title}\"";
 
-            bool alreadyActive = existing.Status is DownloadStatus.Running or DownloadStatus.Queued;
+            bool alreadyActive = existing.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming or DownloadStatus.Paused;
             string message = alreadyActive
                 ? $"Already downloading {title}."
                 : $"{title} was already downloaded.";

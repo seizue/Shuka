@@ -442,8 +442,14 @@ public partial class DownloadsPage : ContentPage
         _activeOptionsItem = item;
         OptionsSheetSubtitle.Text = item.Title;
 
-        // Cancel option is only visible/enabled if the item is running/queued
-        OptionsSheetCancelBtn.IsVisible = item.IsRunning;
+        // Cancel option is visible if the item is not Completed
+        OptionsSheetCancelBtn.IsVisible = item.Status != DownloadStatus.Completed;
+
+        // Pause option is visible if the item is active (Downloading/Pending/Resuming)
+        OptionsSheetPauseBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming;
+
+        // Resume option is visible if the item is Paused, Failed, or Cancelled
+        OptionsSheetResumeBtn.IsVisible = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
 
         // Copy options are only visible if original title/author have been resolved
         OptionsSheetCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalTitle);
@@ -533,6 +539,22 @@ public partial class DownloadsPage : ContentPage
         var item = _activeOptionsItem;
         await HideOptionsSheetAsync();
         DownloadManager.Instance.Cancel(item);
+    }
+
+    private async void OnOptionsSheetPauseTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        DownloadManager.Instance.Pause(item);
+    }
+
+    private async void OnOptionsSheetResumeTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        DownloadManager.Instance.Resume(item);
     }
 
     private void UpdateSheetBottomMargins()

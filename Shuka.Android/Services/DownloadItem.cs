@@ -1,14 +1,17 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace Shuka.Android.Services;
 
 public enum DownloadStatus
 {
-    Queued,
-    Running,
-    Done,
-    Cancelled,
-    Failed
+    Pending,
+    Downloading,
+    Paused,
+    Resuming,
+    Failed,
+    Completed,
+    Cancelled
 }
 
 /// <summary>
@@ -18,17 +21,17 @@ public class DownloadItem : INotifyPropertyChanged
 {
     private string _statusText  = "Queued";
     private double _progress    = 0;
-    private DownloadStatus _status = DownloadStatus.Queued;
+    private DownloadStatus _status = DownloadStatus.Pending;
     private string? _epubPath;
     private string _logText = "";
 
-    public Guid   Id         { get; } = Guid.NewGuid();
-    public string Url        { get; init; } = "";
-    public string CoverUrl   { get; init; } = "";
-    public int    Chapters   { get; init; }
+    public Guid   Id         { get; set; } = Guid.NewGuid();
+    public string Url        { get; set; } = "";
+    public string CoverUrl   { get; set; } = "";
+    public int    Chapters   { get; set; }
     /// <summary>1-based start chapter. 0 = from the beginning.</summary>
-    public int    ChapterFrom { get; init; } = 0;
-    public bool   Translate   { get; init; } = true;
+    public int    ChapterFrom { get; set; } = 0;
+    public bool   Translate   { get; set; } = true;
 
     // Resolved after GatherBookInfo
     public string Title  { get; set; } = "Loading...";
@@ -50,6 +53,7 @@ public class DownloadItem : INotifyPropertyChanged
         set { _progress = value; OnPropertyChanged(); OnPropertyChanged(nameof(ProgressPct)); }
     }
 
+    [JsonIgnore]
     public string ProgressPct => $"{(int)(_progress * 100)}%";
 
     public DownloadStatus Status
@@ -81,32 +85,45 @@ public class DownloadItem : INotifyPropertyChanged
         set { _logText = value; OnPropertyChanged(); }
     }
 
-    public bool IsRunning   => Status == DownloadStatus.Running || Status == DownloadStatus.Queued;
-    public bool IsDone      => Status == DownloadStatus.Done;
+    [JsonIgnore]
+    public bool IsRunning   => Status == DownloadStatus.Downloading || Status == DownloadStatus.Pending || Status == DownloadStatus.Resuming;
+    [JsonIgnore]
+    public bool IsDone      => Status == DownloadStatus.Completed;
+    [JsonIgnore]
     public bool IsFailed    => Status == DownloadStatus.Failed;
+    [JsonIgnore]
     public bool IsCancelled => Status == DownloadStatus.Cancelled;
-    public bool IsFinished  => Status is DownloadStatus.Done or DownloadStatus.Cancelled or DownloadStatus.Failed;
-    public bool HasEpub     => Status == DownloadStatus.Done && !string.IsNullOrEmpty(EpubPath);
+    [JsonIgnore]
+    public bool IsFinished  => Status is DownloadStatus.Completed or DownloadStatus.Cancelled or DownloadStatus.Failed or DownloadStatus.Paused;
+    [JsonIgnore]
+    public bool HasEpub     => Status == DownloadStatus.Completed && !string.IsNullOrEmpty(EpubPath);
 
+    [JsonIgnore]
     public Color StatusColor => Status switch
     {
-        DownloadStatus.Done      => Color.FromArgb("#30D158"),
+        DownloadStatus.Completed => Color.FromArgb("#30D158"),
         DownloadStatus.Failed    => Color.FromArgb("#FF453A"),
         DownloadStatus.Cancelled => Color.FromArgb("#FFD60A"),
-        DownloadStatus.Running   => Color.FromArgb("#8B5E5F"),
-        _                        => Color.FromArgb("#636366")
+        DownloadStatus.Downloading => Color.FromArgb("#8B5E5F"),
+        DownloadStatus.Resuming => Color.FromArgb("#FF9500"),
+        DownloadStatus.Paused => Color.FromArgb("#8E8E93"),
+        _                        => Color.FromArgb("#636366") // Pending
     };
 
+    [JsonIgnore]
     public string StatusIcon => Status switch
     {
-        DownloadStatus.Done      => "\uE876", // check
+        DownloadStatus.Completed => "\uE876", // check
         DownloadStatus.Failed    => "\uE5CD", // close
         DownloadStatus.Cancelled => "\uE5C9", // cancel
-        DownloadStatus.Running   => "\uE2C4", // downloading
-        _                        => "\uE8B6"  // schedule
+        DownloadStatus.Downloading => "\uE2C4", // downloading
+        DownloadStatus.Resuming => "\uE8BA", // restore/resume
+        DownloadStatus.Paused => "\uE034", // pause
+        _                        => "\uE8B6"  // schedule (Pending)
     };
 
-    public CancellationTokenSource Cts { get; } = new();
+    [JsonIgnore]
+    public CancellationTokenSource Cts { get; set; } = new();
 
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? name = null)

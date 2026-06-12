@@ -2191,15 +2191,17 @@ public partial class MainPage : ContentPage
 
         switch (existing.Status)
         {
-            case DownloadStatus.Running:
-            case DownloadStatus.Queued:
+            case DownloadStatus.Downloading:
+            case DownloadStatus.Pending:
+            case DownloadStatus.Resuming:
+            case DownloadStatus.Paused:
                 {
                     string? choice = await DisplayActionSheetAsync($"Already downloading {title}", "Cancel", null,
                         "Go to Downloads tab", "Download again anyway");
                     if (choice == "Go to Downloads tab") { await Shell.Current.GoToAsync("//DownloadsPage"); return false; }
                     return choice == "Download again anyway";
                 }
-            case DownloadStatus.Done:
+            case DownloadStatus.Completed:
                 {
                     string? choice = await DisplayActionSheetAsync($"{title} was already downloaded", "Cancel", null,
                         "Download again (re-translate)", "Open existing EPUB", "Go to Downloads tab");
