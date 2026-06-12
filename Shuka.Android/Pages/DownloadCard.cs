@@ -9,7 +9,7 @@ namespace Shuka.Android.Pages;
 /// </summary>
 public class DownloadCard : ContentView
 {
-    public event Action<DownloadItem>? CancelRequested;
+    public event Action<DownloadItem>? OptionsRequested;
     public event Action<DownloadItem>? ShareRequested;
     public event Action<DownloadItem>? OpenRequested;
     public event Action<DownloadItem>? RetryRequested;
@@ -25,7 +25,7 @@ public class DownloadCard : ContentView
     private readonly Label  _statusIconLabel;
     private readonly Border _progressFill;
     private readonly Label  _pctLabel;
-    private readonly Border _cancelBtn;
+    private readonly Border _optionsBtn;
     private readonly View   _progressSection;
     private readonly View   _actionRow;
     private readonly View   _retryRow;
@@ -116,29 +116,27 @@ public class DownloadCard : ContentView
             Command = new Command(ToggleLog)
         });
 
-        // ── Cancel button ─────────────────────────────────────────────────────
-        var cancelLabel = new Label
+        // ── Options button ─────────────────────────────────────────────────────
+        var optionsLabel = new Label
         {
-            Text            = "Cancel",
-            FontSize        = 11,
-            FontAttributes  = FontAttributes.Bold,
+            Text            = "\uE5D4", // more_vert
+            FontFamily      = "MaterialSymbols",
+            FontSize        = 22,
             VerticalOptions = LayoutOptions.Center
         };
-        cancelLabel.SetDynamicResource(Label.TextColorProperty, "Danger");
+        optionsLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
 
-        _cancelBtn = new Border
+        _optionsBtn = new Border
         {
-            StrokeThickness = 1,
-            StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            Padding         = new Thickness(10, 6),
+            StrokeThickness = 0,
+            BackgroundColor = Colors.Transparent,
+            Padding         = new Thickness(6, 6),
             VerticalOptions = LayoutOptions.Center,
-            Content         = cancelLabel
+            Content         = optionsLabel
         };
-        _cancelBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
-        _cancelBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
-        _cancelBtn.GestureRecognizers.Add(new TapGestureRecognizer
+        _optionsBtn.GestureRecognizers.Add(new TapGestureRecognizer
         {
-            Command = new Command(() => CancelRequested?.Invoke(_item))
+            Command = new Command(() => OptionsRequested?.Invoke(_item))
         });
 
         // ── Header row ────────────────────────────────────────────────────────
@@ -156,7 +154,7 @@ public class DownloadCard : ContentView
         headerGrid.Add(_statusDot,   0, 0);
         headerGrid.Add(textStack,    1, 0);
         headerGrid.Add(logToggleBtn, 2, 0);
-        headerGrid.Add(_cancelBtn,   3, 0);
+        headerGrid.Add(_optionsBtn,  3, 0);
 
         // ── Progress bar ──────────────────────────────────────────────────────
         var progressTrack = new Border
@@ -362,7 +360,7 @@ public class DownloadCard : ContentView
         bool running = _item.IsRunning;
         bool done    = _item.IsDone;
 
-        _cancelBtn.IsVisible       = running;
+        _optionsBtn.IsVisible      = running;
         _progressSection.IsVisible = running;
         _actionRow.IsVisible       = done;
         _retryRow.IsVisible        = _item.IsFailed || _item.IsCancelled;

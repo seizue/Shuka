@@ -259,6 +259,132 @@
 
         </Grid>
 
+        <!-- Options bottom sheet overlay -->
+        <Grid x:Name="OptionsSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnOptionsSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="OptionsSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnOptionsSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+                    <!-- Title & Subtitle -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Options"
+                                   FontSize="16"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextPrimary}" />
+                            <Label x:Name="OptionsSheetSubtitle"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   TextColor="{DynamicResource TextMuted}" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Option Buttons -->
+                    <VerticalStackLayout Spacing="8">
+                        <!-- Copy Original Title Option -->
+                        <Border x:Name="OptionsSheetCopyTitleBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy Original Source Title"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCopyTitleTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Copy Original Author Option -->
+                        <Border x:Name="OptionsSheetCopyAuthorBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy Original Source Author"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCopyAuthorTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Cancel Download Option -->
+                        <Border x:Name="OptionsSheetCancelBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5C9;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Cancel Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCancelTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
     </Grid>
 
 </ContentPage>

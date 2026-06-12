@@ -11,6 +11,8 @@ public partial class DownloadsPage : ContentPage
     private readonly Dictionary<Guid, DownloadCard> _allCards = new();
     private readonly HashSet<Guid> _completedIds = new();
     private bool _isOngoingTabActive = true;
+    private bool _isOptionsSheetOpen;
+    private DownloadItem? _activeOptionsItem;
 
     public DownloadsPage()
     {
@@ -175,7 +177,7 @@ public partial class DownloadsPage : ContentPage
     private DownloadCard CreateCard(DownloadItem item)
     {
         var card = new DownloadCard(item);
-        card.CancelRequested  += OnCardCancelRequested;
+        card.OptionsRequested += OnCardOptionsRequested;
         card.ShareRequested   += OnCardShareRequested;
         card.OpenRequested    += OnCardOpenRequested;
         card.RetryRequested   += OnCardRetryRequested;
@@ -389,8 +391,8 @@ public partial class DownloadsPage : ContentPage
 
     // ── Card event handlers ────────────────────────────────────────────────────
 
-    private void OnCardCancelRequested(DownloadItem item)
-        => DownloadManager.Instance.Cancel(item);
+    private void OnCardOptionsRequested(DownloadItem item)
+        => _ = ShowOptionsSheetAsync(item);
 
     private void OnCardRetryRequested(DownloadItem item)
         => DownloadManager.Instance.Retry(item);
@@ -427,5 +429,126 @@ public partial class DownloadsPage : ContentPage
             catch { }
         }
         catch { }
+    }
+
+    // ── Options sheet ─────────────────────────────────────────────────────────
+
+    private async Task ShowOptionsSheetAsync(DownloadItem item)
+    {
+        if (_isOptionsSheetOpen || item == null)
+            return;
+
+        _isOptionsSheetOpen = true;
+        _activeOptionsItem = item;
+        OptionsSheetSubtitle.Text = item.Title;
+
+        // Cancel option is only visible/enabled if the item is running/queued
+        OptionsSheetCancelBtn.IsVisible = item.IsRunning;
+
+        // Copy options are only visible if original title/author have been resolved
+        OptionsSheetCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalTitle);
+        OptionsSheetCopyAuthorBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalAuthor);
+
+        OptionsSheetOverlay.IsVisible = true;
+        OptionsSheetOverlay.Opacity = 0;
+        OptionsSheet.Opacity = 0;
+        OptionsSheet.TranslationY = 28;
+
+        UpdateSheetBottomMargins();
+
+        await Task.WhenAll(
+            OptionsSheetOverlay.FadeToAsync(1, 160, Easing.CubicOut),
+            OptionsSheet.FadeToAsync(1, 180, Easing.CubicOut),
+            OptionsSheet.TranslateToAsync(0, 0, 180, Easing.CubicOut));
+    }
+
+    private async Task HideOptionsSheetAsync()
+    {
+        if (!_isOptionsSheetOpen)
+            return;
+
+        _isOptionsSheetOpen = false;
+        await Task.WhenAll(
+            OptionsSheet.FadeToAsync(0, 140, Easing.CubicIn),
+            OptionsSheet.TranslateToAsync(0, 24, 140, Easing.CubicIn),
+            OptionsSheetOverlay.FadeToAsync(0, 140, Easing.CubicIn));
+        OptionsSheetOverlay.IsVisible = false;
+        _activeOptionsItem = null;
+    }
+
+    private async void OnOptionsSheetOverlayTapped(object sender, TappedEventArgs e)
+    {
+        await HideOptionsSheetAsync();
+    }
+
+    private void OnOptionsSheetTapped(object sender, TappedEventArgs e)
+    {
+        // Swallow tap so overlay handler does not close it.
+    }
+
+    private async void OnOptionsSheetCloseTapped(object sender, TappedEventArgs e)
+    {
+        await HideOptionsSheetAsync();
+    }
+
+    private async void OnOptionsSheetCopyTitleTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        string title = string.IsNullOrEmpty(_activeOptionsItem.OriginalTitle) ? _activeOptionsItem.Title : _activeOptionsItem.OriginalTitle;
+        await HideOptionsSheetAsync();
+        if (!string.IsNullOrEmpty(title))
+        {
+            try
+            {
+                await Clipboard.Default.SetTextAsync(title);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Copy title failed: {ex.Message}");
+            }
+        }
+    }
+
+    private async void OnOptionsSheetCopyAuthorTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        string author = string.IsNullOrEmpty(_activeOptionsItem.OriginalAuthor) ? _activeOptionsItem.Author : _activeOptionsItem.OriginalAuthor;
+        await HideOptionsSheetAsync();
+        if (!string.IsNullOrEmpty(author))
+        {
+            try
+            {
+                await Clipboard.Default.SetTextAsync(author);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Copy author failed: {ex.Message}");
+            }
+        }
+    }
+
+    private async void OnOptionsSheetCancelTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        DownloadManager.Instance.Cancel(item);
+    }
+
+    private void UpdateSheetBottomMargins()
+    {
+        double bottomInset = 16;
+#if ANDROID
+        if (MainActivity.Instance is { } activity)
+            bottomInset = Math.Max(bottomInset, activity.GetOverlayBottomInsetDip(14));
+#endif
+
+        OptionsSheet.Margin = new Thickness(12, 0, 12, bottomInset);
+    }
+
+    protected override void OnSizeAllocated(double width, double height)
+    {
+        base.OnSizeAllocated(width, height);
+        UpdateSheetBottomMargins();
     }
 }

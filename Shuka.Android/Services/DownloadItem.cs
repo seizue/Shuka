@@ -33,6 +33,8 @@ public class DownloadItem : INotifyPropertyChanged
     // Resolved after GatherBookInfo
     public string Title  { get; set; } = "Loading...";
     public string Author { get; set; } = "";
+    public string OriginalTitle { get; set; } = "";
+    public string OriginalAuthor { get; set; } = "";
     /// <summary>Actual chapter count resolved after GatherBookInfo completes.</summary>
     public int    TotalChapters { get; set; } = 0;
 

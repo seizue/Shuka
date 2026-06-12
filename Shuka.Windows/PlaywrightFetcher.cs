@@ -86,19 +86,20 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
 
     // ICloudflareBypass — used by Shuka.Core's HttpFetcher on Android;
     // on Windows we call FetchWithPlaywrightVerified directly.
-    Task<string> ICloudflareBypass.FetchAsync(string url) =>
-        FetchWithPlaywrightVerified(url);
+    Task<string> ICloudflareBypass.FetchAsync(string url, CancellationToken ct) =>
+        FetchWithPlaywrightVerified(url, ct: ct);
 
     // ── Playwright verified fetch ─────────────────────────────────────────────
 
-    private async Task<string> FetchWithPlaywrightVerified(string url, int maxAttempts = 3)
+    private async Task<string> FetchWithPlaywrightVerified(string url, int maxAttempts = 3, CancellationToken ct = default)
     {
-        await _sem.WaitAsync();
+        await _sem.WaitAsync(ct);
         try
         {
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                string html = await FetchWithPlaywright(url);
+                ct.ThrowIfCancellationRequested();
+                string html = await FetchWithPlaywright(url, ct);
 
                 bool isChallenge =
                     html.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
@@ -112,10 +113,10 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 if (attempt < maxAttempts)
                 {
                     Console.Write($" [CF retry {attempt}/{maxAttempts}, waiting {attempt * 4}s]");
-                    await Task.Delay(attempt * 4000);
+                    await Task.Delay(attempt * 4000, ct);
                 }
             }
-            return await FetchWithPlaywright(url);
+            return await FetchWithPlaywright(url, ct);
         }
         finally
         {
@@ -123,18 +124,20 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         }
     }
 
-    private async Task<string> FetchWithPlaywright(string url)
+    private async Task<string> FetchWithPlaywright(string url, CancellationToken ct = default)
     {
         await EnsureBrowserAsync();
 
         var page = await _context!.NewPageAsync();
         try
         {
+            ct.ThrowIfCancellationRequested();
             await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.Load, Timeout = 45000 });
 
             var deadline = DateTime.UtcNow.AddSeconds(40);
             while (DateTime.UtcNow < deadline)
             {
+                ct.ThrowIfCancellationRequested();
                 string t = await page.TitleAsync();
                 bool isChallenge =
                     t.Contains("Just a moment") || t.Contains("Checking your browser") ||
@@ -143,10 +146,11 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                     string.IsNullOrWhiteSpace(t);
                 if (!isChallenge) break;
                 Console.Write(".");
-                await Task.Delay(1000);
+                await Task.Delay(1000, ct);
             }
 
-            await Task.Delay(1500);
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(1500, ct);
             return await page.ContentAsync();
         }
         finally

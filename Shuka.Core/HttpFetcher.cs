@@ -37,7 +37,7 @@ public class HttpFetcher : IDisposable
         if (forceBypass && _cfBypass != null)
         {
             log?.Invoke($"[CF bypass] Forcing bypass on {url}");
-            return await _cfBypass.FetchAsync(url);
+            return await _cfBypass.FetchAsync(url, ct);
         }
 
         int delay = 500;
@@ -65,7 +65,7 @@ public class HttpFetcher : IDisposable
                     if (_cfBypass != null)
                     {
                         log?.Invoke("[cloudflare] Using bypass...");
-                        return await _cfBypass.FetchAsync(url);
+                        return await _cfBypass.FetchAsync(url, ct);
                     }
                     throw new Exception("Cloudflare blocked the request and no bypass is configured.");
                 }
@@ -78,7 +78,7 @@ public class HttpFetcher : IDisposable
                     if (isKnownCfSite && _cfBypass != null)
                     {
                         log?.Invoke($"[CF bypass] {(int)resp.StatusCode} (no CF header) on {url}");
-                        string bypassed = await _cfBypass.FetchAsync(url);
+                        string bypassed = await _cfBypass.FetchAsync(url, ct);
                         log?.Invoke($"[CF bypass] got {bypassed.Length}b, cf={bypassed.Contains("cf-chl-opt")}");
                         return bypassed;
                     }
@@ -112,7 +112,7 @@ public class HttpFetcher : IDisposable
                             log?.Invoke(isCfChallenge
                                 ? "[cloudflare] JS challenge detected, using bypass..."
                                 : "[cloudflare] Login wall detected, using bypass...");
-                            return await _cfBypass.FetchAsync(url);
+                            return await _cfBypass.FetchAsync(url, ct);
                         }
                         throw new Exception("Cloudflare/login wall detected and no bypass is configured.");
                     }
@@ -165,7 +165,7 @@ public class HttpFetcher : IDisposable
                     log?.Invoke($"[CF bypass] Request/connection failed on {url} ({ex.Message}). Falling back to CF bypass...");
                     try
                     {
-                        return await _cfBypass.FetchAsync(url);
+                        return await _cfBypass.FetchAsync(url, ct);
                     }
                     catch (Exception bypassEx)
                     {
@@ -258,5 +258,5 @@ public class HttpFetcher : IDisposable
 /// </summary>
 public interface ICloudflareBypass
 {
-    Task<string> FetchAsync(string url);
+    Task<string> FetchAsync(string url, CancellationToken ct = default);
 }

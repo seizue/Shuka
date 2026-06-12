@@ -13,7 +13,7 @@
     <!-- App identity -->
     <ApplicationId>com.seizue.shuka</ApplicationId>
     <ApplicationVersion>100</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.7</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion>1.1.8</ApplicationDisplayVersion>
 
     <!-- Android -->
     <SupportedOSPlatformVersion>21.0</SupportedOSPlatformVersion>
