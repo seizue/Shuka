@@ -11,7 +11,36 @@ public class HistoryService
 {
     public static readonly HistoryService Instance = new();
 
-    public ObservableCollection<HistoryEntry> Entries { get; } = new();
+    public ObservableCollectionEx<HistoryEntry> Entries { get; } = new();
+
+    private static readonly Dictionary<string, ImageSource> _coverImageCache = new();
+    private static readonly object _coverImageLock = new();
+
+    /// <summary>
+    /// Returns a cached ImageSource for the local cover path, or the default cover.
+    /// </summary>
+    public static ImageSource GetCoverImageSource(string? localPath)
+    {
+        if (string.IsNullOrWhiteSpace(localPath))
+            return ImageSource.FromFile("lily.png");
+
+        lock (_coverImageLock)
+        {
+            if (_coverImageCache.TryGetValue(localPath, out var source))
+                return source;
+
+            source = ImageSource.FromFile(localPath);
+            _coverImageCache[localPath] = source;
+            return source;
+        }
+    }
+
+    private static bool IsEpubAccessible(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (path.StartsWith("content://", StringComparison.OrdinalIgnoreCase)) return true;
+        return File.Exists(path);
+    }
 
     private static string HistoryFile =>
         Path.Combine(FileSystem.AppDataDirectory, "history.json");
@@ -57,6 +86,9 @@ public class HistoryService
         if (!string.IsNullOrWhiteSpace(entry.CoverUrl))
             entry.CoverLocalPath = await CacheCoverAsync(entry.Id, entry.CoverUrl);
 
+        entry.IsFileAvailable = IsEpubAccessible(entry.EpubPath);
+        entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath);
+
         MainThread.BeginInvokeOnMainThread(() => Entries.Insert(0, entry));
         await SaveAsync();
     }
@@ -67,10 +99,17 @@ public class HistoryService
         MainThread.BeginInvokeOnMainThread(() => Entries.Remove(entry));
 
         // Delete cached cover
-        if (!string.IsNullOrWhiteSpace(entry.CoverLocalPath) &&
-            File.Exists(entry.CoverLocalPath))
+        if (!string.IsNullOrWhiteSpace(entry.CoverLocalPath))
         {
-            try { File.Delete(entry.CoverLocalPath); } catch { }
+            lock (_coverImageLock)
+            {
+                _coverImageCache.Remove(entry.CoverLocalPath);
+            }
+
+            if (File.Exists(entry.CoverLocalPath))
+            {
+                try { File.Delete(entry.CoverLocalPath); } catch { }
+            }
         }
 
         await SaveAsync();
@@ -81,6 +120,11 @@ public class HistoryService
     {
         var entries = Entries.ToList();
         MainThread.BeginInvokeOnMainThread(() => Entries.Clear());
+
+        lock (_coverImageLock)
+        {
+            _coverImageCache.Clear();
+        }
 
         foreach (var e in entries)
         {
@@ -110,12 +154,16 @@ public class HistoryService
             bool needsSave = false;
             for (int i = 0; i < list.Count; i++)
             {
-                if (list[i].ChapterCount == 0)
+                var entry = list[i];
+                entry.IsFileAvailable = IsEpubAccessible(entry.EpubPath);
+                entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath);
+
+                if (entry.ChapterCount == 0)
                 {
-                    int count = TryCountChaptersFromEpub(list[i].EpubPath);
+                    int count = TryCountChaptersFromEpub(entry.EpubPath);
                     if (count > 0)
                     {
-                        list[i].ChapterCount = count;
+                        entry.ChapterCount = count;
                         needsSave = true;
                     }
                 }
@@ -123,8 +171,7 @@ public class HistoryService
 
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                foreach (var e in list)
-                    Entries.Add(e);
+                Entries.AddRange(list);
             });
 
             if (needsSave)

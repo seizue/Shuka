@@ -33,19 +33,29 @@ public partial class HistoryLoadingSkeleton : ContentView
             {
                 foreach (var element in skeletonElements)
                 {
-                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    if (!_isAnimating) break;
+
+                    MainThread.BeginInvokeOnMainThread(async () =>
                     {
-                        if (element.Parent != null)
+                        if (element.Parent != null && _isAnimating)
                         {
-                            await element.FadeToAsync(0.3, 800, Easing.SinInOut);
-                            await element.FadeToAsync(1.0, 800, Easing.SinInOut);
+                            try
+                            {
+                                await element.FadeToAsync(0.3, 800, Easing.SinInOut);
+                                if (_isAnimating && element.Parent != null)
+                                {
+                                    await element.FadeToAsync(1.0, 800, Easing.SinInOut);
+                                }
+                            }
+                            catch { }
                         }
                     });
                     
-                    await Task.Delay(100); // Stagger the shimmer effect
+                    await Task.Delay(150); // Stagger the shimmer effect
                 }
                 
-                await Task.Delay(200); // Pause between cycles
+                // Allow the current cycle of staggered animations to complete before restarting
+                await Task.Delay(2000); 
             }
         });
     }

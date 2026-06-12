@@ -166,7 +166,7 @@ public partial class HistoryPage : ContentPage
             // Add new items to the view
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                RenderCurrentBatch();
+                AppendCurrentBatch(startIndex, itemsToLoad);
             });
         }
         finally
@@ -427,6 +427,65 @@ public partial class HistoryPage : ContentPage
 
         if (visibleCount == 0 && isSearching)
             NoResultsLabel.Text = $"No results for \"{_searchQuery}\"";
+    }
+
+    private void AppendCurrentBatch(int startIndex, int count)
+    {
+        double width = _lastWidth;
+        if (width <= 0)
+        {
+            width = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
+        }
+
+        double cardWidth = 80;
+        double cardHeight = 120;
+        if (width > 48)
+        {
+            cardWidth = (width - 48) / 4;
+            cardHeight = cardWidth * 1.5;
+        }
+
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                int index = startIndex + i;
+                if (index >= _filteredAndSortedEntries.Count) break;
+
+                var entry = _filteredAndSortedEntries[index];
+                if (_cards.TryGetValue(entry.Id, out var card))
+                {
+                    if (_isCompactView)
+                    {
+                        card.WidthRequest = cardWidth;
+                        card.HeightRequest = cardHeight;
+
+                        int row = index / 4;
+                        int col = index % 4;
+
+                        // Add new row definition if we started a new row
+                        while (CardGrid.RowDefinitions.Count <= row)
+                        {
+                            CardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        }
+
+                        Grid.SetColumn(card, col);
+                        Grid.SetRow(card, row);
+                        CardGrid.Children.Add(card);
+                    }
+                    else
+                    {
+                        card.WidthRequest = -1;
+                        card.HeightRequest = -1;
+                        CardList.Add(card);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] AppendCurrentBatch error: {ex.Message}");
+        }
     }
 
     private IEnumerable<HistoryEntry> GetSortedEntries()
