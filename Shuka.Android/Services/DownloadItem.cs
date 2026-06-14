@@ -24,6 +24,7 @@ public class DownloadItem : INotifyPropertyChanged
     private DownloadStatus _status = DownloadStatus.Pending;
     private string? _epubPath;
     private string _logText = "";
+    private int _queuePosition;
 
     public Guid   Id         { get; set; } = Guid.NewGuid();
     public string Url        { get; set; } = "";
@@ -32,6 +33,7 @@ public class DownloadItem : INotifyPropertyChanged
     /// <summary>1-based start chapter. 0 = from the beginning.</summary>
     public int    ChapterFrom { get; set; } = 0;
     public bool   Translate   { get; set; } = true;
+    public DateTime EnqueuedAt { get; set; } = DateTime.UtcNow;
 
     // Resolved after GatherBookInfo
     public string Title  { get; set; } = "Loading...";
@@ -86,6 +88,13 @@ public class DownloadItem : INotifyPropertyChanged
     }
 
     [JsonIgnore]
+    public int QueuePosition
+    {
+        get => _queuePosition;
+        set { _queuePosition = value; OnPropertyChanged(); }
+    }
+
+    [JsonIgnore]
     public bool IsRunning   => Status == DownloadStatus.Downloading || Status == DownloadStatus.Pending || Status == DownloadStatus.Resuming;
     [JsonIgnore]
     public bool IsDone      => Status == DownloadStatus.Completed;
@@ -94,7 +103,7 @@ public class DownloadItem : INotifyPropertyChanged
     [JsonIgnore]
     public bool IsCancelled => Status == DownloadStatus.Cancelled;
     [JsonIgnore]
-    public bool IsFinished  => Status is DownloadStatus.Completed or DownloadStatus.Cancelled or DownloadStatus.Failed or DownloadStatus.Paused;
+    public bool IsFinished  => Status is DownloadStatus.Completed or DownloadStatus.Cancelled or DownloadStatus.Failed;
     [JsonIgnore]
     public bool HasEpub     => Status == DownloadStatus.Completed && !string.IsNullOrEmpty(EpubPath);
 

@@ -22,8 +22,8 @@ public class DownloadManager
 
     public ObservableCollection<DownloadItem> Downloads { get; } = new();
 
-    // Max 2 novels downloading/translating at the same time
-    private static readonly SemaphoreSlim _downloadSem = new(2, 2);
+    // Lock for queue processing to ensure serialized checks
+    private readonly SemaphoreSlim _queueLock = new(1, 1);
 
     private readonly SemaphoreSlim _saveLock = new(1, 1);
     private bool _savePending;
@@ -43,6 +43,7 @@ public class DownloadManager
                     RegisterItemChange(item);
             }
             _ = SaveQueueAsync();
+            UpdateQueuePositions();
         };
 
         _ = LoadQueueAsync();
@@ -85,6 +86,40 @@ public class DownloadManager
         {
             _ = SaveQueueAsync();
         }
+
+        if (e.PropertyName == nameof(DownloadItem.Status))
+        {
+            UpdateQueuePositions();
+        }
+    }
+
+    private void UpdateQueuePositions()
+    {
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(UpdateQueuePositions);
+            return;
+        }
+
+        int position = 1;
+        foreach (var item in Downloads)
+        {
+            if (item.Status == DownloadStatus.Pending)
+            {
+                if (item.QueuePosition != position)
+                {
+                    item.QueuePosition = position;
+                }
+                position++;
+            }
+            else
+            {
+                if (item.QueuePosition != 0)
+                {
+                    item.QueuePosition = 0;
+                }
+            }
+        }
     }
 
     private async Task LoadQueueAsync()
@@ -108,14 +143,20 @@ public class DownloadManager
                 }
 
                 // Auto-recover active/interrupted downloads
+                bool hasPending = false;
                 foreach (var item in list)
                 {
                     if (item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming or DownloadStatus.Pending)
                     {
                         item.Status = DownloadStatus.Pending;
                         item.StatusText = "Queued — waiting for slot...";
-                        _ = RunAsync(item);
+                        hasPending = true;
                     }
+                }
+                UpdateQueuePositions();
+                if (hasPending)
+                {
+                    _ = ProcessQueueAsync();
                 }
             });
         }
@@ -138,11 +179,15 @@ public class DownloadManager
             CoverUrl     = coverUrl ?? "",
             ChapterFrom  = chapterFrom,
             Translate    = shouldTranslate,
-            Status       = DownloadStatus.Pending
+            Status       = DownloadStatus.Pending,
+            EnqueuedAt   = DateTime.UtcNow
         };
 
-        MainThread.BeginInvokeOnMainThread(() => Downloads.Insert(0, item));
-        _ = RunAsync(item);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            Downloads.Insert(0, item);
+            _ = ProcessQueueAsync();
+        });
         return item;
     }
 
@@ -156,14 +201,35 @@ public class DownloadManager
     /// <summary>Cancel a single download.</summary>
     public void Cancel(DownloadItem item)
     {
+        if (item.Status == DownloadStatus.Pending || item.Status == DownloadStatus.Paused)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                item.StatusText = "Cancelled";
+                item.Status     = DownloadStatus.Cancelled;
+                _ = ProcessQueueAsync();
+            });
+        }
         item.Cts.Cancel();
     }
 
     /// <summary>Cancel all active downloads.</summary>
     public void CancelAll()
     {
-        foreach (var item in Downloads.Where(d => d.IsRunning))
-            item.Cts.Cancel();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var activeOrPending = Downloads.Where(d => d.IsRunning || d.Status == DownloadStatus.Paused).ToList();
+            foreach (var item in activeOrPending)
+            {
+                if (item.Status == DownloadStatus.Pending || item.Status == DownloadStatus.Paused)
+                {
+                    item.StatusText = "Cancelled";
+                    item.Status     = DownloadStatus.Cancelled;
+                }
+                item.Cts.Cancel();
+            }
+            _ = ProcessQueueAsync();
+        });
     }
 
     /// <summary>Pause a running/queued download.</summary>
@@ -175,6 +241,7 @@ public class DownloadManager
             {
                 item.StatusText = "Paused";
                 item.Status     = DownloadStatus.Paused;
+                _ = ProcessQueueAsync();
             });
             item.Cts.Cancel();
         }
@@ -190,9 +257,134 @@ public class DownloadManager
                 item.Cts = new CancellationTokenSource();
                 item.StatusText = "Queued — waiting for slot...";
                 item.Status     = DownloadStatus.Pending;
-                _ = RunAsync(item);
+                _ = ProcessQueueAsync();
             });
         }
+    }
+
+    /// <summary>Pause all running/queued downloads.</summary>
+    public void PauseAll()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var activeOrPending = Downloads.Where(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming).ToList();
+            foreach (var item in activeOrPending)
+            {
+                item.StatusText = "Paused";
+                item.Status     = DownloadStatus.Paused;
+                item.Cts.Cancel();
+            }
+            _ = ProcessQueueAsync();
+        });
+    }
+
+    /// <summary>Resume all paused downloads.</summary>
+    public void ResumeAll()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var paused = Downloads.Where(d => d.Status == DownloadStatus.Paused).ToList();
+            foreach (var item in paused)
+            {
+                item.Cts = new CancellationTokenSource();
+                item.StatusText = "Queued — waiting for slot...";
+                item.Status     = DownloadStatus.Pending;
+            }
+            _ = ProcessQueueAsync();
+        });
+    }
+
+    public void MoveUp(DownloadItem item)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            int index = Downloads.IndexOf(item);
+            if (index > 0)
+            {
+                Downloads.Move(index, index - 1);
+                _ = ProcessQueueAsync();
+            }
+        });
+    }
+
+    public void MoveDown(DownloadItem item)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            int index = Downloads.IndexOf(item);
+            if (index >= 0 && index < Downloads.Count - 1)
+            {
+                Downloads.Move(index, index + 1);
+                _ = ProcessQueueAsync();
+            }
+        });
+    }
+
+    public void MoveToTop(DownloadItem item)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            int index = Downloads.IndexOf(item);
+            if (index > 0)
+            {
+                Downloads.Move(index, 0);
+                _ = ProcessQueueAsync();
+            }
+        });
+    }
+
+    public void MoveToBottom(DownloadItem item)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            int index = Downloads.IndexOf(item);
+            if (index >= 0 && index < Downloads.Count - 1)
+            {
+                Downloads.Move(index, Downloads.Count - 1);
+                _ = ProcessQueueAsync();
+            }
+        });
+    }
+
+    public void Sort(string criterion)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            List<DownloadItem> sorted;
+            switch (criterion)
+            {
+                case "Title (A-Z)":
+                    sorted = Downloads.OrderBy(d => d.Title, StringComparer.OrdinalIgnoreCase).ToList();
+                    break;
+                case "Title (Z-A)":
+                    sorted = Downloads.OrderByDescending(d => d.Title, StringComparer.OrdinalIgnoreCase).ToList();
+                    break;
+                case "Progress (Highest)":
+                    sorted = Downloads.OrderByDescending(d => d.Progress).ToList();
+                    break;
+                case "Progress (Lowest)":
+                    sorted = Downloads.OrderBy(d => d.Progress).ToList();
+                    break;
+                case "Date Added (Oldest)":
+                    sorted = Downloads.OrderBy(d => d.EnqueuedAt).ToList();
+                    break;
+                case "Date Added (Newest)":
+                default:
+                    sorted = Downloads.OrderByDescending(d => d.EnqueuedAt).ToList();
+                    break;
+            }
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                int oldIndex = Downloads.IndexOf(sorted[i]);
+                if (oldIndex != i)
+                {
+                    Downloads.Move(oldIndex, i);
+                }
+            }
+
+            _ = ProcessQueueAsync();
+        });
     }
 
     /// <summary>Remove all finished (done/cancelled/failed) items from the list.</summary>
@@ -224,6 +416,35 @@ public class DownloadManager
     private const string PrefKeyDownloadPath    = "download_output_path";
     private const string PrefKeyDownloadTreeUri = "download_tree_uri";
 
+    public async Task ProcessQueueAsync()
+    {
+        await _queueLock.WaitAsync();
+        try
+        {
+            int maxConcurrent = 2;
+            int activeCount = Downloads.Count(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Resuming);
+
+            while (activeCount < maxConcurrent)
+            {
+                var next = Downloads.FirstOrDefault(d => d.Status == DownloadStatus.Pending);
+                if (next == null) break;
+
+                // Set status synchronously to reserve slot
+                next.Status = DownloadStatus.Resuming;
+                next.StatusText = "Starting...";
+
+                // Start execution asynchronously
+                _ = Task.Run(() => RunAsync(next));
+                activeCount++;
+            }
+        }
+        catch { }
+        finally
+        {
+            _queueLock.Release();
+        }
+    }
+
     private async Task RunAsync(DownloadItem item)
     {
         var ct = item.Cts.Token;
@@ -231,31 +452,6 @@ public class DownloadManager
         void Log(string msg) =>
             MainThread.BeginInvokeOnMainThread(() =>
                 item.LogText += msg + "\n");
-
-        // Wait for a download slot — show queued status while waiting
-        if (_downloadSem.CurrentCount == 0)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-                item.StatusText = "Queued — waiting for slot...");
-        }
-
-        try { await _downloadSem.WaitAsync(ct); }
-        catch (OperationCanceledException)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                if (item.Status == DownloadStatus.Paused)
-                {
-                    item.StatusText = "Paused";
-                }
-                else
-                {
-                    item.StatusText = "Cancelled";
-                    item.Status     = DownloadStatus.Cancelled;
-                }
-            });
-            return;
-        }
 
 #if ANDROID
         DownloadForegroundService.Start();
@@ -399,8 +595,8 @@ public class DownloadManager
             // Clean up temp file in cache
             try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
 
-            // Release the download slot so the next queued novel can start
-            _downloadSem.Release();
+            // Release is replaced by calling ProcessQueueAsync:
+            _ = ProcessQueueAsync();
 
 #if ANDROID
             if (!Downloads.Any(d => d.IsRunning))
