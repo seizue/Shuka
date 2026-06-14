@@ -39,10 +39,8 @@ public class DownloadCard : ContentView
     private readonly View   _logSection;
     private readonly Label  _logLabel;
     private readonly Label  _logToggleIcon;
+    private readonly Grid   _trackContainer;
     private bool            _logExpanded = false;
-
-    // Track card width for progress fill calculation
-    private double _cardWidth = 0;
     private string? _lastStrokeKey;
 
     public DownloadCard(DownloadItem item)
@@ -109,12 +107,20 @@ public class DownloadCard : ContentView
             VerticalOptions = LayoutOptions.Center,
             HorizontalTextAlignment = TextAlignment.Center,
             VerticalTextAlignment = TextAlignment.Center,
-            WidthRequest    = 32,
-            HeightRequest   = 32,
-            Margin          = new Thickness(4, 0, 0, 0)
         };
         _logToggleIcon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
-        _logToggleIcon.GestureRecognizers.Add(new TapGestureRecognizer
+
+        var logToggleBtn = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Colors.Transparent,
+            Padding         = new Thickness(6, 4),
+            VerticalOptions = LayoutOptions.Center,
+            Content         = _logToggleIcon,
+            WidthRequest    = 44,
+            HeightRequest   = 44
+        };
+        logToggleBtn.GestureRecognizers.Add(new TapGestureRecognizer
         {
             Command = new Command(ToggleLog)
         });
@@ -128,11 +134,20 @@ public class DownloadCard : ContentView
             VerticalOptions = LayoutOptions.Center,
             HorizontalTextAlignment = TextAlignment.Center,
             VerticalTextAlignment = TextAlignment.Center,
-            WidthRequest    = 36,
-            HeightRequest   = 36
         };
         optionsLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
-        optionsLabel.GestureRecognizers.Add(new TapGestureRecognizer
+
+        var optionsBtn = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Colors.Transparent,
+            Padding         = new Thickness(6, 6),
+            VerticalOptions = LayoutOptions.Center,
+            Content         = optionsLabel,
+            WidthRequest    = 44,
+            HeightRequest   = 44
+        };
+        optionsBtn.GestureRecognizers.Add(new TapGestureRecognizer
         {
             Command = new Command(() => { if (_item != null) FindParentPage()?.HandleOptionsRequested(_item); })
         });
@@ -151,8 +166,8 @@ public class DownloadCard : ContentView
         };
         headerGrid.Add(_statusDot,     0, 0);
         headerGrid.Add(textStack,      1, 0);
-        headerGrid.Add(_logToggleIcon, 2, 0);
-        headerGrid.Add(optionsLabel,   3, 0);
+        headerGrid.Add(logToggleBtn,   2, 0);
+        headerGrid.Add(optionsBtn,     3, 0);
 
         // ── Progress bar ──────────────────────────────────────────────────────
         var progressTrack = new BoxView
@@ -172,11 +187,16 @@ public class DownloadCard : ContentView
         };
         _progressFill.SetDynamicResource(BoxView.ColorProperty, "AccentLight");
 
-        var trackContainer = new Grid
+        _trackContainer = new Grid
         {
             HeightRequest   = 6,
             VerticalOptions = LayoutOptions.Center,
             Children        = { progressTrack, _progressFill }
+        };
+
+        _trackContainer.SizeChanged += (s, e) =>
+        {
+            UpdateProgressFill();
         };
 
         _pctLabel = new Label
@@ -198,7 +218,7 @@ public class DownloadCard : ContentView
             ColumnSpacing   = 0,
             VerticalOptions = LayoutOptions.Center
         };
-        progressRow.Add(trackContainer, 0, 0);
+        progressRow.Add(_trackContainer, 0, 0);
         progressRow.Add(_pctLabel,      1, 0);
 
         _progressSection = new VerticalStackLayout
@@ -248,11 +268,7 @@ public class DownloadCard : ContentView
         card.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
         card.SetDynamicResource(Border.StrokeProperty, "Stroke");
 
-        card.SizeChanged += (s, e) =>
-        {
-            _cardWidth = card.Width - 36;
-            UpdateProgressFill();
-        };
+
 
         Content = card;
 
@@ -378,10 +394,13 @@ public class DownloadCard : ContentView
 
     private void UpdateProgressFill()
     {
-        if (_cardWidth <= 0 || _item == null) return;
+        if (_item == null) return;
+        double trackWidth = _trackContainer.Width;
+        if (trackWidth <= 0) return;
+
         if (_progressSection.IsVisible)
         {
-            double newWidth = Math.Max(0, _cardWidth * _item.Progress);
+            double newWidth = Math.Max(0, trackWidth * _item.Progress);
             if (Math.Abs(_progressFill.WidthRequest - newWidth) > 0.5)
             {
                 _progressFill.WidthRequest = newWidth;

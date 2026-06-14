@@ -201,16 +201,13 @@ public class DownloadManager
     /// <summary>Cancel a single download.</summary>
     public void Cancel(DownloadItem item)
     {
-        if (item.Status == DownloadStatus.Pending || item.Status == DownloadStatus.Paused)
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                item.StatusText = "Cancelled";
-                item.Status     = DownloadStatus.Cancelled;
-                _ = ProcessQueueAsync();
-            });
-        }
-        item.Cts.Cancel();
+            item.StatusText = "Cancelled";
+            item.Status     = DownloadStatus.Cancelled;
+            item.Cts.Cancel();
+            _ = ProcessQueueAsync();
+        });
     }
 
     /// <summary>Cancel all active downloads.</summary>
@@ -221,11 +218,8 @@ public class DownloadManager
             var activeOrPending = Downloads.Where(d => d.IsRunning || d.Status == DownloadStatus.Paused).ToList();
             foreach (var item in activeOrPending)
             {
-                if (item.Status == DownloadStatus.Pending || item.Status == DownloadStatus.Paused)
-                {
-                    item.StatusText = "Cancelled";
-                    item.Status     = DownloadStatus.Cancelled;
-                }
+                item.StatusText = "Cancelled";
+                item.Status     = DownloadStatus.Cancelled;
                 item.Cts.Cancel();
             }
             _ = ProcessQueueAsync();
@@ -241,9 +235,9 @@ public class DownloadManager
             {
                 item.StatusText = "Paused";
                 item.Status     = DownloadStatus.Paused;
+                item.Cts.Cancel();
                 _ = ProcessQueueAsync();
             });
-            item.Cts.Cancel();
         }
     }
 
@@ -537,7 +531,7 @@ public class DownloadManager
 
             Log($"Saved: {finalPath}");
 
-            MainThread.BeginInvokeOnMainThread(() =>
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 item.Title      = book.TitleEn ?? book.Title;
                 item.Author     = book.AuthorEn ?? book.Author;
@@ -548,7 +542,7 @@ public class DownloadManager
             });
 
             // Save to persistent history (cover cached locally)
-            _ = HistoryService.Instance.AddAsync(item);
+            await HistoryService.Instance.AddAsync(item);
 
 #if ANDROID
             DownloadForegroundService.NotifyDone(book.TitleEn ?? book.Title, finalPath);
@@ -562,6 +556,15 @@ public class DownloadManager
                 {
                     Log("Download paused.");
                     item.StatusText = "Paused";
+                }
+                else if (item.Status == DownloadStatus.Cancelled)
+                {
+                    Log("Download cancelled.");
+                    item.StatusText = "Cancelled";
+                }
+                else if (item.Status == DownloadStatus.Pending)
+                {
+                    Log("Download resumed.");
                 }
                 else
                 {

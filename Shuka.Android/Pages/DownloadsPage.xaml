@@ -191,7 +191,7 @@
             <CollectionView x:Name="DownloadsCollectionView"
                             SelectionMode="None"
                             IsVisible="False"
-                            ItemSizingStrategy="MeasureFirstItem"
+                            ItemSizingStrategy="MeasureAllItems"
                             Margin="16,20,16,0">
                 <CollectionView.ItemsLayout>
                     <LinearItemsLayout Orientation="Vertical" ItemSpacing="12" />
