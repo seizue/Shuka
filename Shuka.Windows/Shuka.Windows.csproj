@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Playwright" Version="1.60.0" />
-    <PackageReference Include="Spectre.Console" Version="0.55.2" />
+    <PackageReference Include="Spectre.Console" Version="0.57.0" />
   </ItemGroup>
 
   <ItemGroup>
