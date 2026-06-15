@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:controls="clr-namespace:Shuka.Android.Controls"
+             xmlns:local="clr-namespace:Shuka.Android.Pages"
              x:Class="Shuka.Android.Pages.DownloadsPage"
              BackgroundColor="{DynamicResource BgPage}">
 
@@ -81,34 +82,9 @@
                 </HorizontalStackLayout>
             </VerticalStackLayout>
 
-            <!-- Clear History -->
-            <Border Grid.Column="2"
-                    x:Name="ClearHistoryBtn"
-                    BackgroundColor="{DynamicResource BgInput}"
-                    Stroke="{DynamicResource Stroke}"
-                    StrokeThickness="1"
-                    StrokeShape="RoundRectangle 10"
-                    Padding="12,8"
-                    VerticalOptions="Center">
-                <HorizontalStackLayout Spacing="6">
-                    <Label Text="&#xE872;"
-                           FontFamily="{DynamicResource IconFont}"
-                           FontSize="16"
-                           TextColor="{DynamicResource TextMuted}"
-                           VerticalOptions="Center" />
-                    <Label Text="Clear"
-                           FontSize="12" FontAttributes="Bold"
-                           TextColor="{DynamicResource TextMuted}"
-                           VerticalOptions="Center" />
-                </HorizontalStackLayout>
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnClearHistoryClicked" />
-                </Border.GestureRecognizers>
-            </Border>
-
-            <!-- Cancel All -->
+            <!-- Page Actions Menu Button -->
             <Border Grid.Column="4"
-                    x:Name="CancelAllBtn"
+                    x:Name="PageActionsBtn"
                     BackgroundColor="{DynamicResource BgInput}"
                     Stroke="{DynamicResource Stroke}"
                     StrokeThickness="1"
@@ -116,149 +92,824 @@
                     Padding="12,8"
                     VerticalOptions="Center">
                 <HorizontalStackLayout Spacing="6">
-                    <Label Text="&#xE5C9;"
-                           FontFamily="{DynamicResource IconFont}"
-                           FontSize="16"
-                           TextColor="{DynamicResource Danger}"
-                           VerticalOptions="Center" />
-                    <Label Text="Cancel All"
-                           FontSize="12" FontAttributes="Bold"
-                           TextColor="{DynamicResource Danger}"
+                    <Label Text="&#xE5D4;"
+                           FontFamily="MaterialSymbols"
+                           FontSize="18"
+                           TextColor="{DynamicResource TextSecondary}"
                            VerticalOptions="Center" />
                 </HorizontalStackLayout>
                 <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnCancelAllClicked" />
+                    <TapGestureRecognizer Tapped="OnPageActionsClicked" />
                 </Border.GestureRecognizers>
             </Border>
         </Grid>
 
-        <!-- ── Sub-tabs: Ongoing | Completed ──────────────────── -->
+        <!-- ── Category Selector Dropdown ───────────────── -->
         <Grid Grid.Row="1"
-              ColumnDefinitions="*,*"
               BackgroundColor="{DynamicResource BgCard}"
-              HeightRequest="48">
-
-            <!-- Ongoing tab -->
-            <Grid Grid.Column="0" x:Name="TabOngoingPill">
-                <Label x:Name="TabOngoingLabel"
-                       Text="ONGOING"
-                       FontSize="13" FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center"
-                       HorizontalTextAlignment="Center" />
-                <BoxView x:Name="TabOngoingBar"
-                         HeightRequest="2"
-                         VerticalOptions="End"
-                         HorizontalOptions="Fill"
-                         Margin="20,0" />
-                <Grid.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnTabOngoingTapped" />
-                </Grid.GestureRecognizers>
-            </Grid>
-
-            <!-- Completed tab -->
-            <Grid Grid.Column="1" x:Name="TabCompletedPill">
-                <Label x:Name="TabCompletedLabel"
-                       Text="COMPLETED"
-                       FontSize="13" FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center"
-                       HorizontalTextAlignment="Center" />
-                <BoxView x:Name="TabCompletedBar"
-                         HeightRequest="2"
-                         VerticalOptions="End"
-                         HorizontalOptions="Fill"
-                         Margin="20,0" />
-                <Grid.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnTabCompletedTapped" />
-                </Grid.GestureRecognizers>
-            </Grid>
-
+              Padding="16,8">
+            <Border x:Name="CategorySelectorBtn"
+                    BackgroundColor="{DynamicResource BgInput}"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 14">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" Padding="14,10" ColumnSpacing="10">
+                    <Label x:Name="CategorySelectorIcon"
+                           Text="&#xE8B6;"
+                           FontFamily="MaterialSymbols"
+                           FontSize="18"
+                           TextColor="{DynamicResource AccentLight}"
+                           VerticalOptions="Center" />
+                    <Label x:Name="CategorySelectorText"
+                           Grid.Column="1"
+                           Text="Queued"
+                           FontSize="13"
+                           FontAttributes="Bold"
+                           TextColor="{DynamicResource TextPrimary}"
+                           VerticalOptions="Center" />
+                    <Border x:Name="CategorySelectorBadge"
+                            Grid.Column="2"
+                            BackgroundColor="{DynamicResource AccentContainer}"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 8"
+                            Padding="8,3"
+                            VerticalOptions="Center"
+                            IsVisible="False">
+                        <Label x:Name="CategorySelectorCount"
+                               FontSize="11"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentLight}" />
+                    </Border>
+                    <Label Grid.Column="3"
+                           Text="&#xE5CF;"
+                           FontFamily="MaterialSymbols"
+                           FontSize="20"
+                           TextColor="{DynamicResource TextSecondary}"
+                           VerticalOptions="Center" />
+                </Grid>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategorySelectorTapped" />
+                </Border.GestureRecognizers>
+            </Border>
         </Grid>
 
         <!-- ── Body ─────────────────────────────────────────── -->
         <Grid Grid.Row="2" x:Name="BodyGrid">
 
-            <!-- ══ ONGOING PANEL ══════════════════════════════ -->
-            <Grid x:Name="OngoingPanel">
-
-                <!-- Empty state -->
-                <VerticalStackLayout x:Name="OngoingEmptyState"
-                                     Spacing="14"
-                                     HorizontalOptions="Center"
-                                     VerticalOptions="Center">
-                    <Border BackgroundColor="{DynamicResource BgCard}"
-                            StrokeThickness="0"
-                            StrokeShape="RoundRectangle 32"
-                            WidthRequest="80" HeightRequest="80"
-                            HorizontalOptions="Center">
-                        <Label Text="&#xE2C4;"
-                               FontFamily="{DynamicResource IconFont}"
-                               FontSize="40"
-                               TextColor="{DynamicResource TextMuted}"
-                               HorizontalOptions="Center"
-                               VerticalOptions="Center" />
-                    </Border>
-                    <Label Text="No active downloads"
-                           FontSize="16" FontAttributes="Bold"
-                           TextColor="{DynamicResource TextSecondary}"
-                           HorizontalOptions="Center" />
-                    <Label Text="Start a download from the Home tab"
-                           FontSize="13"
+            <!-- Empty state -->
+            <VerticalStackLayout x:Name="EmptyStateLayout"
+                                 Spacing="14"
+                                 HorizontalOptions="Center"
+                                 VerticalOptions="Center"
+                                 IsVisible="False">
+                <Border BackgroundColor="{DynamicResource BgCard}"
+                        StrokeThickness="0"
+                        StrokeShape="RoundRectangle 32"
+                        WidthRequest="80" HeightRequest="80"
+                        HorizontalOptions="Center">
+                    <Label x:Name="EmptyStateIcon"
+                           Text="&#xE2C4;"
+                           FontFamily="MaterialSymbols"
+                           FontSize="40"
                            TextColor="{DynamicResource TextMuted}"
-                           HorizontalOptions="Center" />
-                </VerticalStackLayout>
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Border>
+                <Label x:Name="EmptyStateTitle"
+                       Text="No downloads"
+                       FontSize="16" FontAttributes="Bold"
+                       TextColor="{DynamicResource TextSecondary}"
+                       HorizontalOptions="Center" />
+                <Label x:Name="EmptyStateSubtitle"
+                       Text="Novels will appear here"
+                       FontSize="13"
+                       TextColor="{DynamicResource TextMuted}"
+                       HorizontalOptions="Center" />
+            </VerticalStackLayout>
 
-                <!-- Scrollable list — cards injected from code-behind -->
-                <ScrollView x:Name="OngoingListScroll" IsVisible="False">
-                    <VerticalStackLayout x:Name="OngoingCardList"
-                                         Padding="16,20,16,112"
-                                         Spacing="12" />
-                </ScrollView>
-
-            </Grid>
-
-            <!-- ══ COMPLETED PANEL ════════════════════════════ -->
-            <Grid x:Name="CompletedPanel" IsVisible="False">
-
-                <!-- Empty state -->
-                <VerticalStackLayout x:Name="CompletedEmptyState"
-                                     Spacing="14"
-                                     HorizontalOptions="Center"
-                                     VerticalOptions="Center">
-                    <Border BackgroundColor="{DynamicResource BgCard}"
-                            StrokeThickness="0"
-                            StrokeShape="RoundRectangle 32"
-                            WidthRequest="80" HeightRequest="80"
-                            HorizontalOptions="Center">
-                        <Label Text="&#xE876;"
-                               FontFamily="{DynamicResource IconFont}"
-                               FontSize="40"
-                               TextColor="{DynamicResource TextMuted}"
-                               HorizontalOptions="Center"
-                               VerticalOptions="Center" />
-                    </Border>
-                    <Label Text="No completed downloads"
-                           FontSize="16" FontAttributes="Bold"
-                           TextColor="{DynamicResource TextSecondary}"
-                           HorizontalOptions="Center" />
-                    <Label Text="Finished novels will appear here"
-                           FontSize="13"
-                           TextColor="{DynamicResource TextMuted}"
-                           HorizontalOptions="Center" />
-                </VerticalStackLayout>
-
-                <!-- Scrollable list — cards injected from code-behind -->
-                <ScrollView x:Name="CompletedListScroll" IsVisible="False">
-                    <VerticalStackLayout x:Name="CompletedCardList"
-                                         Padding="16,20,16,112"
-                                         Spacing="12" />
-                </ScrollView>
-
-            </Grid>
+            <!-- Virtualized CollectionView -->
+            <CollectionView x:Name="DownloadsCollectionView"
+                            SelectionMode="None"
+                            IsVisible="False"
+                            ItemSizingStrategy="MeasureAllItems"
+                            Margin="16,20,16,0">
+                <CollectionView.ItemsLayout>
+                    <LinearItemsLayout Orientation="Vertical" ItemSpacing="12" />
+                </CollectionView.ItemsLayout>
+                <CollectionView.Footer>
+                    <!-- Bottom inset spacer so last card isn't hidden behind the nav bar -->
+                    <BoxView HeightRequest="112" Color="Transparent" />
+                </CollectionView.Footer>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <local:DownloadCard />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
 
         </Grid>
 
+        <!-- Options bottom sheet overlay -->
+        <Grid x:Name="OptionsSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnOptionsSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="OptionsSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnOptionsSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+                    <!-- Title & Subtitle -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Options"
+                                   FontSize="16"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextPrimary}" />
+                            <Label x:Name="OptionsSheetSubtitle"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   TextColor="{DynamicResource TextMuted}" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Option Buttons -->
+                    <VerticalStackLayout Spacing="8">
+                        <!-- Open Book Option -->
+                        <Border x:Name="OptionsSheetOpenBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE2C7;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Open Book"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetOpenTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Share Book Option -->
+                        <Border x:Name="OptionsSheetShareBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE6B8;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Share Book"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetShareTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Dismiss Option (Remove from list) -->
+                        <Border x:Name="OptionsSheetDismissBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5CD;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Remove from List"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetDismissTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Copy Original Title Option -->
+                        <Border x:Name="OptionsSheetCopyTitleBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy Original Source Title"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCopyTitleTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Copy Original Author Option -->
+                        <Border x:Name="OptionsSheetCopyAuthorBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy Original Source Author"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCopyAuthorTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Pause Download Option -->
+                        <Border x:Name="OptionsSheetPauseBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE034;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Pause Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetPauseTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Resume Download Option -->
+                        <Border x:Name="OptionsSheetResumeBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE037;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Resume Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetResumeTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Cancel Download Option -->
+                        <Border x:Name="OptionsSheetCancelBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5C9;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Cancel Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCancelTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Move to Top Option -->
+                        <Border x:Name="OptionsSheetMoveToTopBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5D8;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Move to Top" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetMoveToTopTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Move Up Option -->
+                        <Border x:Name="OptionsSheetMoveUpBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE316;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Move Up" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetMoveUpTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Move Down Option -->
+                        <Border x:Name="OptionsSheetMoveDownBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE313;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Move Down" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetMoveDownTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Move to Bottom Option -->
+                        <Border x:Name="OptionsSheetMoveToBottomBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5DB;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Move to Bottom" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetMoveToBottomTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- Page Actions bottom sheet overlay -->
+        <Grid x:Name="PageActionsSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnPageActionsSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="PageActionsSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnPageActionsSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+                    <!-- Title & Close -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Downloads Menu"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}" />
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="MaterialSymbols"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionsSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Option Buttons -->
+                    <VerticalStackLayout Spacing="8">
+                        <!-- Pause All Option -->
+                        <Border x:Name="PageActionPauseAllBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE034;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Pause All Downloads" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionPauseAllTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Resume All Option -->
+                        <Border x:Name="PageActionResumeAllBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE037;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Resume All Downloads" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionResumeAllTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Cancel All Option -->
+                        <Border x:Name="PageActionCancelAllBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE5C9;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource Danger}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Cancel All Active Downloads" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource Danger}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionCancelAllTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Clear Completed Option -->
+                        <Border x:Name="PageActionClearCompletedBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE872;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Clear Completed Downloads" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionClearCompletedTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Sort Option -->
+                        <Border x:Name="PageActionSortBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Sort Downloads" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionSortTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- ── Category Picker Sheet ──────────────────────── -->
+        <Grid x:Name="CategoryPickerOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnCategoryPickerOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="CategoryPickerSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryPickerSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+                    <!-- Title &amp; Close -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Filter by Status"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}" />
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="MaterialSymbols"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Category Options -->
+                    <VerticalStackLayout Spacing="8">
+
+                        <!-- Downloading -->
+                        <Border x:Name="CategoryPickerDownloadingBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Label Text="&#xE2C4;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Downloading" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                                <Border x:Name="CategoryPickerDownloadingBadge" Grid.Column="2" BackgroundColor="{DynamicResource Stroke}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="6,2" VerticalOptions="Center">
+                                    <Label x:Name="CategoryPickerDownloadingCount" Text="0" FontSize="10" FontAttributes="Bold" TextColor="{DynamicResource TextSecondary}" />
+                                </Border>
+                                <Label x:Name="CategoryPickerDownloadingCheck" Grid.Column="3" Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource AccentLight}" VerticalOptions="Center" IsVisible="False" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerDownloadingTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Queued -->
+                        <Border x:Name="CategoryPickerQueuedBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Label Text="&#xE8B6;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Queued" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                                <Border x:Name="CategoryPickerQueuedBadge" Grid.Column="2" BackgroundColor="{DynamicResource Stroke}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="6,2" VerticalOptions="Center">
+                                    <Label x:Name="CategoryPickerQueuedCount" Text="0" FontSize="10" FontAttributes="Bold" TextColor="{DynamicResource TextSecondary}" />
+                                </Border>
+                                <Label x:Name="CategoryPickerQueuedCheck" Grid.Column="3" Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource AccentLight}" VerticalOptions="Center" IsVisible="False" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerQueuedTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Paused -->
+                        <Border x:Name="CategoryPickerPausedBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Label Text="&#xE034;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Paused" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                                <Border x:Name="CategoryPickerPausedBadge" Grid.Column="2" BackgroundColor="{DynamicResource Stroke}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="6,2" VerticalOptions="Center">
+                                    <Label x:Name="CategoryPickerPausedCount" Text="0" FontSize="10" FontAttributes="Bold" TextColor="{DynamicResource TextSecondary}" />
+                                </Border>
+                                <Label x:Name="CategoryPickerPausedCheck" Grid.Column="3" Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource AccentLight}" VerticalOptions="Center" IsVisible="False" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerPausedTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Completed -->
+                        <Border x:Name="CategoryPickerCompletedBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Label Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Completed" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                                <Border x:Name="CategoryPickerCompletedBadge" Grid.Column="2" BackgroundColor="{DynamicResource Stroke}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="6,2" VerticalOptions="Center">
+                                    <Label x:Name="CategoryPickerCompletedCount" Text="0" FontSize="10" FontAttributes="Bold" TextColor="{DynamicResource TextSecondary}" />
+                                </Border>
+                                <Label x:Name="CategoryPickerCompletedCheck" Grid.Column="3" Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource AccentLight}" VerticalOptions="Center" IsVisible="False" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerCompletedTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Failed / Cancelled -->
+                        <Border x:Name="CategoryPickerFailedBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Label Text="&#xE5CD;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource Danger}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Failed / Cancelled" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                                <Border x:Name="CategoryPickerFailedBadge" Grid.Column="2" BackgroundColor="{DynamicResource Stroke}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="6,2" VerticalOptions="Center">
+                                    <Label x:Name="CategoryPickerFailedCount" Text="0" FontSize="10" FontAttributes="Bold" TextColor="{DynamicResource TextSecondary}" />
+                                </Border>
+                                <Label x:Name="CategoryPickerFailedCheck" Grid.Column="3" Text="&#xE876;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource AccentLight}" VerticalOptions="Center" IsVisible="False" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCategoryPickerFailedTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- Sort bottom sheet overlay -->
+        <Grid x:Name="SortSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnSortSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="SortSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnSortSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+                    <!-- Title & Close -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Sort Downloads By"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}" />
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="MaterialSymbols"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Option Buttons -->
+                    <VerticalStackLayout Spacing="8">
+                        <!-- Date Added (Newest) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Date Added (Newest)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortNewestTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Date Added (Oldest) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Date Added (Oldest)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortOldestTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Title (A-Z) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Title (A-Z)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortTitleAZTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Title (Z-A) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Title (Z-A)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortTitleZATapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Progress (Highest) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Progress (Highest)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortProgressHighestTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Progress (Lowest) -->
+                        <Border BackgroundColor="{DynamicResource BgInput}" Stroke="{DynamicResource Stroke}" StrokeShape="RoundRectangle 14" Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE164;" FontFamily="MaterialSymbols" FontSize="18" TextColor="{DynamicResource TextSecondary}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="Progress (Lowest)" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource TextPrimary}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSortProgressLowestTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
     </Grid>
 
 </ContentPage>

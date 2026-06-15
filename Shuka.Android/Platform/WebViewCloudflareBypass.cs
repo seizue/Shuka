@@ -19,12 +19,12 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     // the next fetch starts. Multiple concurrent WebViews cause CF to re-challenge.
     private static readonly SemaphoreSlim _sem = new(1, 1);
 
-    public async Task<string> FetchAsync(string url)
+    public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
-        await _sem.WaitAsync();
+        await _sem.WaitAsync(ct);
         try
         {
-            return await FetchInternalAsync(url);
+            return await FetchInternalAsync(url, ct);
         }
         finally
         {
@@ -32,7 +32,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         }
     }
 
-    private Task<string> FetchInternalAsync(string url)
+    private Task<string> FetchInternalAsync(string url, CancellationToken ct)
     {
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -52,10 +52,19 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
             var (hostLayout, overlay) = AttachWebView(webView);
 
+            using var reg = ct.Register(() =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    tcs.TrySetCanceled(ct);
+                    Cleanup(hostLayout, overlay);
+                });
+            });
+
             try
             {
                 // Give the WebView time to start loading before we poll
-                await Task.Delay(2000);
+                await Task.Delay(2000, ct);
 
                 string? html = null;
                 int waited = 0;
@@ -63,10 +72,12 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                 while (waited < MaxWaitMs)
                 {
-                    await Task.Delay(PollMs);
+                    ct.ThrowIfCancellationRequested();
+                    await Task.Delay(PollMs, ct);
                     waited += PollMs;
 
                     html = await GetPageHtmlAsync(webView);
+                    ct.ThrowIfCancellationRequested();
                     if (html == null || html.Length < 500) continue;
 
                     // Still on a CF challenge page — keep waiting
@@ -87,7 +98,8 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 if (!timedOut && url.Contains("czbooks.net/n/") &&
                     !Regex.IsMatch(url, @"czbooks\.net/n/[^/]+/[^/]+"))
                 {
-                    await WaitForCzBooksChaptersAsync(webView);
+                    await WaitForCzBooksChaptersAsync(webView, ct);
+                    ct.ThrowIfCancellationRequested();
                     html = await GetPageHtmlAsync(webView);
                 }
 
@@ -103,6 +115,10 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 }
 
                 tcs.TrySetResult(html ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                tcs.TrySetCanceled(ct);
             }
             catch (Exception ex)
             {
@@ -121,7 +137,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     /// For czbooks.net index pages (client-side rendered), polls until
     /// chapter links appear in the DOM — up to 25s.
     /// </summary>
-    private static async Task WaitForCzBooksChaptersAsync(WebView webView)
+    private static async Task WaitForCzBooksChaptersAsync(WebView webView, CancellationToken ct)
     {
         const int pollMs  = 1000;
         const int maxWait = 25000;
@@ -129,7 +145,8 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
         while (waited < maxWait)
         {
-            await Task.Delay(pollMs);
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(pollMs, ct);
             waited += pollMs;
 
             string? js = await webView.EvaluateJavaScriptAsync(
@@ -137,7 +154,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
             if (int.TryParse(js?.Trim('"'), out int count) && count > 5)
             {
-                await Task.Delay(500);
+                await Task.Delay(500, ct);
                 return;
             }
         }

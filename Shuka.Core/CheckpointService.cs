@@ -20,9 +20,10 @@ public static class CheckpointService
     /// </summary>
     public static string GetCheckpointPath(string cacheDir, string url)
     {
-        // Use a stable hash of the URL as the filename
-        int hash = Math.Abs(url.GetHashCode());
-        return Path.Combine(cacheDir, $"_checkpoint_{hash:X8}.json");
+        // Use a stable MD5 hash of the URL as the filename (GetHashCode is randomized per-run in .NET Core)
+        byte[] hashBytes = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(url));
+        string hex = Convert.ToHexString(hashBytes);
+        return Path.Combine(cacheDir, $"_checkpoint_{hex}.json");
     }
 
     /// <summary>

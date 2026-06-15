@@ -49,6 +49,7 @@ public class DownloadForegroundService : Service
             ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
             ?.SetFlags(ActivityFlags.SingleTop)
             ?? new Intent(ctx, typeof(DownloadForegroundService));
+        launchIntent.PutExtra("navigate_to", "DownloadsPage");
 
 #pragma warning disable CA1416
         var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
@@ -157,6 +158,7 @@ public class DownloadForegroundService : Service
             ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
             ?.SetFlags(ActivityFlags.SingleTop)
             ?? new Intent(ctx, typeof(DownloadForegroundService));
+        launchIntent.PutExtra("navigate_to", "DownloadsPage");
 
 #pragma warning disable CA1416
         var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M

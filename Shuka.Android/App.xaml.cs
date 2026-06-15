@@ -15,6 +15,9 @@ public partial class App : Application
     {
         InitializeComponent();
         
+        // Eagerly load reading history in the background so it is ready when navigated to
+        _ = HistoryService.Instance;
+        
         // Set up global exception handlers
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;

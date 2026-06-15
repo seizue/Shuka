@@ -16,17 +16,17 @@ public class HistoryCard : ContentView
     public HistoryCard(HistoryEntry entry, bool isCompact)
     {
         _entry = entry;
-        bool fileExists = IsEpubAccessible(entry.EpubPath);
+        bool fileExists = entry.IsFileAvailable;
 
         if (isCompact)
         {
             // ── Grid view (Compact Grid style like Tachiyomi) ────────────────
             View coverView;
-            if (!string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath))
+            if (entry.IsCoverAvailable && !string.IsNullOrWhiteSpace(entry.CoverLocalPath))
             {
                 coverView = new Image
                 {
-                    Source = ImageSource.FromFile(entry.CoverLocalPath),
+                    Source = HistoryService.GetCoverImageSource(entry.CoverLocalPath),
                     Aspect = Aspect.AspectFill,
                 };
             }
@@ -34,7 +34,7 @@ public class HistoryCard : ContentView
             {
                 var lilyImg = new Image
                 {
-                    Source            = ImageSource.FromFile("lily.png"),
+                    Source            = HistoryService.GetCoverImageSource(null),
                     Aspect            = Aspect.AspectFit,
                     WidthRequest      = 28,
                     HeightRequest     = 28,
@@ -140,12 +140,11 @@ public class HistoryCard : ContentView
         {
             // ── List view (standard layout) ──────────────────────────────────
             View coverView;
-            if (!string.IsNullOrWhiteSpace(entry.CoverLocalPath) &&
-                File.Exists(entry.CoverLocalPath))
+            if (entry.IsCoverAvailable && !string.IsNullOrWhiteSpace(entry.CoverLocalPath))
             {
                 var img = new Image
                 {
-                    Source            = ImageSource.FromFile(entry.CoverLocalPath),
+                    Source            = HistoryService.GetCoverImageSource(entry.CoverLocalPath),
                     Aspect            = Aspect.AspectFill,
                     WidthRequest      = 60,
                     HeightRequest     = 90,
@@ -166,7 +165,7 @@ public class HistoryCard : ContentView
             {
                 var lilyImg = new Image
                 {
-                    Source            = ImageSource.FromFile("lily.png"),
+                    Source            = HistoryService.GetCoverImageSource(null),
                     Aspect            = Aspect.AspectFit,
                     WidthRequest      = 32,
                     HeightRequest     = 32,
@@ -299,19 +298,4 @@ public class HistoryCard : ContentView
             Content = card;
         }
     }
-
-    /// <summary>
-    /// Returns true if the EPUB path is accessible — handles both regular file
-    /// paths and Android SAF content:// URIs (which are always considered present
-    /// since we can't check them with File.Exists).
-    /// </summary>
-    private static bool IsEpubAccessible(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        // SAF content URI — assume accessible (can't use File.Exists on content URIs)
-        if (path.StartsWith("content://", StringComparison.OrdinalIgnoreCase)) return true;
-        return File.Exists(path);
-    }
-
-
 }
