@@ -103,7 +103,7 @@ public class BookService
             // Run title/author translation and cover download in parallel
             var titleTask = _translator.Translate(book.Title, log, ct);
             var authorTask = _translator.Translate(book.Author, log, ct);
-            var coverTask = DownloadCover(book.CoverUrl, log);
+            var coverTask = DownloadCover(book.CoverUrl, log, ct);
 
             await Task.WhenAll(titleTask, authorTask, coverTask);
 
@@ -117,7 +117,7 @@ public class BookService
         {
             log?.Invoke("Processing title/author...");
 
-            var coverTask = DownloadCover(book.CoverUrl, log);
+            var coverTask = DownloadCover(book.CoverUrl, log, ct);
             await coverTask;
 
             book.TitleEn = book.Title;
@@ -163,6 +163,17 @@ public class BookService
         int alreadyDone = saved.Count(r => r != null);
         if (alreadyDone > 0)
             log?.Invoke($"Resuming from chapter {alreadyDone + 1} of {total} ({alreadyDone} already done)...");
+
+        // Pre-seed progress so the UI shows the correct starting % immediately on resume
+        if (alreadyDone > 0)
+            progress?.Report(new ProgressEventArgs
+            {
+                Current = alreadyDone,
+                Total   = total,
+                Message = translate
+                    ? $"Resuming: {alreadyDone} of {total} chapters already translated..."
+                    : $"Resuming: {alreadyDone} of {total} chapters already downloaded..."
+            });
 
         // Semaphore to serialize checkpoint writes
         var writeLock = new SemaphoreSlim(1, 1);
@@ -269,13 +280,33 @@ public class BookService
         return results;
     }
 
-    private async Task<(byte[]? bytes, string mime)> DownloadCover(string? coverUrl, Action<string>? log)
+    private async Task<(byte[]? bytes, string mime)> DownloadCover(
+        string? coverUrl, Action<string>? log, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(coverUrl)) return (null, "image/jpeg");
         log?.Invoke("Downloading cover...");
         try
         {
-            byte[] bytes = await _gtClient.GetByteArrayAsync(coverUrl);
+            // 30-second hard cap per attempt so a stalled CDN (e.g. jjwxc.net) can't
+            // freeze the entire download pipeline. Also linked to the user's ct so
+            // pausing/cancelling during the cover fetch works immediately.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, coverUrl);
+            // Add a Referer derived from the cover URL's host so CDNs that check it
+            // (e.g. jjwxc.net static servers) don't block or stall the request.
+            try
+            {
+                var uri = new Uri(coverUrl);
+                req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
+            }
+            catch { /* malformed URL — skip Referer */ }
+
+            using var resp = await _gtClient.SendAsync(req, cts.Token);
+            resp.EnsureSuccessStatusCode();
+            byte[] bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+
             string ext = Path.GetExtension(new Uri(coverUrl).AbsolutePath).ToLowerInvariant();
             string mime = ext switch { ".png" => "image/png", ".gif" => "image/gif", ".webp" => "image/webp", _ => "image/jpeg" };
             if (bytes.Length >= 4)
@@ -286,6 +317,10 @@ public class BookService
             }
             log?.Invoke($"Cover OK ({bytes.Length / 1024}KB, {mime})");
             return (bytes, mime);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // user cancelled — propagate
         }
         catch (Exception ex)
         {
