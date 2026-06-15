@@ -24,8 +24,16 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          echo "VERSION=$tag" >> $env:GITHUB_OUTPUT
+          echo "Version: $tag"
+
       - name: Publish
-        run: dotnet publish Shuka.Windows/Shuka.Windows.csproj -c Release -r win-x64 --self-contained true -o Shuka.Windows/bin/publish
+        run: dotnet publish Shuka.Windows/Shuka.Windows.csproj -c Release -r win-x64 --self-contained true -o Shuka.Windows/bin/publish -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.VERSION }}.0 -p:FileVersion=${{ steps.version.outputs.VERSION }}.0 -p:InformationalVersion=${{ steps.version.outputs.VERSION }}
 
       - name: Install Playwright browsers
         run: Shuka.Windows/bin/publish/Shuka.exe playwright install chromium
