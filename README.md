@@ -65,19 +65,50 @@ dotnet publish Shuka.Android/Shuka.Android.csproj -f net10.0-android -c Release
 
 ## Adding a new site
 
-Implement `ISiteAdapter` in `Shuka.Core` and register it in `BookService`:
+Implement `ISiteAdapter` in `Shuka.Core/Adapters/` and register it in [`BookService.Adapters`](Shuka.Core/BookService.cs):
 
 ```csharp
-class MySiteAdapter : ISiteAdapter
+// Shuka.Core/Adapters/MySiteAdapter.cs
+public class MySiteAdapter : ISiteAdapter
 {
     public string SiteName => "mysite.com";
+
+    // Return true if the URL belongs to this site
     public bool Matches(string url) => url.Contains("mysite.com");
-    public string NormalizeUrl(string url) => /* strip chapter suffix etc */;
-    public IndexInfo ParseIndex(string html, string indexUrl) => /* parse title, author, chapter list */;
-    public List<string> ExtractChapterText(string html) => /* extract paragraphs */;
+
+    // Normalize an arbitrary page URL to the novel's index/chapter-list URL
+    public string NormalizeUrl(string url) => /* strip chapter suffix, etc. */;
+
+    // Parse the index page HTML — return title, author, cover URL, and ordered chapter list
+    public IndexInfo ParseIndex(string html, string indexUrl)
+    {
+        // IndexInfo(title, author, List<ChapterRef>, coverUrl)
+        // ChapterRef(url, displayTitle)
+        var chapters = new List<ChapterRef> { new("https://mysite.com/ch1", "Chapter 1") };
+        return new IndexInfo("Title", "Author", chapters, coverUrl: null);
+    }
+
+    // Extract paragraph text from a chapter page
+    public List<string> ExtractChapterText(string html) => /* return one string per paragraph */;
+
+    // Set to true only if the site is behind Cloudflare (uses headless browser / WebView)
+    public bool RequiresCfBypass => false;
 }
 ```
+
+Then register it in the [`Adapters`](Shuka.Core/BookService.cs#L17) array:
+
+```csharp
+// Shuka.Core/BookService.cs
+public static readonly ISiteAdapter[] Adapters =
+    [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(),
+     new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(),
+     new MySiteAdapter()]; // ← add here
+```
+
+That's all — `BookService` will automatically detect and route downloads to your adapter.
 
 ## License
 
 See [LICENSE](LICENSE).
+
