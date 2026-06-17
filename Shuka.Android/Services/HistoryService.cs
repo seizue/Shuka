@@ -37,9 +37,7 @@ public class HistoryService
 
     private static bool IsEpubAccessible(string? path)
     {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        if (path.StartsWith("content://", StringComparison.OrdinalIgnoreCase)) return true;
-        return File.Exists(path);
+        return Shuka.Android.Platforms.Android.EpubOpener.IsAccessible(path);
     }
 
     private static string HistoryFile =>
@@ -51,6 +49,10 @@ public class HistoryService
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
     private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private readonly TaskCompletionSource _loadedTcs = new();
+
+    /// <summary>Awaitable task that completes once history has been loaded from disk.</summary>
+    public Task LoadedTask => _loadedTcs.Task;
 
     private HistoryService()
     {
@@ -61,14 +63,31 @@ public class HistoryService
 
     /// <summary>
     /// Called when a download completes. Saves the entry and caches the cover.
+    /// If an entry for the same URL already exists it is updated in-place
+    /// rather than inserting a duplicate.
     /// </summary>
     public async Task AddAsync(DownloadItem item)
     {
         if (item.Status != DownloadStatus.Completed) return;
 
-        // Don't add duplicates
-        if (Entries.Any(e => e.Url == item.Url && e.EpubPath == item.EpubPath))
+        // Check for an existing entry by URL only — EpubPath can change between runs
+        var existing = Entries.FirstOrDefault(e =>
+            string.Equals(e.Url, item.Url, StringComparison.OrdinalIgnoreCase));
+
+        if (existing != null)
+        {
+            // Update in-place: refresh the path and timestamp, but keep cover/id
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryService] Updating existing entry for '{existing.Title}' (path: {item.EpubPath})");
+
+            bool pathChanged = existing.EpubPath != item.EpubPath;
+            existing.EpubPath        = item.EpubPath;
+            existing.IsFileAvailable = IsEpubAccessible(existing.EpubPath);
+            // Note: CompletedAt is init-only — we intentionally keep the original date.
+
+            await SaveAsync();
             return;
+        }
 
         var entry = new HistoryEntry
         {
@@ -86,7 +105,7 @@ public class HistoryService
         if (!string.IsNullOrWhiteSpace(entry.CoverUrl))
             entry.CoverLocalPath = await CacheCoverAsync(entry.Id, entry.CoverUrl);
 
-        entry.IsFileAvailable = IsEpubAccessible(entry.EpubPath);
+        entry.IsFileAvailable  = IsEpubAccessible(entry.EpubPath);
         entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath);
 
         MainThread.BeginInvokeOnMainThread(() => Entries.Insert(0, entry));
@@ -145,19 +164,50 @@ public class HistoryService
         try
         {
             Directory.CreateDirectory(CoversDir);
-            if (!File.Exists(HistoryFile)) return;
+            if (!File.Exists(HistoryFile))
+            {
+                _loadedTcs.TrySetResult(); // no file — signal immediately
+                return;
+            }
+
             string json = await File.ReadAllTextAsync(HistoryFile);
             var list = JsonSerializer.Deserialize<List<HistoryEntry>>(json);
-            if (list == null) return;
-
-            // Migrate: patch any entries that were saved with ChapterCount = 0
-            bool needsSave = false;
-            for (int i = 0; i < list.Count; i++)
+            if (list == null)
             {
-                var entry = list[i];
-                entry.IsFileAvailable = IsEpubAccessible(entry.EpubPath);
-                entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath);
+                _loadedTcs.TrySetResult();
+                return;
+            }
 
+            // ── Fast pass: set file/cover availability (no ZIP reads) ──────────
+            bool needsSave = false;
+            foreach (var entry in list)
+            {
+                string? resolved = Shuka.Android.Platforms.Android.EpubOpener
+                    .ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+                if (resolved != null)
+                {
+                    if (entry.EpubPath != resolved)
+                    {
+                        entry.EpubPath = resolved;
+                        needsSave = true;
+                    }
+                    entry.IsFileAvailable = true;
+                }
+                else
+                {
+                    entry.IsFileAvailable = false;
+                }
+                entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath)
+                    && File.Exists(entry.CoverLocalPath);
+            }
+
+            // ── Populate collection then signal — RunAsync can now proceed ─────
+            await MainThread.InvokeOnMainThreadAsync(() => Entries.AddRange(list));
+            _loadedTcs.TrySetResult(); // signal BEFORE slow chapter migration
+
+            // ── Slow pass: count chapters from ZIP (migration only) ────────────
+            foreach (var entry in list)
+            {
                 if (entry.ChapterCount == 0)
                 {
                     int count = TryCountChaptersFromEpub(entry.EpubPath);
@@ -169,15 +219,15 @@ public class HistoryService
                 }
             }
 
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                Entries.AddRange(list);
-            });
-
             if (needsSave)
                 await SaveAsync();
         }
         catch { /* corrupt file — start fresh */ }
+        finally
+        {
+            // Safety net: ensure signal is always fired even on exception.
+            _loadedTcs.TrySetResult();
+        }
     }
 
     /// <summary>
@@ -188,31 +238,47 @@ public class HistoryService
     private static int TryCountChaptersFromEpub(string? epubPath)
     {
         if (string.IsNullOrWhiteSpace(epubPath)) return 0;
-        // SAF content URIs can't be opened with ZipFile
-        if (epubPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase)) return 0;
-        if (!File.Exists(epubPath)) return 0;
 
         try
         {
-            using var zip = System.IO.Compression.ZipFile.OpenRead(epubPath);
-            var opf = zip.GetEntry("OEBPS/content.opf");
-            if (opf == null) return 0;
+            Stream? stream = null;
+            if (epubPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase))
+            {
+                var ctx = global::Android.App.Application.Context;
+                var uri = global::Android.Net.Uri.Parse(epubPath);
+                if (uri == null) return 0;
+                stream = ctx.ContentResolver?.OpenInputStream(uri);
+            }
+            else
+            {
+                if (!File.Exists(epubPath)) return 0;
+                stream = File.OpenRead(epubPath);
+            }
 
-            using var reader = new StreamReader(opf.Open());
-            string content = reader.ReadToEnd();
+            if (stream == null) return 0;
 
-            // Count <itemref idref="chN"/> entries — each chapter has id="chN"
-            int count = System.Text.RegularExpressions.Regex.Matches(
-                content,
-                @"<itemref\s+idref=""ch\d+""",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count;
+            using (stream)
+            {
+                using var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+                var opf = archive.GetEntry("OEBPS/content.opf");
+                if (opf == null) return 0;
 
-            return count;
+                using var reader = new StreamReader(opf.Open());
+                string content = reader.ReadToEnd();
+
+                // Count <itemref idref="chN"/> entries — each chapter has id="chN"
+                int count = System.Text.RegularExpressions.Regex.Matches(
+                    content,
+                    @"<itemref\s+idref=""ch\d+""",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count;
+
+                return count;
+            }
         }
         catch { return 0; }
     }
 
-    private async Task SaveAsync()
+    public async Task SaveAsync()
     {
         await _saveLock.WaitAsync();
         try

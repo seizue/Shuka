@@ -133,34 +133,132 @@ public class DownloadManager
             var list = JsonSerializer.Deserialize<List<DownloadItem>>(json);
             if (list == null) return;
 
-            // Load items on the main thread to ensure CollectionChanged triggers and UI updates properly
-            MainThread.BeginInvokeOnMainThread(() =>
+            await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 foreach (var item in list)
                 {
                     item.Cts = new CancellationTokenSource();
                     Downloads.Add(item);
                 }
+            });
 
-                // Auto-recover active/interrupted downloads
-                bool hasPending = false;
+            // Wait for history before reconciling — otherwise we cannot match URL → EPUB path.
+            await HistoryService.Instance.LoadedTask;
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
                 foreach (var item in list)
                 {
-                    if (item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming or DownloadStatus.Pending)
+                    if (item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming
+                        or DownloadStatus.Pending)
                     {
                         item.Status = DownloadStatus.Pending;
                         item.StatusText = "Queued — waiting for slot...";
-                        hasPending = true;
+                        item.ForceRebuild = false;
                     }
                 }
-                UpdateQueuePositions();
-                if (hasPending)
+
+                foreach (var item in list.Where(i => i.Status == DownloadStatus.Pending))
                 {
-                    _ = ProcessQueueAsync();
+                    if (TryAdoptExistingEpub(item))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DownloadManager] LoadQueueAsync adopted existing EPUB for '{item.Title}'");
+                    }
                 }
+
+                UpdateQueuePositions();
             });
+
+            if (Downloads.Any(d => d.Status == DownloadStatus.Pending))
+                await ProcessQueueAsync();
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Cancel queued/active downloads for a URL. Used when opening an existing EPUB from history
+    /// so a stale queue item cannot regenerate the file in the background.
+    /// </summary>
+    public void CancelActiveForUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var active = Downloads.Where(d =>
+                string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase) &&
+                d.Status is DownloadStatus.Pending or DownloadStatus.Downloading
+                    or DownloadStatus.Resuming).ToList();
+
+            if (active.Count == 0) return;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[DownloadManager] CancelActiveForUrl: cancelling {active.Count} item(s) for {url}");
+
+            foreach (var item in active)
+            {
+                item.StatusText = "Cancelled — EPUB already on device";
+                item.Status     = DownloadStatus.Cancelled;
+                item.Cts.Cancel();
+            }
+            _ = ProcessQueueAsync();
+        });
+    }
+
+    /// <summary>
+    /// If an accessible EPUB already exists for this item's URL, mark it completed without downloading.
+    /// Returns true when an existing file was adopted.
+    /// </summary>
+    public bool TryAdoptExistingEpub(DownloadItem item)
+    {
+        if (item.ForceRebuild) return false;
+
+        var existing = HistoryService.Instance.Entries.FirstOrDefault(e =>
+            string.Equals(e.Url, item.Url, StringComparison.OrdinalIgnoreCase));
+
+        string? searchTitle = existing?.Title;
+        if (string.IsNullOrWhiteSpace(searchTitle) && !string.IsNullOrWhiteSpace(item.Title))
+            searchTitle = item.Title;
+
+#if ANDROID
+        string? path = existing != null
+            ? Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                existing.EpubPath, existing.Title, existing.Url)
+            : Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                item.EpubPath, searchTitle, item.Url);
+
+        if (path == null && !string.IsNullOrWhiteSpace(searchTitle))
+            path = Platforms.Android.EpubOpener.FindExistingEpub(searchTitle, item.EpubPath);
+
+        if (path == null) return false;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[DownloadManager] TryAdoptExistingEpub: adopting '{path}' for URL={item.Url}");
+
+        if (existing != null && existing.EpubPath != path)
+        {
+            existing.EpubPath = path;
+            existing.IsFileAvailable = true;
+            _ = HistoryService.Instance.SaveAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing?.Title))
+        {
+            item.Title          = existing.Title;
+            item.Author         = existing.Author;
+            item.OriginalTitle  = existing.Title;
+            item.OriginalAuthor = existing.Author;
+        }
+
+        item.EpubPath   = path;
+        item.Progress   = 1.0;
+        item.StatusText = "Done";
+        item.Status     = DownloadStatus.Completed;
+        return true;
+#else
+        return false;
+#endif
     }
 
     /// <summary>
@@ -169,9 +267,43 @@ public class DownloadManager
     /// Use <see cref="FindExisting"/> first to check for duplicates before calling this.
     /// </summary>
     public DownloadItem Enqueue(string url, int chapters, string? coverUrl,
-        int chapterFrom = 0, bool? translate = null)
+        int chapterFrom = 0, bool? translate = null, bool forceRebuild = false)
     {
         bool shouldTranslate = translate ?? Preferences.Default.Get("translate_to_english_enabled", true);
+
+#if ANDROID
+        if (!forceRebuild)
+        {
+            var hist = HistoryService.Instance.Entries.FirstOrDefault(e =>
+                string.Equals(e.Url, url, StringComparison.OrdinalIgnoreCase));
+            string? existingPath = Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                hist?.EpubPath, hist?.Title, url);
+            if (existingPath != null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager] Enqueue skipped — EPUB already exists at '{existingPath}' for {url}");
+                var adopted = new DownloadItem
+                {
+                    Url          = url,
+                    Chapters     = chapters,
+                    CoverUrl     = coverUrl ?? "",
+                    ChapterFrom  = chapterFrom,
+                    Translate    = shouldTranslate,
+                    ForceRebuild = false,
+                    Status       = DownloadStatus.Completed,
+                    EpubPath     = existingPath,
+                    Progress     = 1.0,
+                    StatusText   = "Done",
+                    EnqueuedAt   = DateTime.UtcNow,
+                    Title        = hist?.Title ?? "",
+                    Author       = hist?.Author ?? "",
+                };
+                MainThread.BeginInvokeOnMainThread(() => Downloads.Insert(0, adopted));
+                return adopted;
+            }
+        }
+#endif
+
         var item = new DownloadItem
         {
             Url          = url,
@@ -179,6 +311,7 @@ public class DownloadManager
             CoverUrl     = coverUrl ?? "",
             ChapterFrom  = chapterFrom,
             Translate    = shouldTranslate,
+            ForceRebuild = forceRebuild,
             Status       = DownloadStatus.Pending,
             EnqueuedAt   = DateTime.UtcNow
         };
@@ -454,8 +587,111 @@ public class DownloadManager
         string tempPath = "";
         try
         {
+#if ANDROID
+            if (!item.ForceRebuild)
+            {
+                bool adopted = false;
+                await MainThread.InvokeOnMainThreadAsync(() => adopted = TryAdoptExistingEpub(item));
+                if (adopted)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager.RunAsync] Early-adopted existing EPUB for URL={item.Url}");
+                    return;
+                }
+            }
+#endif
+
             item.Status     = DownloadStatus.Downloading;
             item.StatusText = "Gathering book info...";
+
+            if (!item.ForceRebuild)
+            {
+                // ── Wait for history to finish loading (avoids the race on startup) ──
+                // We give it 3 s max; if it takes longer we proceed with whatever is loaded.
+                await HistoryService.Instance.LoadedTask.WaitAsync(TimeSpan.FromSeconds(3))
+                    .ContinueWith(_ => { }, TaskContinuationOptions.None); // swallow timeout
+
+                // ── Check history by URL first ──────────────────────────────────
+                var existing = HistoryService.Instance.Entries.FirstOrDefault(e =>
+                    string.Equals(e.Url, item.Url, StringComparison.OrdinalIgnoreCase));
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager.RunAsync] URL={item.Url} | history match: {(existing == null ? "null" : $"'{existing.Title}' EpubPath='{existing.EpubPath}'")}");
+
+                // ── Determine which title to use for file-system scan ───────────────
+                string? searchTitle = existing?.Title;
+                if (string.IsNullOrWhiteSpace(searchTitle) && !string.IsNullOrWhiteSpace(item.Title))
+                    searchTitle = item.Title;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager.RunAsync] searchTitle='{searchTitle}'");
+
+                // ── Try to locate a valid EPUB (stored path, filename, then full scan) ─
+                string? path = null;
+                if (existing != null)
+                {
+                    path = Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                        existing.EpubPath, existing.Title, existing.Url);
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager.RunAsync] ResolveAccessiblePath(history): '{path ?? "null"}'");
+                }
+
+                if (path == null)
+                {
+                    path = Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                        item.EpubPath, searchTitle, item.Url);
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager.RunAsync] ResolveAccessiblePath(item): '{path ?? "null"}'");
+                }
+
+                if (path == null && !string.IsNullOrWhiteSpace(searchTitle))
+                {
+                    path = Platforms.Android.EpubOpener.FindExistingEpub(searchTitle, item.EpubPath);
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager.RunAsync] FindExistingEpub('{searchTitle}'): '{path ?? "null"}'");
+                }
+
+                if (path != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager] Reusing existing EPUB at: {path} for '{searchTitle ?? item.Url}'");
+                    Log($"EPUB already exists — reusing: {path}");
+
+                    // Keep history entry in sync
+                    if (existing != null && existing.EpubPath != path)
+                    {
+                        existing.EpubPath = path;
+                        existing.IsFileAvailable = true;
+                    }
+                    _ = HistoryService.Instance.SaveAsync();
+
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(existing?.Title))
+                        {
+                            item.Title          = existing.Title;
+                            item.Author         = existing.Author;
+                            item.OriginalTitle  = existing.Title;
+                            item.OriginalAuthor = existing.Author;
+                        }
+                        item.EpubPath   = path;
+                        item.Progress   = 1.0;
+                        item.StatusText = "Done";
+                        item.Status     = DownloadStatus.Completed;
+                    });
+
+#if ANDROID
+                    DownloadForegroundService.NotifyDone(item.Title, path);
+#endif
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager.RunAsync] No existing EPUB found — proceeding with full download for '{searchTitle ?? item.Url}'");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager.RunAsync] ForceRebuild=true — skipping existing-EPUB check for URL={item.Url}");
+            }
 
             var service = new BookService(new WebViewCloudflareBypass());
 
@@ -628,43 +864,121 @@ public class DownloadManager
                 var ctx     = global::Android.App.Application.Context;
                 var cr      = ctx.ContentResolver!;
 
-                // Resolve a unique file name inside the SAF tree
                 string fileName = baseName + ".epub";
 
-                // Check for existing documents with the same name
-                var treeDocId   = global::Android.Provider.DocumentsContract.GetTreeDocumentId(treeUri);
-                var existingUri = global::Android.Provider.DocumentsContract.BuildDocumentUriUsingTree(
-                    treeUri, treeDocId!);
+                // Reuse an existing on-disk copy before creating a new SAF document.
+                foreach (string searchDir in Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
+                {
+                    string fsPath = Path.Combine(searchDir, fileName);
+                    if (File.Exists(fsPath))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DownloadManager] EPUB already on disk — reusing: {fsPath}");
+                        try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
+                        return fsPath;
+                    }
+                }
 
-                // Create the document via SAF — this works regardless of scoped storage
-                var docUri = global::Android.Provider.DocumentsContract.CreateDocument(
-                    cr, existingUri!, "application/epub+zip", baseName);
+                // Try to find existing file first — pass the original tree URI
+                var docUri = FindFileInSafTree(cr, treeUri, fileName);
+
+                if (docUri == null)
+                {
+                    // Build parent document URI to create the file under
+                    var treeDocId  = global::Android.Provider.DocumentsContract.GetTreeDocumentId(treeUri);
+                    var parentUri  = global::Android.Provider.DocumentsContract.BuildDocumentUriUsingTree(treeUri, treeDocId!);
+
+                    // Create the document via SAF
+                    docUri = global::Android.Provider.DocumentsContract.CreateDocument(
+                        cr, parentUri!, "application/epub+zip", baseName);
+                }
 
                 if (docUri == null)
                     throw new Exception("Could not create document in selected folder.");
 
                 // Stream the file into the SAF URI
                 await using var src  = File.OpenRead(sourcePath);
-                await using var dest = cr.OpenOutputStream(docUri)
+                await using var dest = cr.OpenOutputStream(docUri, "wt")
                     ?? throw new Exception("Could not open output stream for SAF URI.");
 
                 await src.CopyToAsync(dest, ct);
 
-                // Return the content URI as string so the share/open flow works
                 return docUri.ToString()!;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // SAF failed — fall through to plain file copy into default dir
                 System.Diagnostics.Debug.WriteLine($"[SAF] copy failed: {ex.Message}");
             }
         }
 #endif
-        // Plain file copy — works for default Downloads/Shuka dir and non-Android
-        string dir       = GetDefaultOutputDirectory();
-        string finalPath = ResolveUniqueFilePath(dir, baseName);
+        // Plain file copy — guard against creating a duplicate if the EPUB already
+        // exists at the destination (e.g. the earlier FindExistingEpub check missed
+        // it because of a transient SAF permission issue).
+        string dir       = GetOutputDirectory();
+        string finalPath = Path.Combine(dir, baseName + ".epub");
+        if (File.Exists(finalPath))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[DownloadManager] EPUB already exists at destination — discarding temp and reusing: {finalPath}");
+            try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
+            return finalPath;
+        }
+
+        // Also check default Shuka folder when output dir differs (e.g. custom path changed)
+        string defaultDir = GetDefaultOutputDirectory();
+        if (!string.Equals(dir, defaultDir, StringComparison.OrdinalIgnoreCase))
+        {
+            string defaultPath = Path.Combine(defaultDir, baseName + ".epub");
+            if (File.Exists(defaultPath))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DownloadManager] EPUB found in default folder — reusing: {defaultPath}");
+                try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
+                return defaultPath;
+            }
+        }
+
         File.Move(sourcePath, finalPath, overwrite: true);
         return finalPath;
+    }
+
+    private static global::Android.Net.Uri? FindFileInSafTree(global::Android.Content.ContentResolver cr, global::Android.Net.Uri treeUri, string fileName)
+    {
+        try
+        {
+            // Must use GetTreeDocumentId (not GetDocumentId) for a tree URI
+            var treeDocId   = global::Android.Provider.DocumentsContract.GetTreeDocumentId(treeUri);
+            var childrenUri = global::Android.Provider.DocumentsContract.BuildChildDocumentsUriUsingTree(
+                treeUri, treeDocId!);
+
+            string[] projection =
+            {
+                global::Android.Provider.DocumentsContract.Document.ColumnDocumentId,
+                global::Android.Provider.DocumentsContract.Document.ColumnDisplayName
+            };
+
+            using var cursor = cr.Query(childrenUri!, projection, null, null, null);
+            if (cursor == null) return null;
+
+            int idIdx   = cursor.GetColumnIndex(global::Android.Provider.DocumentsContract.Document.ColumnDocumentId);
+            int nameIdx = cursor.GetColumnIndex(global::Android.Provider.DocumentsContract.Document.ColumnDisplayName);
+
+            while (cursor.MoveToNext())
+            {
+                string? name = cursor.GetString(nameIdx);
+                if (string.Equals(name, fileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    string? docId = cursor.GetString(idIdx);
+                    if (docId == null) continue;
+                    return global::Android.Provider.DocumentsContract.BuildDocumentUriUsingTree(treeUri, docId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadManager] FindFileInSafTree error: {ex.Message}");
+        }
+        return null;
     }
 
     /// <summary>App-private cache directory — always writable, no permissions needed.</summary>

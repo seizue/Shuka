@@ -2144,13 +2144,32 @@ public partial class MainPage : ContentPage
         UrlEntry.IsEnabled = CoverEntry.IsEnabled = ChaptersEntry.IsEnabled = true;
 
         var existing = DownloadManager.Instance.FindExisting(url);
+        bool forceRebuild = false;
         if (existing != null)
         {
             bool shouldQueue = await HandleDuplicate(existing);
             if (!shouldQueue) return;
+            forceRebuild = true;
+        }
+        else
+        {
+            var historyEntry = HistoryService.Instance.Entries.FirstOrDefault(e => e.Url == url);
+            if (historyEntry != null && Platforms.Android.EpubOpener.IsAccessible(historyEntry.EpubPath))
+            {
+                var tempItem = new DownloadItem
+                {
+                    Url = url,
+                    Title = historyEntry.Title,
+                    Status = DownloadStatus.Completed,
+                    EpubPath = historyEntry.EpubPath
+                };
+                bool shouldQueue = await HandleDuplicate(tempItem);
+                if (!shouldQueue) return;
+                forceRebuild = true;
+            }
         }
 
-        DownloadManager.Instance.Enqueue(url, chapters, coverUrl, chapterFrom, TranslateSwitch.IsToggled);
+        DownloadManager.Instance.Enqueue(url, chapters, coverUrl, chapterFrom, TranslateSwitch.IsToggled, forceRebuild);
         // Clear the saved draft — the user has submitted it
         Preferences.Default.Remove("draft_url");
         Preferences.Default.Remove("draft_cover");

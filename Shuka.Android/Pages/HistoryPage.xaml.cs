@@ -548,30 +548,50 @@ public partial class HistoryPage : ContentPage
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(entry.EpubPath))
+            // Resolve the best accessible path — never enqueue a download from here.
+            string? epubPath = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+
+            if (epubPath != null && epubPath != entry.EpubPath)
             {
-                await DisplayAlertAsync("File Not Found",
-                    "No EPUB file path available for this novel.", "OK");
-                return;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[HistoryPage] Healed EpubPath for '{entry.Title}': '{entry.EpubPath}' → '{epubPath}'");
+                entry.EpubPath = epubPath;
+                entry.IsFileAvailable = true;
+                await HistoryService.Instance.SaveAsync();
+            }
+            else if (epubPath != null)
+            {
+                entry.IsFileAvailable = true;
             }
 
-            if (!EpubOpener.IsAccessible(entry.EpubPath))
+            if (string.IsNullOrWhiteSpace(epubPath))
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[HistoryPage] Cannot open — no accessible EPUB for '{entry.Title}' " +
+                    $"(storedPath='{entry.EpubPath ?? "null"}')");
                 await DisplayAlertAsync("File Not Found",
                     "The EPUB file could not be found. It may have been moved or deleted.", "OK");
                 return;
             }
 
+            // Prefer a real filesystem path for external readers (Moon+ etc.)
+            epubPath = EpubOpener.PreferFilesystemPath(epubPath);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] Opening EPUB at: {epubPath} for '{entry.Title}'");
+
+            // Stop any queued/active download for this URL — opening must not trigger regeneration.
+            DownloadManager.Instance.CancelActiveForUrl(entry.Url);
             try
             {
-                EpubOpener.Open(entry.EpubPath);
+                EpubOpener.Open(epubPath);
             }
             catch (InvalidOperationException)
             {
                 // No EPUB reader installed — fall back to share sheet
                 try
                 {
-                    EpubOpener.Share(entry.EpubPath, entry.Title);
+                    EpubOpener.Share(epubPath, entry.Title);
                 }
                 catch
                 {
@@ -582,13 +602,16 @@ public partial class HistoryPage : ContentPage
             }
             catch (FileNotFoundException)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[HistoryPage] FileNotFoundException opening '{epubPath}' for '{entry.Title}'");
                 await DisplayAlertAsync("File Not Found",
                     "The EPUB file could not be found. It may have been moved or deleted.", "OK");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[HistoryPage] OnOpenRequested error: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] OnOpenRequested unhandled: {ex.GetType().Name}: {ex.Message}");
 
             // Last resort: try native share
             try
@@ -606,12 +629,12 @@ public partial class HistoryPage : ContentPage
 
     private async void OnShareRequested(HistoryEntry entry)
     {
-        if (string.IsNullOrWhiteSpace(entry.EpubPath)) return;
-        if (!EpubOpener.IsAccessible(entry.EpubPath)) return;
+        string? epubPath = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+        if (epubPath == null) return;
 
         try
         {
-            EpubOpener.Share(entry.EpubPath, entry.Title);
+            EpubOpener.Share(EpubOpener.PreferFilesystemPath(epubPath), entry.Title);
         }
         catch (Exception ex)
         {
@@ -634,25 +657,62 @@ public partial class HistoryPage : ContentPage
 
     private async void OnRedownloadRequested(HistoryEntry entry)
     {
-        bool confirm = await DisplayAlertAsync(
-            "Re-download",
-            $"Re-download \"{entry.Title}\"?\n\nThis will queue a new download using the original URL.",
-            "Download", "Cancel");
+        // ── Guard: check if the EPUB already exists somewhere before re-downloading ──
+        // The options sheet only checked the stored EpubPath. The file might still be
+        // present at a different location (SAF real path, custom folder, default folder).
+        // If we find it, heal the entry and offer to open rather than re-download.
+        string? recoveredPath = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+        if (recoveredPath != null)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] OnRedownloadRequested — existing EPUB found at '{recoveredPath}'");
+        }
 
-        if (!confirm) return;
+        if (recoveredPath != null)
+        {
+            // File found at a different location — heal the entry and ask the user
+            entry.EpubPath = recoveredPath;
+            entry.IsFileAvailable = true;
+            _ = HistoryService.Instance.SaveAsync();
+
+            bool openExisting = await DisplayAlertAsync(
+                "EPUB File Found",
+                $"The EPUB for \"{entry.Title}\" was found at:\n{recoveredPath}\n\n" +
+                "Open the existing file, or re-download to replace it?",
+                "Open File", "Re-download");
+
+            if (openExisting)
+            {
+                OnOpenRequested(entry);
+                return;
+            }
+            // Fall through: user explicitly chose to re-download
+        }
+        else
+        {
+            bool confirm = await DisplayAlertAsync(
+                "Re-download",
+                $"Re-download \"{entry.Title}\"?\n\nThis will queue a new download using the original URL.",
+                "Download", "Cancel");
+
+            if (!confirm) return;
+        }
 
         // Check for an existing active download for this URL
-        var existing = DownloadManager.Instance.FindExisting(entry.Url);
-        if (existing != null && existing.IsRunning)
+        var existingDownload = DownloadManager.Instance.FindExisting(entry.Url);
+        if (existingDownload != null && existingDownload.IsRunning)
         {
             await DisplayAlertAsync("Already Downloading",
                 "This novel is already in the download queue.", "OK");
             return;
         }
 
+        System.Diagnostics.Debug.WriteLine(
+            $"[HistoryPage] Enqueuing re-download for '{entry.Title}' URL: {entry.Url}");
+
         // Enqueue via DownloadManager — same as tapping Download on the Home tab
         DownloadManager.Instance.Enqueue(entry.Url, entry.ChapterCount,
-            string.IsNullOrWhiteSpace(entry.CoverUrl) ? null : entry.CoverUrl);
+            string.IsNullOrWhiteSpace(entry.CoverUrl) ? null : entry.CoverUrl, forceRebuild: true);
 
         // Navigate to Downloads tab so the user can watch progress
         if (Shell.Current != null)
@@ -675,7 +735,25 @@ public partial class HistoryPage : ContentPage
         _activeOptionsEntry = entry;
         OptionsSheetSubtitle.Text = entry.Title;
 
-        bool fileExists = EpubOpener.IsAccessible(entry.EpubPath);
+        string? resolvedPath = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+        bool fileExists = resolvedPath != null;
+        System.Diagnostics.Debug.WriteLine(
+            $"[HistoryPage] ShowOptionsSheetAsync: title='{entry.Title}' storedPath='{entry.EpubPath}' " +
+            $"resolved='{resolvedPath ?? "null"}'");
+
+        if (resolvedPath != null && resolvedPath != entry.EpubPath)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] Healing stale EpubPath for '{entry.Title}': {entry.EpubPath} → {resolvedPath}");
+            entry.EpubPath = resolvedPath;
+            entry.IsFileAvailable = true;
+            _ = HistoryService.Instance.SaveAsync();
+        }
+        else if (fileExists)
+        {
+            entry.IsFileAvailable = true;
+        }
+
         OptionsSheetShareBtn.IsVisible = fileExists;
         OptionsSheetRedownloadBtn.IsVisible = !fileExists;
 

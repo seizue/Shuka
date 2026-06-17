@@ -33,6 +33,7 @@ public class DownloadItem : INotifyPropertyChanged
     /// <summary>1-based start chapter. 0 = from the beginning.</summary>
     public int    ChapterFrom { get; set; } = 0;
     public bool   Translate   { get; set; } = true;
+    public bool   ForceRebuild { get; set; } = false;
     public DateTime EnqueuedAt { get; set; } = DateTime.UtcNow;
 
     // Resolved after GatherBookInfo

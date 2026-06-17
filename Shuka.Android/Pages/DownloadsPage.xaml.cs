@@ -328,16 +328,20 @@ public partial class DownloadsPage : ContentPage
 
     internal void HandleOpenRequested(DownloadItem item)
     {
-        if (item.EpubPath == null || !EpubOpener.IsAccessible(item.EpubPath)) return;
+        string? epubPath = EpubOpener.ResolveAccessiblePath(item.EpubPath, item.Title, item.Url);
+        if (epubPath == null) return;
+
+        epubPath = EpubOpener.PreferFilesystemPath(epubPath);
+        System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Opening existing EPUB at: {epubPath} for '{item.Title}'");
         try
         {
-            EpubOpener.Open(item.EpubPath);
+            EpubOpener.Open(epubPath);
         }
         catch (InvalidOperationException)
         {
             try
             {
-                EpubOpener.Share(item.EpubPath, item.Title);
+                EpubOpener.Share(epubPath, item.Title);
             }
             catch { }
         }
