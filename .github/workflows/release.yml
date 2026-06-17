@@ -207,11 +207,6 @@ jobs:
           ### What's changed
           $bullets
 
-          ### 🪟 Windows
-          Run ``Shuka-Windows-vx.x.x.exe`` — no admin rights required.
-
-          ### 🤖 Android
-          Download the APK and install it. Enable **Install from unknown sources** if prompted.
 
           | File | Platform |
           |------|----------|
