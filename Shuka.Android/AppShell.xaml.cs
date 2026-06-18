@@ -17,6 +17,20 @@ public partial class AppShell : Shell
         Routing.RegisterRoute(nameof(SourceBrowsePage), typeof(SourceBrowsePage));
 
         Navigating += OnShellNavigating;
+        Navigated  += (_, _) => SyncTabBarToCurrentPage();
+    }
+
+    /// <summary>
+    /// Keeps the persistent tab bar highlight aligned with the Shell's current tab page.
+    /// </summary>
+    public static void SyncTabBarToCurrentPage()
+    {
+        var page = Shell.Current?.CurrentPage;
+        if (page == null) return;
+
+        int index = Array.IndexOf(TabRoutes, page.GetType().Name);
+        if (index >= 0)
+            Controls.CustomTabBar.SetActive(index);
     }
 
     private void OnShellNavigating(object? sender, ShellNavigatingEventArgs e)

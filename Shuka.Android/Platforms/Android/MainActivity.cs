@@ -208,6 +208,7 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnResume();
         TriggerPendingNavigationIfAny();
+        MainThread.BeginInvokeOnMainThread(AppShell.SyncTabBarToCurrentPage);
     }
 
     private void HandleNotificationIntent(Intent? intent)
