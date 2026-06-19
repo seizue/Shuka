@@ -52,8 +52,8 @@ public partial class DownloadsPage : ContentPage
         UpdateCategorySelectorUI(_activeCategory);
         RefreshUI(immediate: true);
 
-        TabTransition.Prepare(BodyGrid, myTabIndex: 1);
-        await TabTransition.SlideInAsync(BodyGrid);
+        TabTransition.Prepare(RootGrid, myTabIndex: 1);
+        await TabTransition.SlideInAsync(RootGrid);
     }
 
     // ── Collection / Property Changes ──────────────────────────────────────────

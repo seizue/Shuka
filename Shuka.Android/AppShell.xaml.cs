@@ -1,4 +1,5 @@
 using Shuka.Android.Pages;
+using Shuka.Android.Behaviors;
 
 namespace Shuka.Android;
 
@@ -18,6 +19,14 @@ public partial class AppShell : Shell
 
         Navigating += OnShellNavigating;
         Navigated  += (_, _) => SyncTabBarToCurrentPage();
+
+        // Eagerly instantiate background tabs after startup to avoid delayed first-transition
+        Dispatcher.Dispatch(() =>
+        {
+            DownloadsContent.Content = new DownloadsPage();
+            HistoryContent.Content = new HistoryPage();
+            SettingsContent.Content = new SettingsPage();
+        });
     }
 
     /// <summary>
@@ -39,8 +48,12 @@ public partial class AppShell : Shell
         int newIndex = Array.IndexOf(TabRoutes, segment);
         if (newIndex < 0) return;
 
-        LastTabIndex   = ActiveTabIndex;
-        ActiveTabIndex = newIndex;
+        if (ActiveTabIndex != newIndex)
+        {
+            LastTabIndex   = ActiveTabIndex;
+            ActiveTabIndex = newIndex;
+            TabTransition.SetTargetIndex(newIndex);
+        }
     }
 }
 

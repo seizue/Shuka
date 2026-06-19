@@ -234,7 +234,7 @@ public class MainActivity : MauiAppCompatActivity
                     try
                     {
                         Controls.CustomTabBar.SetActive(1);
-                        await Shell.Current.GoToAsync("//DownloadsPage");
+                        await Shell.Current.GoToAsync("//DownloadsPage", animate: false);
                     }
                     catch (Exception ex)
                     {
@@ -592,7 +592,7 @@ public class MainActivity : MauiAppCompatActivity
             try
             {
                 Controls.CustomTabBar.SetActive(targetIndex);
-                await Shell.Current.GoToAsync(route);
+                await Shell.Current.GoToAsync(route, animate: false);
             }
             catch (Exception ex)
             {

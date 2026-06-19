@@ -13,14 +13,14 @@
                       ContentTemplate="{DataTemplate pages:MainPage}"
                       Route="MainPage" />
         <ShellContent Title="Downloads"
-                      ContentTemplate="{DataTemplate pages:DownloadsPage}"
-                      Route="DownloadsPage" />
+                      Route="DownloadsPage"
+                      x:Name="DownloadsContent" />
         <ShellContent Title="History"
-                      ContentTemplate="{DataTemplate pages:HistoryPage}"
-                      Route="HistoryPage" />
+                      Route="HistoryPage"
+                      x:Name="HistoryContent" />
         <ShellContent Title="Settings"
-                      ContentTemplate="{DataTemplate pages:SettingsPage}"
-                      Route="SettingsPage" />
+                      Route="SettingsPage"
+                      x:Name="SettingsContent" />
     </TabBar>
 
     <!-- Custom tab bar overlaid at the bottom of the Shell -->

@@ -33,10 +33,10 @@ public partial class SettingsPage : ContentPage
     {
         base.OnAppearing();
         MainActivity.Instance?.SetTabBarVisible(true);
-        TabTransition.Prepare(BodyScrollView, myTabIndex: 3);
+        TabTransition.Prepare(RootGrid, myTabIndex: 3);
         
         // Run animation and data loading concurrently for better performance
-        var animationTask = TabTransition.SlideInAsync(BodyScrollView);
+        var animationTask = TabTransition.SlideInAsync(RootGrid);
         var loadTask = Task.Run(() =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
@@ -52,8 +52,8 @@ public partial class SettingsPage : ContentPage
 
     private async Task AnimateIn()
     {
-        BodyScrollView.Opacity      = 1;
-        BodyScrollView.TranslationY = 0;
+        RootGrid.Opacity      = 1;
+        RootGrid.TranslationY = 0;
         await Task.CompletedTask;
     }
 

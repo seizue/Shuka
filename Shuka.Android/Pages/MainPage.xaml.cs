@@ -100,6 +100,8 @@ public partial class MainPage : ContentPage
         base.OnAppearing();
         MainActivity.Instance?.SetTabBarVisible(true);
 
+        TabTransition.Prepare(RootGrid, myTabIndex: 0);
+
         // Restore draft inputs that were saved before the app went to background
         string savedUrl = Preferences.Default.Get("draft_url", "");
         string savedCover = Preferences.Default.Get("draft_cover", "");
@@ -121,8 +123,7 @@ public partial class MainPage : ContentPage
         SetActiveTab(DownloadPanel.IsVisible);
         UpdateDiscoverBottomInset();
 
-        TabTransition.Prepare(BodyGrid, myTabIndex: 0);
-        await TabTransition.SlideInAsync(BodyGrid);
+        await TabTransition.SlideInAsync(RootGrid);
     }
 
     protected override void OnSizeAllocated(double width, double height)

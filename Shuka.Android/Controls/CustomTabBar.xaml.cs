@@ -86,6 +86,9 @@ public partial class CustomTabBar : Grid
         // AppShell.LastTabIndex / ActiveTabIndex are updated by OnShellNavigating
         // which fires from GoToAsync, so the slide direction is still correct.
         SetActive(index);
-        await Shell.Current.GoToAsync(route);
+        // animate: false — suppress Shell's native fragment transition so it
+        // doesn't bounce/slide the header independently of our custom TabTransition
+        // body-only animation that runs in each page's OnAppearing.
+        await Shell.Current.GoToAsync(route, animate: false);
     }
 }

@@ -5,7 +5,7 @@
              x:Class="Shuka.Android.Pages.MainPage"
              BackgroundColor="{DynamicResource BgPage}">
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*" Opacity="0">
 
         <!-- ── Top App Bar ──────────────────────────────────── -->
         <Grid Grid.Row="0"

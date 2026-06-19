@@ -57,14 +57,14 @@ public partial class HistoryPage : ContentPage
     {
         base.OnAppearing();
         MainActivity.Instance?.SetTabBarVisible(true);
-        TabTransition.Prepare(BodyGrid, myTabIndex: 2);
-        await TabTransition.SlideInAsync(BodyGrid);
+        TabTransition.Prepare(RootGrid, myTabIndex: 2);
+        await TabTransition.SlideInAsync(RootGrid);
     }
 
     private async Task AnimateIn()
     {
-        BodyGrid.Opacity      = 1;
-        BodyGrid.TranslationY = 0;
+        RootGrid.Opacity      = 1;
+        RootGrid.TranslationY = 0;
         await Task.CompletedTask;
     }
 
