@@ -13,12 +13,15 @@
                       ContentTemplate="{DataTemplate pages:MainPage}"
                       Route="MainPage" />
         <ShellContent Title="Downloads"
+                      ContentTemplate="{DataTemplate pages:DownloadsPage}"
                       Route="DownloadsPage"
                       x:Name="DownloadsContent" />
         <ShellContent Title="History"
+                      ContentTemplate="{DataTemplate pages:HistoryPage}"
                       Route="HistoryPage"
                       x:Name="HistoryContent" />
         <ShellContent Title="Settings"
+                      ContentTemplate="{DataTemplate pages:SettingsPage}"
                       Route="SettingsPage"
                       x:Name="SettingsContent" />
     </TabBar>

@@ -23,9 +23,40 @@ public partial class AppShell : Shell
         // Eagerly instantiate background tabs after startup to avoid delayed first-transition
         Dispatcher.Dispatch(() =>
         {
-            DownloadsContent.Content = new DownloadsPage();
-            HistoryContent.Content = new HistoryPage();
-            SettingsContent.Content = new SettingsPage();
+            var currentPage = Shell.Current?.CurrentPage;
+
+            if (currentPage is DownloadsPage downloadsPage)
+            {
+                DownloadsContent.ContentTemplate = null;
+                DownloadsContent.Content = downloadsPage;
+            }
+            else
+            {
+                DownloadsContent.ContentTemplate = null;
+                DownloadsContent.Content = new DownloadsPage();
+            }
+
+            if (currentPage is HistoryPage historyPage)
+            {
+                HistoryContent.ContentTemplate = null;
+                HistoryContent.Content = historyPage;
+            }
+            else
+            {
+                HistoryContent.ContentTemplate = null;
+                HistoryContent.Content = new HistoryPage();
+            }
+
+            if (currentPage is SettingsPage settingsPage)
+            {
+                SettingsContent.ContentTemplate = null;
+                SettingsContent.Content = settingsPage;
+            }
+            else
+            {
+                SettingsContent.ContentTemplate = null;
+                SettingsContent.Content = new SettingsPage();
+            }
         });
     }
 
