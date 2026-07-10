@@ -370,7 +370,14 @@ internal static class Tui
             "[cyan]quanben.io[/]",
             "[dim]https://www.quanben.io/n/aoshidanshen/list.html[/]",
             "");
-
+        table.AddRow(
+            "[cyan]situu.cc[/]",
+            "[dim]https://www.situu.cc/5_5792/[/]",
+            "");
+        table.AddRow(
+            "[cyan]yamibo.com[/]",
+            "[dim]https://www.yamibo.com/novel/267137[/]",
+            "");
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();
