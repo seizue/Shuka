@@ -26,6 +26,7 @@ internal static class Tui
                         "Batch download (multiple novels)",
                         "Fix Cloudflare (--solve-cf)",
                         "View supported sites",
+                        "About Shuka",
                         "Exit"));
 
             switch (choice)
@@ -43,6 +44,11 @@ internal static class Tui
                     break;
                 case "View supported sites":
                     RunViewSites();
+                    AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+                    Console.ReadKey(intercept: true);
+                    break;
+                case "About Shuka":
+                    RunAbout();
                     AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
                     Console.ReadKey(intercept: true);
                     break;
@@ -382,6 +388,52 @@ internal static class Tui
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]Sites marked [/][yellow]CF bypass[/][grey] require running [/][indianred1]Fix Cloudflare[/][grey] once before downloading.[/]");
+    }
+
+    // ── About ─────────────────────────────────────────────────────────────────
+
+    private static void RunAbout()
+    {
+        AnsiConsole.Clear();
+        RenderHeader();
+
+        var version = System.Reflection.Assembly
+            .GetExecutingAssembly()
+            .GetName()
+            .Version;
+        string versionStr = version is not null
+            ? $"{version.Major}.{version.Minor}.{version.Build}"
+            : "unknown";
+
+        AnsiConsole.MarkupLine($"[bold yellow]  About Shuka[/]  [dim]v{versionStr}[/]\n");
+
+        AnsiConsole.MarkupLine(
+            "  A cross-platform web novel downloader and machine translation (MTL) tool\n" +
+            "  that converts Chinese web novels into English [bold].epub[/] for any e-reader.\n");
+
+        AnsiConsole.MarkupLine(
+            "  Available as a [indianred1]PowerShell CLI[/] for Windows and an [indianred1]Android app[/]\n" +
+            "  built with [bold].NET MAUI[/].\n");
+
+        AnsiConsole.MarkupLine(
+            "  [grey]This is an open-source hobby project — built for fun and personal use.[/]\n");
+
+        var infoTable = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .HideHeaders()
+            .AddColumn(new TableColumn("").PadLeft(1))
+            .AddColumn(new TableColumn(""));
+
+        infoTable.AddRow(
+            "[grey]Open Source[/]",
+            "[link=https://github.com/seizue/Shuka][indianred1]github.com/seizue/Shuka[/][/]");
+        infoTable.AddRow(
+            "[grey]Releases (Windows CLI and Android)[/]",
+            "[link=https://github.com/seizue/Shuka/releases][indianred1]github.com/seizure/Shuka/releases[/][/]");
+
+        AnsiConsole.Write(infoTable);
+        AnsiConsole.WriteLine();
     }
 
     private static void RenderHeader()
