@@ -384,6 +384,10 @@ internal static class Tui
             "[cyan]yamibo.com[/]",
             "[dim]https://www.yamibo.com/novel/267137[/]",
             "");
+        table.AddRow(
+            "[cyan]zhenhunxiaoshuo.com[/]",
+            "[dim]https://www.zhenhunxiaoshuo.com/tadeshantadehai/[/]",
+            "");
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();

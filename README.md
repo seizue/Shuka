@@ -37,6 +37,8 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 | [quanben.io](https://www.quanben.io) | `https://www.quanben.io/n/aoshidanshen/list.html` |
 | [situu.cc](https://www.situu.cc/) | `https://www.situu.cc/5_5792/` |
 | [yamibo.com](https://www.yamibo.com/novel/list) | `https://www.yamibo.com/novel/267137` |
+| [Zhenhun Xiaoshuo](https://www.zhenhunxiaoshuo.com/linshilanggu/) | `https://www.zhenhunxiaoshuo.com/linshilanggu/` |
+
 
 > **czbooks.net** and **69shuba.com** is protected by Cloudflare. Shuka handles this automatically using a headless browser on Windows and a hidden WebView on Android — no extra setup needed.
 

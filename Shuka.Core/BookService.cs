@@ -14,7 +14,7 @@ public class BookService
     private readonly Translator _translator;
 
     public static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter()];
 
     /// <summary>
     /// Upgrades <c>http://</c> to <c>https://</c> when the URL matches a known reader site.
@@ -331,7 +331,7 @@ public class BookService
 
     private static ISiteAdapter DetectAdapter(string url) =>
         Adapters.FirstOrDefault(a => a.Matches(url))
-        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com");
+        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com");
 
     private static string? TryExtractCover(string html, string baseUrl)
     {

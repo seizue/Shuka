@@ -9,10 +9,10 @@
     <AssemblyName>Shuka</AssemblyName>
     <RootNamespace>Shuka</RootNamespace>
     <MSBuildProjectExtensionsPath>$(MSBuildProjectDirectory)\obj\</MSBuildProjectExtensionsPath>
-    <Version>1.1.8</Version>
-    <AssemblyVersion>1.1.8.0</AssemblyVersion>
-    <FileVersion>1.1.8.0</FileVersion>
-    <InformationalVersion>1.1.8</InformationalVersion>
+    <Version>1.1.9</Version>
+    <AssemblyVersion>1.1.9.0</AssemblyVersion>
+    <FileVersion>1.1.9.0</FileVersion>
+    <InformationalVersion>1.1.9</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
