@@ -18,12 +18,8 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 
 
 ## Screenshot
-<details>
- <summary>🔽 <strong>[ OPEN SCREENSHOT ]</strong></summary>
-  <br>
   <img width="1366" alt="Shuka Screenshot"
-       src="https://github.com/user-attachments/assets/c07f2852-306a-4c6d-aec6-7336507d673e" />
-</details>
+       src="https://github.com/user-attachments/assets/eafe4296-5cd6-4b55-bc5a-f2f8497086d5" />
 
 
 ### Supported Sites
