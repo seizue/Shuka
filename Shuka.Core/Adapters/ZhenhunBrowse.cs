@@ -22,6 +22,9 @@ public class ZhenhunBrowse : IBrowsableAdapter
     public string IconGlyph       => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 
+    // Navigate to the site root — /newbook/ and /new/ are 404-prone landing paths
+    public string HomeUrl => "https://www.zhenhunxiaoshuo.com/";
+
     public string GetRecentUrl(int page = 1) =>
         page == 1
             ? "https://www.zhenhunxiaoshuo.com/newbook/"

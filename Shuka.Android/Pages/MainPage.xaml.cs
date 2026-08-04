@@ -629,7 +629,9 @@ public partial class MainPage : ContentPage
                     var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
 
                     // Get the URL and validate it
-                    string url = source.GetRecentUrl(1);
+                    string url = source.HomeUrl;
+                    if (string.IsNullOrWhiteSpace(url))
+                        url = source.GetRecentUrl(1);
                     if (string.IsNullOrWhiteSpace(url))
                     {
                         await scaleTask;

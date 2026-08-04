@@ -40,6 +40,12 @@ public interface IBrowsableAdapter
     /// <summary>Whether this source requires Cloudflare bypass to browse.</summary>
     bool RequiresCfBypass { get; }
 
+    /// <summary>
+    /// The home/landing URL to open when the user taps the source card in the browser.
+    /// Defaults to <see cref="GetRecentUrl"/> page 1 if not overridden.
+    /// </summary>
+    string HomeUrl => GetRecentUrl(1);
+
     /// <summary>URL for the "Recent" listing page (page 1).</summary>
     string GetRecentUrl(int page = 1);
 
