@@ -128,9 +128,14 @@ public partial class WebBrowsePage : ContentPage
 
     // ── Book Info Panel ───────────────────────────────────────────────────────
     private bool _isBookInfoPanelOpen;
-    private bool _bookInfoPanelDismissed; // user explicitly closed — don't re-show for this URL
-    private string? _bookInfoPanelUrl;    // URL the panel was loaded for
+    private string? _bookInfoPanelUrl;
     private CancellationTokenSource? _bookInfoCts;
+
+    // Simple cache so returning to a visited URL skips the re-fetch
+    private record BookInfoCache(string Title, string TranslatedTitle,
+        string Author, string TranslatedAuthor);
+    private readonly Dictionary<string, BookInfoCache> _bookInfoCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private bool IsTranslateActive => _translateMode != WebTranslateMode.None;
 
@@ -2460,16 +2465,15 @@ public partial class WebBrowsePage : ContentPage
     // ── Book Info Panel ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Slides up the book info panel and fetches title/author/cover for <paramref name="url"/>.
-    /// Translates Chinese title and author to English via Google Translate.
+    /// Slides up the book info panel and fetches/translates title, author and cover
+    /// for <paramref name="url"/>. Re-shows automatically on every navigation to a
+    /// novel page — even if the user closed it before — unless they are still on the
+    /// exact same URL they dismissed it from. Uses a per-URL cache so returning to a
+    /// previously visited novel skips the network round-trip.
     /// </summary>
     private async Task ShowBookInfoPanelAsync(string url)
     {
-        // Don't re-show if user dismissed for this exact URL
-        if (_bookInfoPanelDismissed && _bookInfoPanelUrl == url)
-            return;
-
-        // Already showing for this URL — nothing to do
+        // Already open and showing this exact URL — nothing to do
         if (_isBookInfoPanelOpen && _bookInfoPanelUrl == url)
             return;
 
@@ -2480,32 +2484,43 @@ public partial class WebBrowsePage : ContentPage
         var ct = _bookInfoCts.Token;
 
         _bookInfoPanelUrl = url;
-        _bookInfoPanelDismissed = false;
 
-        // Reset panel UI to loading state
-        BookInfoOriginalTitle.Text = "";
-        BookInfoTranslatedTitle.Text = "";
-        BookInfoTranslatedTitle.IsVisible = false;
-        BookInfoAuthor.Text = "";
-        BookInfoAuthorTranslated.Text = "";
-        BookInfoAuthorTranslated.IsVisible = false;
-        BookInfoLoading.IsVisible = true;
-        BookInfoCoverImage.Source = null;
-        BookInfoCoverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
-
-        // Animate panel in
-        if (!_isBookInfoPanelOpen)
+        // ── Populate from cache or show loading ──────────────────────────────
+        if (_bookInfoCache.TryGetValue(url, out var cached))
         {
-            _isBookInfoPanelOpen = true;
-            BookInfoPanel.IsVisible = true;
-            BookInfoPanel.TranslationY = 120;
-            BookInfoPanel.Opacity = 0;
-            await Task.WhenAll(
-                BookInfoPanel.TranslateToAsync(0, 0, 220, Easing.CubicOut),
-                BookInfoPanel.FadeToAsync(1, 200, Easing.CubicOut));
+            BookInfoLoading.IsVisible = false;
+            BookInfoOriginalTitle.Text = cached.Title;
+            BookInfoTranslatedTitle.Text = cached.TranslatedTitle;
+            BookInfoTranslatedTitle.IsVisible = !string.IsNullOrWhiteSpace(cached.TranslatedTitle);
+            BookInfoAuthor.Text = cached.Author;
+            BookInfoAuthorTranslated.Text = string.IsNullOrWhiteSpace(cached.TranslatedAuthor)
+                ? "" : $"({cached.TranslatedAuthor})";
+            BookInfoAuthorTranslated.IsVisible = !string.IsNullOrWhiteSpace(cached.TranslatedAuthor);
+        }
+        else
+        {
+            BookInfoOriginalTitle.Text = "";
+            BookInfoTranslatedTitle.Text = "";
+            BookInfoTranslatedTitle.IsVisible = false;
+            BookInfoAuthor.Text = "";
+            BookInfoAuthorTranslated.Text = "";
+            BookInfoAuthorTranslated.IsVisible = false;
+            BookInfoLoading.IsVisible = true;
         }
 
-        // Fetch metadata in background
+        // ── Animate panel in (always — even after user closed it) ────────────
+        _isBookInfoPanelOpen = true;
+        BookInfoPanel.IsVisible = true;
+        BookInfoPanel.TranslationY = 120;
+        BookInfoPanel.Opacity = 0;
+        await Task.WhenAll(
+            BookInfoPanel.TranslateToAsync(0, 0, 220, Easing.CubicOut),
+            BookInfoPanel.FadeToAsync(1, 200, Easing.CubicOut));
+
+        // ── Fetch + translate if not cached ──────────────────────────────────
+        if (_bookInfoCache.ContainsKey(url))
+            return;
+
         _ = Task.Run(async () =>
         {
             try
@@ -2517,73 +2532,53 @@ public partial class WebBrowsePage : ContentPage
 
                 if (ct.IsCancellationRequested || bookInfo == null) return;
 
-                string origTitle  = bookInfo.Title ?? "";
+                string origTitle  = bookInfo.Title  ?? "";
                 string origAuthor = bookInfo.Author ?? "";
-                string? coverUrl  = bookInfo.CoverUrl;
 
-                // Translate title and author to English
                 string translatedTitle  = "";
                 string translatedAuthor = "";
                 try
                 {
                     using var http = new System.Net.Http.HttpClient();
                     http.Timeout = TimeSpan.FromSeconds(15);
-                    http.DefaultRequestHeaders.TryAddWithoutValidation(
-                        "User-Agent",
+                    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                         "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36");
                     var translator = new Shuka.Core.Translator(http);
 
                     if (!string.IsNullOrWhiteSpace(origTitle))
-                        translatedTitle  = await translator.Translate(origTitle,  null, ct);
+                        translatedTitle = await translator.Translate(origTitle, null, ct);
                     if (!string.IsNullOrWhiteSpace(origAuthor))
                         translatedAuthor = await translator.Translate(origAuthor, null, ct);
 
-                    // Don't show translation if identical (already English)
-                    if (string.Equals(translatedTitle, origTitle, StringComparison.OrdinalIgnoreCase))
-                        translatedTitle = "";
+                    if (string.Equals(translatedTitle,  origTitle,  StringComparison.OrdinalIgnoreCase))
+                        translatedTitle  = "";
                     if (string.Equals(translatedAuthor, origAuthor, StringComparison.OrdinalIgnoreCase))
                         translatedAuthor = "";
                 }
-                catch { /* translation is optional — show original if it fails */ }
+                catch { /* translation optional */ }
 
                 if (ct.IsCancellationRequested) return;
+
+                _bookInfoCache[url] = new BookInfoCache(
+                    origTitle, translatedTitle, origAuthor, translatedAuthor);
 
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     if (ct.IsCancellationRequested) return;
-
                     BookInfoLoading.IsVisible = false;
                     BookInfoOriginalTitle.Text = origTitle;
-
-                    if (!string.IsNullOrWhiteSpace(translatedTitle))
-                    {
-                        BookInfoTranslatedTitle.Text = translatedTitle;
-                        BookInfoTranslatedTitle.IsVisible = true;
-                    }
-
-                    BookInfoAuthor.Text = string.IsNullOrWhiteSpace(origAuthor)
-                        ? "" : origAuthor;
-
-                    if (!string.IsNullOrWhiteSpace(translatedAuthor) &&
-                        !string.IsNullOrWhiteSpace(origAuthor))
-                    {
-                        BookInfoAuthorTranslated.Text = $"({translatedAuthor})";
-                        BookInfoAuthorTranslated.IsVisible = true;
-                    }
-
-                    // Load cover
-                    if (!string.IsNullOrWhiteSpace(coverUrl) &&
-                        Uri.TryCreate(coverUrl, UriKind.Absolute, out var coverUri))
-                    {
-                        BookInfoCoverImage.Source = ImageSource.FromUri(coverUri);
-                        BookInfoCoverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
-                    }
+                    BookInfoTranslatedTitle.Text = translatedTitle;
+                    BookInfoTranslatedTitle.IsVisible = !string.IsNullOrWhiteSpace(translatedTitle);
+                    BookInfoAuthor.Text = origAuthor;
+                    BookInfoAuthorTranslated.Text = string.IsNullOrWhiteSpace(translatedAuthor)
+                        ? "" : $"({translatedAuthor})";
+                    BookInfoAuthorTranslated.IsVisible = !string.IsNullOrWhiteSpace(translatedAuthor);
                 });
             }
             catch (OperationCanceledException) { /* navigated away */ }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[WebBrowsePage] BookInfoPanel fetch error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[WebBrowsePage] BookInfoPanel fetch: {ex.Message}");
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     if (!ct.IsCancellationRequested)
@@ -2597,7 +2592,9 @@ public partial class WebBrowsePage : ContentPage
     {
         if (!_isBookInfoPanelOpen) return;
         _isBookInfoPanelOpen = false;
-        _bookInfoCts?.Cancel();
+        // Don't cancel _bookInfoCts here — ShowBookInfoPanelAsync manages its own lifecycle.
+        // Cancelling here would kill a fetch that ShowBookInfoPanelAsync just kicked off
+        // if Hide and Show are called in quick succession (e.g. navigating away then back).
 
         await Task.WhenAll(
             BookInfoPanel.TranslateToAsync(0, 120, 180, Easing.CubicIn),
@@ -2607,7 +2604,6 @@ public partial class WebBrowsePage : ContentPage
 
     private async void OnBookInfoPanelCloseTapped(object sender, TappedEventArgs e)
     {
-        _bookInfoPanelDismissed = true;
         await HideBookInfoPanelAsync();
     }
 

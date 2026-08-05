@@ -466,24 +466,10 @@
                     TranslationY="120"
                     Opacity="0"
                     IsVisible="False">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-
-                    <!-- Cover thumbnail -->
-                    <Border Grid.Column="0"
-                            x:Name="BookInfoCoverBorder"
-                            StrokeThickness="0"
-                            StrokeShape="RoundRectangle 8"
-                            WidthRequest="52"
-                            HeightRequest="74"
-                            VerticalOptions="Start">
-                        <Image x:Name="BookInfoCoverImage"
-                               Aspect="AspectFill"
-                               WidthRequest="52"
-                               HeightRequest="74" />
-                    </Border>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
 
                     <!-- Text info -->
-                    <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                    <VerticalStackLayout Grid.Column="0" Spacing="4" VerticalOptions="Center">
 
                         <!-- Original title (Chinese) -->
                         <Label x:Name="BookInfoOriginalTitle"
@@ -532,7 +518,7 @@
                     </VerticalStackLayout>
 
                     <!-- Close button -->
-                    <Grid Grid.Column="2"
+                    <Grid Grid.Column="1"
                           WidthRequest="32"
                           HeightRequest="32"
                           VerticalOptions="Start">
