@@ -126,6 +126,12 @@ public partial class WebBrowsePage : ContentPage
     private const int MaxBackSkipAttempts = 10;
     private bool _webViewCleanedUp;
 
+    // ── Book Info Panel ───────────────────────────────────────────────────────
+    private bool _isBookInfoPanelOpen;
+    private bool _bookInfoPanelDismissed; // user explicitly closed — don't re-show for this URL
+    private string? _bookInfoPanelUrl;    // URL the panel was loaded for
+    private CancellationTokenSource? _bookInfoCts;
+
     private bool IsTranslateActive => _translateMode != WebTranslateMode.None;
 
     /// <summary>Returns true if this page is still present on the Shell stack (not popped).</summary>
@@ -2114,6 +2120,7 @@ public partial class WebBrowsePage : ContentPage
                         FabDownload.IsVisible = false;
                         FabFetch.IsVisible = false;
                         FabBookmark.IsVisible = false;
+                        _ = HideBookInfoPanelAsync();
                     }
                     else
                     {
@@ -2124,6 +2131,13 @@ public partial class WebBrowsePage : ContentPage
                         if (onNovelPage)
                         {
                             UpdateBookmarkFabAppearance();
+                            // Show book info panel when landing on a novel page
+                            _ = ShowBookInfoPanelAsync(url);
+                        }
+                        else
+                        {
+                            // Hide panel if user navigated away from a novel page
+                            _ = HideBookInfoPanelAsync();
                         }
                     }
                 }
@@ -2441,6 +2455,160 @@ public partial class WebBrowsePage : ContentPage
             await DisplayAlertAsync("Bookmark Error",
                 $"An error occurred:\n{ex.Message}", "OK");
         }
+    }
+
+    // ── Book Info Panel ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Slides up the book info panel and fetches title/author/cover for <paramref name="url"/>.
+    /// Translates Chinese title and author to English via Google Translate.
+    /// </summary>
+    private async Task ShowBookInfoPanelAsync(string url)
+    {
+        // Don't re-show if user dismissed for this exact URL
+        if (_bookInfoPanelDismissed && _bookInfoPanelUrl == url)
+            return;
+
+        // Already showing for this URL — nothing to do
+        if (_isBookInfoPanelOpen && _bookInfoPanelUrl == url)
+            return;
+
+        // Cancel any previous in-flight fetch
+        _bookInfoCts?.Cancel();
+        _bookInfoCts?.Dispose();
+        _bookInfoCts = new CancellationTokenSource();
+        var ct = _bookInfoCts.Token;
+
+        _bookInfoPanelUrl = url;
+        _bookInfoPanelDismissed = false;
+
+        // Reset panel UI to loading state
+        BookInfoOriginalTitle.Text = "";
+        BookInfoTranslatedTitle.Text = "";
+        BookInfoTranslatedTitle.IsVisible = false;
+        BookInfoAuthor.Text = "";
+        BookInfoAuthorTranslated.Text = "";
+        BookInfoAuthorTranslated.IsVisible = false;
+        BookInfoLoading.IsVisible = true;
+        BookInfoCoverImage.Source = null;
+        BookInfoCoverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+
+        // Animate panel in
+        if (!_isBookInfoPanelOpen)
+        {
+            _isBookInfoPanelOpen = true;
+            BookInfoPanel.IsVisible = true;
+            BookInfoPanel.TranslationY = 120;
+            BookInfoPanel.Opacity = 0;
+            await Task.WhenAll(
+                BookInfoPanel.TranslateToAsync(0, 0, 220, Easing.CubicOut),
+                BookInfoPanel.FadeToAsync(1, 200, Easing.CubicOut));
+        }
+
+        // Fetch metadata in background
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (ct.IsCancellationRequested) return;
+
+                var bookService = new BookService(new WebViewCloudflareBypass());
+                var bookInfo = await bookService.GatherBookInfo(url, 0, null, ct: ct);
+
+                if (ct.IsCancellationRequested || bookInfo == null) return;
+
+                string origTitle  = bookInfo.Title ?? "";
+                string origAuthor = bookInfo.Author ?? "";
+                string? coverUrl  = bookInfo.CoverUrl;
+
+                // Translate title and author to English
+                string translatedTitle  = "";
+                string translatedAuthor = "";
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.Timeout = TimeSpan.FromSeconds(15);
+                    http.DefaultRequestHeaders.TryAddWithoutValidation(
+                        "User-Agent",
+                        "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36");
+                    var translator = new Shuka.Core.Translator(http);
+
+                    if (!string.IsNullOrWhiteSpace(origTitle))
+                        translatedTitle  = await translator.Translate(origTitle,  null, ct);
+                    if (!string.IsNullOrWhiteSpace(origAuthor))
+                        translatedAuthor = await translator.Translate(origAuthor, null, ct);
+
+                    // Don't show translation if identical (already English)
+                    if (string.Equals(translatedTitle, origTitle, StringComparison.OrdinalIgnoreCase))
+                        translatedTitle = "";
+                    if (string.Equals(translatedAuthor, origAuthor, StringComparison.OrdinalIgnoreCase))
+                        translatedAuthor = "";
+                }
+                catch { /* translation is optional — show original if it fails */ }
+
+                if (ct.IsCancellationRequested) return;
+
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (ct.IsCancellationRequested) return;
+
+                    BookInfoLoading.IsVisible = false;
+                    BookInfoOriginalTitle.Text = origTitle;
+
+                    if (!string.IsNullOrWhiteSpace(translatedTitle))
+                    {
+                        BookInfoTranslatedTitle.Text = translatedTitle;
+                        BookInfoTranslatedTitle.IsVisible = true;
+                    }
+
+                    BookInfoAuthor.Text = string.IsNullOrWhiteSpace(origAuthor)
+                        ? "" : origAuthor;
+
+                    if (!string.IsNullOrWhiteSpace(translatedAuthor) &&
+                        !string.IsNullOrWhiteSpace(origAuthor))
+                    {
+                        BookInfoAuthorTranslated.Text = $"({translatedAuthor})";
+                        BookInfoAuthorTranslated.IsVisible = true;
+                    }
+
+                    // Load cover
+                    if (!string.IsNullOrWhiteSpace(coverUrl) &&
+                        Uri.TryCreate(coverUrl, UriKind.Absolute, out var coverUri))
+                    {
+                        BookInfoCoverImage.Source = ImageSource.FromUri(coverUri);
+                        BookInfoCoverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+                    }
+                });
+            }
+            catch (OperationCanceledException) { /* navigated away */ }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WebBrowsePage] BookInfoPanel fetch error: {ex.Message}");
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (!ct.IsCancellationRequested)
+                        BookInfoLoading.IsVisible = false;
+                });
+            }
+        }, ct);
+    }
+
+    private async Task HideBookInfoPanelAsync()
+    {
+        if (!_isBookInfoPanelOpen) return;
+        _isBookInfoPanelOpen = false;
+        _bookInfoCts?.Cancel();
+
+        await Task.WhenAll(
+            BookInfoPanel.TranslateToAsync(0, 120, 180, Easing.CubicIn),
+            BookInfoPanel.FadeToAsync(0, 160, Easing.CubicIn));
+        BookInfoPanel.IsVisible = false;
+    }
+
+    private async void OnBookInfoPanelCloseTapped(object sender, TappedEventArgs e)
+    {
+        _bookInfoPanelDismissed = true;
+        await HideBookInfoPanelAsync();
     }
 
     /// <summary>

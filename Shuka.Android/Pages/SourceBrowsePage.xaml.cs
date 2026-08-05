@@ -310,6 +310,18 @@ public partial class SourceBrowsePage : ContentPage
         };
         authorLbl.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
+        // Chapter count badge
+        string chapterText = novel.ChapterText
+            ?? (novel.ChapterCount.HasValue ? $"{novel.ChapterCount} ch" : "");
+        var chapterLbl = new Label
+        {
+            Text      = chapterText,
+            FontSize  = 10,
+            IsVisible = !string.IsNullOrWhiteSpace(chapterText),
+            LineBreakMode = LineBreakMode.NoWrap,
+        };
+        chapterLbl.SetDynamicResource(Label.TextColorProperty, "AccentLight");
+
         var descLbl = new Label
         {
             Text      = novel.Description ?? "",
@@ -369,7 +381,7 @@ public partial class SourceBrowsePage : ContentPage
         {
             Spacing         = 4,
             VerticalOptions = LayoutOptions.Center,
-            Children        = { titleLbl, authorLbl, descLbl, dlBtn }
+            Children        = { titleLbl, authorLbl, chapterLbl, descLbl, dlBtn }
         };
 
         var contentGrid = new Grid

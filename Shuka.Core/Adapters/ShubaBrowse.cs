@@ -96,7 +96,8 @@ public class ShubaBrowse : IBrowsableAdapter
                 RegexOptions.IgnoreCase);
             if (descM.Success) desc = System.Net.WebUtility.HtmlDecode(descM.Groups[1].Value.Trim());
 
-            novels.Add(new NovelEntry(title, author, url, cover, desc, null));
+            var chMeta = ExtractChapterMeta(content);
+            novels.Add(new NovelEntry(title, author, url, cover, desc, null, chMeta.count, chMeta.text));
         }
 
         // Fallback: direct /book/{id}.htm link scan (works for /last.html and search results)
@@ -127,5 +128,16 @@ public class ShubaBrowse : IBrowsableAdapter
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
 
         return new ListingPage(novels, hasNext && novels.Count > 0, currentPage);
+    }
+
+    private static (int? count, string? text) ExtractChapterMeta(string window)
+    {
+        var cn = Regex.Match(window, @"(?:共|总)?\s*([0-9]{1,5})\s*章");
+        if (cn.Success && int.TryParse(cn.Groups[1].Value, out int cnCount) && cnCount > 0)
+            return (cnCount, $"{cnCount} ch");
+        var en = Regex.Match(window, @"\b([0-9]{1,5})\s*chapters?\b", RegexOptions.IgnoreCase);
+        if (en.Success && int.TryParse(en.Groups[1].Value, out int enCount) && enCount > 0)
+            return (enCount, $"{enCount} ch");
+        return (null, null);
     }
 }

@@ -453,6 +453,102 @@
                 </Grid>
             </Border>
 
+            <!-- Book info panel — slides up when a novel page is detected -->
+            <!-- Shows original Chinese title/author + English translation -->
+            <Border x:Name="BookInfoPanel"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18,18,0,0"
+                    Padding="16,14,16,20"
+                    HorizontalOptions="Fill"
+                    VerticalOptions="End"
+                    TranslationY="120"
+                    Opacity="0"
+                    IsVisible="False">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+
+                    <!-- Cover thumbnail -->
+                    <Border Grid.Column="0"
+                            x:Name="BookInfoCoverBorder"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 8"
+                            WidthRequest="52"
+                            HeightRequest="74"
+                            VerticalOptions="Start">
+                        <Image x:Name="BookInfoCoverImage"
+                               Aspect="AspectFill"
+                               WidthRequest="52"
+                               HeightRequest="74" />
+                    </Border>
+
+                    <!-- Text info -->
+                    <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+
+                        <!-- Original title (Chinese) -->
+                        <Label x:Name="BookInfoOriginalTitle"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               LineBreakMode="TailTruncation"
+                               MaxLines="1"
+                               TextColor="{DynamicResource TextPrimary}" />
+
+                        <!-- Translated title (English) -->
+                        <Label x:Name="BookInfoTranslatedTitle"
+                               FontSize="12"
+                               LineBreakMode="TailTruncation"
+                               MaxLines="1"
+                               IsVisible="False"
+                               TextColor="{DynamicResource AccentLight}" />
+
+                        <!-- Author row: original + translated -->
+                        <HorizontalStackLayout Spacing="6">
+                            <Label x:Name="BookInfoAuthor"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="1"
+                                   TextColor="{DynamicResource TextMuted}" />
+                            <Label x:Name="BookInfoAuthorTranslated"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="1"
+                                   IsVisible="False"
+                                   TextColor="{DynamicResource TextMuted}" />
+                        </HorizontalStackLayout>
+
+                        <!-- Loading indicator while fetching -->
+                        <HorizontalStackLayout x:Name="BookInfoLoading" Spacing="6" IsVisible="True">
+                            <ActivityIndicator IsRunning="True"
+                                               Color="{DynamicResource AccentLight}"
+                                               WidthRequest="12"
+                                               HeightRequest="12"
+                                               VerticalOptions="Center" />
+                            <Label Text="Fetching info…"
+                                   FontSize="10"
+                                   TextColor="{DynamicResource TextMuted}"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+
+                    </VerticalStackLayout>
+
+                    <!-- Close button -->
+                    <Grid Grid.Column="2"
+                          WidthRequest="32"
+                          HeightRequest="32"
+                          VerticalOptions="Start">
+                        <Label Text="&#xE5CD;"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="18"
+                               TextColor="{DynamicResource TextMuted}"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnBookInfoPanelCloseTapped" />
+                        </Grid.GestureRecognizers>
+                    </Grid>
+                </Grid>
+            </Border>
+
             <!-- Tab overview panel -->
             <Grid x:Name="TabOverviewOverlay"
                   IsVisible="False"

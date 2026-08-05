@@ -91,7 +91,22 @@ public class YamiboBrowse : IBrowsableAdapter
             // Cover image follows a predictable URL pattern from the novel ID
             string? cover = BuildCoverUrl(novelId);
 
-            novels.Add(new NovelEntry(rawTitle, rawAuth, url, cover, null, tags));
+            // Chapter count from td cells (yamibo shows word/chapter count in columns)
+            int? chapterCount = null;
+            string? chapterText = null;
+            foreach (Match td in tdMatches)
+            {
+                string tdText = Regex.Replace(td.Groups[1].Value, @"<[^>]+>", "").Trim();
+                var ch = Regex.Match(tdText, @"([0-9]{1,5})\s*(?:章|chapters?)", RegexOptions.IgnoreCase);
+                if (ch.Success && int.TryParse(ch.Groups[1].Value, out int chCount) && chCount > 0)
+                {
+                    chapterCount = chCount;
+                    chapterText = $"{chCount} ch";
+                    break;
+                }
+            }
+
+            novels.Add(new NovelEntry(rawTitle, rawAuth, url, cover, null, tags, chapterCount, chapterText));
         }
 
         // Fallback for search result pages that may differ in structure:

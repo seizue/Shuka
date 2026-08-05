@@ -133,7 +133,10 @@ public class ZhenhunBrowse : IBrowsableAdapter
             if (descM.Success)
                 desc = System.Net.WebUtility.HtmlDecode(descM.Groups[1].Value.Trim());
 
-            novels.Add(new NovelEntry(title, author, url, cover, desc, null));
+            // Chapter count from context window
+            var chMeta = ExtractChapterMeta(window);
+
+            novels.Add(new NovelEntry(title, author, url, cover, desc, null, chMeta.count, chMeta.text));
         }
 
         // Pagination: look for 下一页 or next-page link
@@ -146,5 +149,20 @@ public class ZhenhunBrowse : IBrowsableAdapter
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
 
         return new ListingPage(novels, hasNext && novels.Count > 0, currentPage);
+    }
+
+    private static (int? count, string? text) ExtractChapterMeta(string window)
+    {
+        // Chinese: 共123章 / 总123章 / 123章
+        var cn = Regex.Match(window, @"(?:共|总)?\s*([0-9]{1,5})\s*章");
+        if (cn.Success && int.TryParse(cn.Groups[1].Value, out int cnCount) && cnCount > 0)
+            return (cnCount, $"{cnCount} ch");
+
+        // English: 123 chapters
+        var en = Regex.Match(window, @"\b([0-9]{1,5})\s*chapters?\b", RegexOptions.IgnoreCase);
+        if (en.Success && int.TryParse(en.Groups[1].Value, out int enCount) && enCount > 0)
+            return (enCount, $"{enCount} ch");
+
+        return (null, null);
     }
 }
