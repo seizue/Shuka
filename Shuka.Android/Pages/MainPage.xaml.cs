@@ -1,8 +1,7 @@
 using Shuka.Android.Behaviors;
 using Shuka.Android.Platforms.Android;
 using Shuka.Android.Services;
-using Shuka.Core;
-using Shuka.Core.Adapters;
+using Shuka.Core;using Shuka.Core.Adapters;
 using System.Text.RegularExpressions;
 
 namespace Shuka.Android.Pages;
@@ -58,6 +57,12 @@ public partial class MainPage : ContentPage
         Instance = this;
         _discoverService = new DiscoverService(new Platform.WebViewCloudflareBypass());
 
+        // Start source availability checks in the background.
+        // Results come back asynchronously; subscribing here lets us refresh the
+        // source list as each ping resolves without blocking the UI.
+        SourceStatusService.Instance.StatusUpdated += OnSourceStatusUpdated;
+        SourceStatusService.Instance.StartChecksIfNeeded();
+
         UrlEntry.TextChanged += (_, e) =>
         {
             UrlClearBtn.IsVisible = !string.IsNullOrEmpty(e.NewTextValue);
@@ -93,6 +98,13 @@ public partial class MainPage : ContentPage
                 BuildDiscoverSources();
             });
         }
+    }
+
+    private void OnSourceStatusUpdated(object? sender, EventArgs e)
+    {
+        // Re-render source cards so the DOWN badge appears/disappears as results arrive
+        if (_discoverBuilt)
+            BuildDiscoverSources();
     }
 
     protected override async void OnAppearing()
@@ -493,6 +505,29 @@ public partial class MainPage : ContentPage
             VerticalOptions = LayoutOptions.Center,
             Children = { titleLabel, descLabel, cfBadge },
         };
+
+        // ── DOWN badge — shown when the status check found the site unreachable ──
+        bool isDown = SourceStatusService.Instance.IsDown(source.SiteName);
+        if (isDown)
+        {
+            var downBadge = new Border
+            {
+                StrokeThickness = 0,
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+                Padding = new Thickness(7, 2),
+                HorizontalOptions = LayoutOptions.Start,
+            };
+            downBadge.SetDynamicResource(Border.BackgroundColorProperty, "Danger");
+            var downLabel = new Label
+            {
+                Text = "DOWN",
+                FontSize = 9,
+                FontAttributes = FontAttributes.Bold,
+                TextColor = Colors.White,
+            };
+            downBadge.Content = downLabel;
+            textStack.Children.Add(downBadge);
+        }
 
         // ── Pin button ───────────────────────────────────────────────────────
         var pinIcon = new Label
