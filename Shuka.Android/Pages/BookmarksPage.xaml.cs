@@ -11,7 +11,7 @@ public partial class BookmarksPage : ContentPage
     private static readonly string[] _predefinedTags =
         { "Downloaded", "Reading", "Completed", "Favorite", "To Read" };
 
-    private readonly string? _filterSiteName;
+    private string? _filterSiteName;  // Changed to non-readonly to allow dynamic filtering
     private bool _selectMode = false;
     private readonly HashSet<string> _selectedUrls = new();
     private string _searchQuery = "";
@@ -47,6 +47,7 @@ public partial class BookmarksPage : ContentPage
         base.OnAppearing();
         MainActivity.Instance?.SetTabBarVisible(true);
         UpdateSheetBottomMargins();
+        BuildFilterChips();   // refresh source chips in case bookmarks changed
         BuildBookmarksList();
     }
 
@@ -114,14 +115,9 @@ public partial class BookmarksPage : ContentPage
         SelectModeIcon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
         // Restore original title
-        if (!string.IsNullOrEmpty(_filterSiteName))
-        {
-            TitleLabel.Text = $"{_filterSiteName} Bookmarks";
-        }
-        else
-        {
-            TitleLabel.Text = "Bookmarks";
-        }
+        TitleLabel.Text = !string.IsNullOrEmpty(_filterSiteName)
+            ? $"{_filterSiteName} Bookmarks"
+            : "Bookmarks";
 
         SelectionActionBar.IsVisible = false;
 
@@ -183,13 +179,97 @@ public partial class BookmarksPage : ContentPage
     {
         FilterChips.Clear();
 
-        // Sort by latest
+        // ── Sort chips ───────────────────────────────────────────────────────
         var latestChip = CreateFilterChip("Latest", "latest", _sortFilter == "latest");
         FilterChips.Add(latestChip);
 
-        // Sort by chapter count
         var chaptersChip = CreateFilterChip("Most Chapters", "chapters", _sortFilter == "chapters");
         FilterChips.Add(chaptersChip);
+
+        // ── Divider ──────────────────────────────────────────────────────────
+        var divider = new BoxView
+        {
+            WidthRequest = 1,
+            HeightRequest = 20,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        divider.SetDynamicResource(BoxView.ColorProperty, "Stroke");
+        FilterChips.Add(divider);
+
+        // ── Source filter chips ──────────────────────────────────────────────
+        // Collect distinct site names that actually have bookmarks
+        var sitesWithBookmarks = BookmarkService.Instance.Bookmarks
+            .Select(b => b.SiteName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s)
+            .ToList();
+
+        if (sitesWithBookmarks.Count > 1)
+        {
+            // "All" chip — no source filter
+            var allChip = CreateSourceChip("All", null, _filterSiteName == null);
+            FilterChips.Add(allChip);
+
+            foreach (var site in sitesWithBookmarks)
+            {
+                var siteChip = CreateSourceChip(site, site,
+                    string.Equals(_filterSiteName, site, StringComparison.OrdinalIgnoreCase));
+                FilterChips.Add(siteChip);
+            }
+        }
+    }
+
+    private Border CreateSourceChip(string label, string? siteValue, bool isActive)
+    {
+        var chipLabel = new Label
+        {
+            Text = label,
+            FontSize = 11,
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center,
+        };
+
+        var chip = new Border
+        {
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
+            Padding = new Thickness(12, 6),
+        };
+
+        if (isActive)
+        {
+            chip.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+            chip.SetDynamicResource(Border.StrokeProperty, "TextMuted");
+            chipLabel.SetDynamicResource(Label.TextColorProperty, "TextPrimary");
+        }
+        else
+        {
+            chip.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
+            chip.SetDynamicResource(Border.StrokeProperty, "Stroke");
+            chipLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
+        }
+
+        chip.Content = chipLabel;
+        chip.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(async () =>
+            {
+                await chip.ScaleToAsync(0.92, 70, Easing.CubicOut);
+                await chip.ScaleToAsync(1.0, 70, Easing.SpringOut);
+
+                _filterSiteName = siteValue;
+
+                // Update title unless in select mode or a fixed single-source view
+                if (!_selectMode)
+                    TitleLabel.Text = siteValue == null ? "Bookmarks" : $"{siteValue} Bookmarks";
+
+                BuildFilterChips();
+                BuildBookmarksList();
+            })
+        });
+
+        return chip;
     }
 
     private Border CreateFilterChip(string label, string filterValue, bool isActive)
@@ -571,16 +651,13 @@ public partial class BookmarksPage : ContentPage
                         try
                         {
                             var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
-                            WebBrowsePage? webPage = null;
-                            await Task.Run(() => { webPage = new WebBrowsePage(bookmark.Url); });
                             await scaleTask;
                             await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
-                            if (webPage != null)
-                            {
-                                var nav = Shell.Current?.Navigation;
-                                if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
-                                    await nav.PushAsync(webPage);
-                            }
+                            // WebBrowsePage MUST be created on the main thread (MAUI requirement)
+                            var webPage = new WebBrowsePage(bookmark.Url);
+                            var nav = Shell.Current?.Navigation;
+                            if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
+                                await nav.PushAsync(webPage);
                         }
                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BookmarksPage] OpenWebView: {ex.Message}"); }
                     }

@@ -9,7 +9,7 @@
 
         <!-- ── Top App Bar ──────────────────────────────────── -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="Auto,*"
+              ColumnDefinitions="Auto,*,Auto"
               Padding="20,52,20,16"
               BackgroundColor="{DynamicResource BgCard}"
               HeightRequest="110">
@@ -33,6 +33,23 @@
                        TextColor="{DynamicResource TextMuted}" 
                        FontFamily="Pacifico" />
             </VerticalStackLayout>
+
+            <!-- All Bookmarks button -->
+            <Grid Grid.Column="2"
+                  x:Name="AllBookmarksBtn"
+                  WidthRequest="40"
+                  HeightRequest="40"
+                  VerticalOptions="Center">
+                <Label Text="&#xE866;"
+                       FontFamily="{DynamicResource IconFont}"
+                       FontSize="22"
+                       TextColor="{DynamicResource TextMuted}"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+                <Grid.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnAllBookmarksTapped" />
+                </Grid.GestureRecognizers>
+            </Grid>
         </Grid>
 
 

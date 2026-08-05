@@ -156,6 +156,28 @@ public partial class MainPage : ContentPage
         }
     }
 
+    private async void OnAllBookmarksTapped(object sender, TappedEventArgs e)
+    {
+        try
+        {
+            var btn = AllBookmarksBtn;
+            await btn.ScaleToAsync(0.85, 70, Easing.CubicOut);
+            await btn.ScaleToAsync(1.0, 70, Easing.SpringOut);
+
+            var nav = Shell.Current?.Navigation;
+            if (nav == null) return;
+            if (nav.NavigationStack?.LastOrDefault() is BookmarksPage)
+                return;
+
+            // Open all-bookmarks view (no source filter — user can filter in-page)
+            await nav.PushAsync(new BookmarksPage(filterSiteName: null));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainPage] AllBookmarks tap error: {ex.Message}");
+        }
+    }
+
     private void SetActiveTab(bool download)
     {
         DownloadPanel.IsVisible = download;
@@ -648,25 +670,16 @@ public partial class MainPage : ContentPage
                     // Register the fetch callback before opening the WebView
                     WebBrowsePage.OnUrlFetched = FillUrlFromWebView;
 
-                    // Create WebBrowsePage on background thread to avoid UI blocking
-                    WebBrowsePage? webPage = null;
-                    await Task.Run(() =>
-                    {
-                        webPage = new WebBrowsePage(url);
-                    });
-
-                    // Wait for animation and navigate
+                    // Wait for animation
                     await scaleTask;
                     await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
 
-                    if (webPage != null)
-                    {
-                        // Ensure the page is not cached by Shell
-                        Shell.SetPresentationMode(webPage, PresentationMode.NotAnimated);
-                        var nav = Shell.Current?.Navigation;
-                        if (nav != null)
-                            await nav.PushAsync(webPage, true);
-                    }
+                    // WebBrowsePage MUST be created on the main thread (MAUI requirement)
+                    var webPage = new WebBrowsePage(url);
+
+                    var nav = Shell.Current?.Navigation;
+                    if (nav != null)
+                        await nav.PushAsync(webPage, true);
                 }
                 catch (Exception ex)
                 {
