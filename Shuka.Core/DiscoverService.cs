@@ -44,6 +44,14 @@ public class DiscoverService
         return source.ParseListing(html, url);
     }
 
+    public async Task<ListingPage> FetchPageAsync(
+        IBrowsableAdapter source, string url,
+        Action<string>? log = null, CancellationToken ct = default)
+    {
+        string html = await _fetcher.Fetch(url, log: log, ct: ct, forceBypass: source.RequiresCfBypass);
+        return source.ParseListing(html, url);
+    }
+
     public async Task<ListingPage> SearchAsync(
         IBrowsableAdapter source, string query, int page = 1,
         Action<string>? log = null, CancellationToken ct = default)

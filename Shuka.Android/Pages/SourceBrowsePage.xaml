@@ -4,11 +4,14 @@
              x:Class="Shuka.Android.Pages.SourceBrowsePage"
              BackgroundColor="{DynamicResource BgPage}">
 
+    <!-- Root overlay grid — lets the novel detail sheet slide over the page content -->
+    <Grid>
+
     <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- ── Top bar ───────────────────────────────────────── -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="Auto,*"
+              ColumnDefinitions="Auto,*,Auto"
               Padding="16,52,16,16"
               BackgroundColor="{DynamicResource BgCard}">
             <Border Grid.Column="0"
@@ -30,6 +33,23 @@
                    FontSize="20" FontAttributes="Bold"
                    TextColor="{DynamicResource TextPrimary}"
                    VerticalOptions="Center" />
+            <!-- View toggle: card-list / web-view -->
+            <Border Grid.Column="2"
+                    x:Name="ViewToggleBtn"
+                    BackgroundColor="Transparent"
+                    StrokeThickness="0"
+                    Padding="8,0,4,0"
+                    VerticalOptions="Center">
+                <Label x:Name="ViewToggleIcon"
+                       Text="&#xE065;"
+                       FontFamily="{DynamicResource IconFont}"
+                       FontSize="22"
+                       TextColor="{DynamicResource TextPrimary}"
+                       VerticalOptions="Center" />
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnViewToggleTapped" />
+                </Border.GestureRecognizers>
+            </Border>
         </Grid>
 
         <!-- ── Filter pills ──────────────────────────────────── -->
@@ -49,6 +69,12 @@
                         <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Label.GestureRecognizers>
                     </Label>
                     <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Border.GestureRecognizers>
+                </Border>
+                <Border x:Name="PillTop500" StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6">
+                    <Label Text="Top 500" FontSize="12" FontAttributes="Bold">
+                        <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Label.GestureRecognizers>
+                    </Label>
+                    <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Border.GestureRecognizers>
                 </Border>
             </HorizontalStackLayout>
         </Border>
@@ -162,10 +188,16 @@
                         <Grid ColumnDefinitions="*,Auto"
                               Padding="2,0,2,8">
                             <VerticalStackLayout Spacing="2">
-                                <Label Text="Image Options"
+                                <Label Text="Card Options"
                                        FontSize="16"
                                        FontAttributes="Bold"
                                        TextColor="{DynamicResource TextPrimary}" />
+                                <Label x:Name="ImageContextMenuTitleLabel"
+                                       FontSize="11"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       LineBreakMode="TailTruncation"
+                                       MaxLines="1" />
                                 <Label x:Name="ImageContextMenuUrlLabel"
                                        FontSize="10"
                                        TextColor="{DynamicResource TextMuted}"
@@ -182,6 +214,37 @@
                                 </Label.GestureRecognizers>
                             </Label>
                         </Grid>
+
+                        <!-- Copy novel title -->
+                        <Border Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Padding="12,10">
+                            <Grid ColumnDefinitions="24,*,Auto"
+                                  ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy novel title"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="2"
+                                       Text="&#xE5CC;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnImageContextMenuCopyTitleTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
 
                         <Border Stroke="{DynamicResource Stroke}"
                                 StrokeThickness="1"
@@ -301,4 +364,252 @@
             </Border>
         </Grid>
     </Grid>
+
+    <!-- ── Novel detail bottom sheet ─────────────────────────────────── -->
+    <Grid x:Name="NovelDetailOverlay"
+          IsVisible="False"
+          BackgroundColor="#88000000"
+          HorizontalOptions="Fill"
+          VerticalOptions="Fill">
+        <Grid.GestureRecognizers>
+            <TapGestureRecognizer Tapped="OnNovelDetailOverlayTapped" />
+        </Grid.GestureRecognizers>
+
+        <Border x:Name="NovelDetailSheet"
+                Margin="0,0,0,0"
+                Padding="0"
+                VerticalOptions="End"
+                Stroke="{DynamicResource Stroke}"
+                StrokeThickness="1"
+                StrokeShape="RoundRectangle 22,22,0,0"
+                BackgroundColor="{DynamicResource BgCard}"
+                TranslationY="600"
+                Opacity="0">
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnNovelDetailSheetTapped" />
+            </Border.GestureRecognizers>
+
+            <ScrollView>
+                <VerticalStackLayout Spacing="0">
+
+                    <!-- Drag handle -->
+                    <BoxView HeightRequest="4" WidthRequest="40"
+                             CornerRadius="2"
+                             HorizontalOptions="Center"
+                             Margin="0,12,0,0"
+                             Color="{DynamicResource Stroke}" />
+
+                    <!-- Cover + basic info row -->
+                    <Grid ColumnDefinitions="Auto,*,Auto"
+                          ColumnSpacing="14"
+                          Padding="20,16,20,0">
+
+                        <!-- Cover image -->
+                        <Border Grid.Column="0"
+                                x:Name="DetailCoverBorder"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 10"
+                                WidthRequest="80"
+                                HeightRequest="114"
+                                VerticalOptions="Start">
+                            <Border.BackgroundColor>
+                                <DynamicResource Key="BgInput" />
+                            </Border.BackgroundColor>
+                            <!-- Real cover (visible when URL exists) -->
+                            <Image x:Name="DetailCoverImage"
+                                   Aspect="AspectFill"
+                                   WidthRequest="80"
+                                   HeightRequest="114" />
+                        </Border>
+
+                        <!-- Lily fallback (visible when no cover URL) -->
+                        <Border Grid.Column="0"
+                                x:Name="DetailCoverFallback"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 10"
+                                WidthRequest="80"
+                                HeightRequest="114"
+                                VerticalOptions="Start"
+                                IsVisible="False"
+                                BackgroundColor="{DynamicResource AccentContainer}">
+                            <Image Source="lily.png"
+                                   Aspect="AspectFit"
+                                   WidthRequest="32"
+                                   HeightRequest="32"
+                                   Opacity="0.45"
+                                   HorizontalOptions="Center"
+                                   VerticalOptions="Center" />
+                        </Border>
+
+                        <!-- Title / Author / Chapter info -->
+                        <VerticalStackLayout Grid.Column="1"
+                                             Spacing="6"
+                                             VerticalOptions="Center">
+                            <Label x:Name="DetailTitleLabel"
+                                   FontSize="16"
+                                   FontAttributes="Bold"
+                                   LineBreakMode="WordWrap"
+                                   MaxLines="3"
+                                   TextColor="{DynamicResource TextPrimary}" />
+                            <Label x:Name="DetailTitleEnLabel"
+                                   FontSize="12"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="2"
+                                   IsVisible="False"
+                                   TextColor="{DynamicResource AccentLight}" />
+                            <Label x:Name="DetailAuthorLabel"
+                                   FontSize="12"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="1"
+                                   TextColor="{DynamicResource TextMuted}" />
+                            <Label x:Name="DetailAuthorEnLabel"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="1"
+                                   IsVisible="False"
+                                   TextColor="{DynamicResource AccentLight}" />
+                            <Label x:Name="DetailChapterLabel"
+                                   FontSize="11"
+                                   TextColor="{DynamicResource TextMuted}" />
+                        </VerticalStackLayout>
+
+                        <!-- Close button -->
+                        <Border Grid.Column="2"
+                                BackgroundColor="Transparent"
+                                StrokeThickness="0"
+                                VerticalOptions="Start"
+                                Padding="4">
+                            <Label Text="&#xE5CD;"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="22"
+                                   TextColor="{DynamicResource TextMuted}" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnNovelDetailCloseTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </Grid>
+
+                    <!-- Translate button -->
+                    <Border x:Name="TranslateBtn"
+                            Margin="20,14,20,0"
+                            Padding="14,10"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 12"
+                            Stroke="{DynamicResource Stroke}"
+                            BackgroundColor="{DynamicResource BgInput}"
+                            HorizontalOptions="Start">
+                        <HorizontalStackLayout Spacing="8">
+                            <Label x:Name="TranslateBtnIcon"
+                                   Text="&#xE8E2;"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="16"
+                                   VerticalOptions="Center"
+                                   TextColor="{DynamicResource AccentLight}" />
+                            <Label x:Name="TranslateBtnLabel"
+                                   Text="Translate"
+                                   FontSize="12"
+                                   FontAttributes="Bold"
+                                   VerticalOptions="Center"
+                                   TextColor="{DynamicResource TextPrimary}" />
+                            <ActivityIndicator x:Name="TranslateSpinner"
+                                               IsRunning="False"
+                                               IsVisible="False"
+                                               Color="{DynamicResource AccentLight}"
+                                               WidthRequest="14"
+                                               HeightRequest="14"
+                                               VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnTranslateTapped" />
+                        </Border.GestureRecognizers>
+                    </Border>
+
+                    <!-- Separator -->
+                    <BoxView HeightRequest="1"
+                             Margin="20,14,20,0"
+                             Color="{DynamicResource Stroke}" />
+
+                    <!-- Summary -->
+                    <VerticalStackLayout Padding="20,14,20,0" Spacing="6">
+                        <Label Text="Summary"
+                               FontSize="13"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextSecondary}" />
+                        <Label x:Name="DetailSummaryLabel"
+                               FontSize="13"
+                               LineBreakMode="WordWrap"
+                               TextColor="{DynamicResource TextPrimary}" />
+                        <Label x:Name="DetailSummaryEnLabel"
+                               FontSize="13"
+                               LineBreakMode="WordWrap"
+                               IsVisible="False"
+                               TextColor="{DynamicResource AccentLight}" />
+                        <Label x:Name="DetailNoSummaryLabel"
+                               Text="No summary available."
+                               FontSize="13"
+                               IsVisible="False"
+                               TextColor="{DynamicResource TextMuted}" />
+                    </VerticalStackLayout>
+
+                    <!-- Action buttons -->
+                    <Grid ColumnDefinitions="*,*"
+                          ColumnSpacing="10"
+                          Padding="20,16,20,40">
+                        <!-- Open in browser -->
+                        <Border Grid.Column="0"
+                                x:Name="DetailOpenWebBtn"
+                                Padding="14,12"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Stroke="{DynamicResource Stroke}"
+                                BackgroundColor="{DynamicResource BgInput}">
+                            <HorizontalStackLayout Spacing="8"
+                                                   HorizontalOptions="Center">
+                                <Label Text="&#xE157;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="16"
+                                       VerticalOptions="Center"
+                                       TextColor="{DynamicResource TextMuted}" />
+                                <Label Text="Browse"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       VerticalOptions="Center"
+                                       TextColor="{DynamicResource TextPrimary}" />
+                            </HorizontalStackLayout>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnDetailOpenWebTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                        <!-- Download -->
+                        <Border Grid.Column="1"
+                                x:Name="DetailDownloadBtn"
+                                Padding="14,12"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 14"
+                                BackgroundColor="{DynamicResource Accent}">
+                            <HorizontalStackLayout Spacing="8"
+                                                   HorizontalOptions="Center">
+                                <Label Text="&#xF090;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="16"
+                                       VerticalOptions="Center"
+                                       TextColor="{DynamicResource TextOnAccent}" />
+                                <Label Text="Download"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       VerticalOptions="Center"
+                                       TextColor="{DynamicResource TextOnAccent}" />
+                            </HorizontalStackLayout>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnDetailDownloadTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </Grid>
+
+                </VerticalStackLayout>
+            </ScrollView>
+        </Border>
+    </Grid>
+
+    </Grid><!-- end root overlay grid -->
 </ContentPage>
