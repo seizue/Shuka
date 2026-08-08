@@ -21,10 +21,8 @@ public class CzBooksBrowse : IBrowsableAdapter
     public string IconGlyph => "\uE894"; // language (globe)
     public bool RequiresCfBypass => true;
 
-    public string GetRecentUrl(int page = 1) =>
-        page == 1 ? "https://czbooks.net/new/1" : $"https://czbooks.net/new/{page}";
-    public string GetPopularUrl(int page = 1) =>
-        page == 1 ? "https://czbooks.net/hot/1" : $"https://czbooks.net/hot/{page}";
+    public string GetRecentUrl(int page = 1) => "https://czbooks.net/";
+    public string GetPopularUrl(int page = 1) => "https://czbooks.net/hot/1";
     public string GetSearchUrl(string query, int page = 1) =>
         $"https://czbooks.net/s/{Uri.EscapeDataString(query)}/{page}";
 
@@ -97,11 +95,9 @@ public class CzBooksBrowse : IBrowsableAdapter
         }
 
         bool hasNext = html.Contains("下一頁") || html.Contains("下一页") ||
-                       Regex.IsMatch(html, @"/(?:new|hot)/\d+", RegexOptions.IgnoreCase);
+                       Regex.IsMatch(html, @"/s/[^/]+/\d+", RegexOptions.IgnoreCase);
         int currentPage = 1;
-        // /new/2 or /hot/3 format
-        var pageM = Regex.Match(pageUrl, @"/(?:new|hot|s/[^/]+)/(\d+)$", RegexOptions.IgnoreCase);
-        if (!pageM.Success) pageM = Regex.Match(pageUrl, @"/(\d+)$");
+        var pageM = Regex.Match(pageUrl, @"/(\d+)$");
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
 
         return new ListingPage(novels, hasNext && novels.Count > 0, currentPage);

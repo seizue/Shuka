@@ -18,7 +18,6 @@
     <!-- Android -->
     <SupportedOSPlatformVersion>21.0</SupportedOSPlatformVersion>
     <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
-    <NoWarn>$(NoWarn);NETSDK1202</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

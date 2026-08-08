@@ -699,19 +699,22 @@ public partial class MainPage : ContentPage
                     }
 
                     var topPage = Shell.Current?.Navigation?.NavigationStack?.LastOrDefault();
-                    if (topPage is SourceBrowsePage || topPage is WebBrowsePage)
+                    if (topPage is WebBrowsePage)
                         return;
+
+                    // Register the fetch callback before opening the WebView
+                    WebBrowsePage.OnUrlFetched = FillUrlFromWebView;
 
                     // Wait for animation
                     await scaleTask;
                     await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
 
-                    // Open the card-list browse view; user can tap the WebView toggle inside
-                    var browsePage = new SourceBrowsePage(source);
+                    // WebBrowsePage MUST be created on the main thread (MAUI requirement)
+                    var webPage = new WebBrowsePage(url);
 
                     var nav = Shell.Current?.Navigation;
                     if (nav != null)
-                        await nav.PushAsync(browsePage, true);
+                        await nav.PushAsync(webPage, true);
                 }
                 catch (Exception ex)
                 {
@@ -1713,7 +1716,7 @@ public partial class MainPage : ContentPage
     private View BuildSearchResultCard(IBrowsableAdapter source, NovelEntry novel)
     {
         // Portrait-style card: cover on top, info below — fits nicely in 3-column grid
-        const double coverHeight = 95;
+        const double coverHeight = 110;
         bool suppressCardTap = false;
 
         // ── Cover ────────────────────────────────────────────────────────────
@@ -2004,16 +2007,19 @@ public partial class MainPage : ContentPage
                 if (suppressCardTap)
                     return;
 
-                // WebBrowsePage must be constructed on the main thread — never inside Task.Run
                 var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
-                var webPage = new WebBrowsePage(novel.Url);
+
+                WebBrowsePage? webPage = null;
+                await Task.Run(() =>
+                {
+                    webPage = new WebBrowsePage(novel.Url);
+                });
 
                 await scaleTask;
                 await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
 
-                var nav = Shell.Current?.Navigation;
-                if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
-                    await nav.PushAsync(webPage);
+                if (webPage != null)
+                    await Shell.Current.Navigation.PushAsync(webPage);
             })
         });
         return card;

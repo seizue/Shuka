@@ -1,7 +1,5 @@
 using Shuka.Core;
-using Shuka.Core.Adapters;
 using Shuka.Android.Platform;
-using System.Text.RegularExpressions;
 
 namespace Shuka.Android.Pages;
 
@@ -10,30 +8,15 @@ public partial class SourceBrowsePage : ContentPage
     private readonly IBrowsableAdapter _source;
     private readonly DiscoverService   _service;
 
-    private enum BrowseMode { Recent, Popular, Top500, Search }
+    private enum BrowseMode { Recent, Popular, Search }
     private BrowseMode _mode    = BrowseMode.Recent;
     private int        _page    = 1;
     private bool       _loading = false;
     private bool       _hasMore = true;
     private string     _query   = "";
 
-    // true = tap card shows detail sheet; false = tap card opens WebView
-    private bool _cardViewMode = true;
-
-    // Page width for adaptive column grid
-    private double _pageWidth = 0;
-
     private bool _isImageContextMenuOpen;
     private string? _currentImageContextMenuUrl;
-    private string? _currentContextMenuNovelTitle;
-
-    // Detail sheet state
-    private bool _isDetailSheetOpen;
-    private NovelEntry? _activeDetailNovel;
-    private CancellationTokenSource? _translateCts;
-
-    // All loaded novels (kept for adaptive re-layout on width change)
-    private readonly List<NovelEntry> _loadedNovels = new();
 
     public SourceBrowsePage(IBrowsableAdapter source, string? initialQuery = null)
     {
@@ -54,7 +37,6 @@ public partial class SourceBrowsePage : ContentPage
         }
 
         RefreshPills();
-        RefreshViewToggle();
         _ = LoadPageAsync(reset: true);
     }
 
@@ -68,6 +50,7 @@ public partial class SourceBrowsePage : ContentPage
     {
         base.OnDisappearing();
         
+        // Only restore tab bar if we're going back to a page that needs it
         var navStack = Navigation?.NavigationStack ?? Shell.Current?.Navigation?.NavigationStack;
         bool isPopped = Navigation == null || !Navigation.NavigationStack.Contains(this);
         if (isPopped)
@@ -86,13 +69,12 @@ public partial class SourceBrowsePage : ContentPage
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Intercepts the hardware/gesture back button and pops the page so it
+    /// behaves the same as the in-app back button.
+    /// </summary>
     protected override bool OnBackButtonPressed()
     {
-        if (_isDetailSheetOpen)
-        {
-            _ = HideNovelDetailAsync();
-            return true;
-        }
         _ = Shell.Current.Navigation.PopAsync();
         return true;
     }
@@ -100,90 +82,7 @@ public partial class SourceBrowsePage : ContentPage
     private async void OnBackTapped(object sender, TappedEventArgs e)
         => await Shell.Current.Navigation.PopAsync();
 
-    // ── View toggle (top-right link icon opens browser directly) ────────────────
-
-    private void OnViewToggleTapped(object sender, TappedEventArgs e)
-    {
-        var homeUrl = _source?.HomeUrl ?? _source?.GetRecentUrl(1);
-        if (string.IsNullOrWhiteSpace(homeUrl)) return;
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            try
-            {
-                var nav = Shell.Current?.Navigation;
-                if (nav == null) return;
-                if (nav.NavigationStack?.LastOrDefault() is WebBrowsePage) return;
-                var webPage = new WebBrowsePage(homeUrl);
-                await nav.PushAsync(webPage, true);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] ViewToggle open web error: {ex.Message}");
-            }
-        });
-    }
-
-    private void RefreshViewToggle()
-    {
-        ViewToggleIcon.Text = "\uE157"; // link/globe icon
-        ViewToggleBtn.AutomationId = "Open in Web Browser";
-    }
-
-    // ── Adaptive layout ───────────────────────────────────────────────────────
-
-    protected override void OnSizeAllocated(double width, double height)
-    {
-        base.OnSizeAllocated(width, height);
-        if (width > 0 && Math.Abs(width - _pageWidth) > 1)
-        {
-            _pageWidth = width;
-            if (NovelList.Children.Count > 0)
-                RebuildNovelGrid();
-        }
-    }
-
-    private void RebuildNovelGrid()
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            NovelList.Children.Clear();
-            RenderNovelsIntoGrid(_loadedNovels);
-            if (_hasMore)
-                NovelList.Children.Add(BuildLoadMoreButton());
-        });
-    }
-
-    private void RenderNovelsIntoGrid(IEnumerable<NovelEntry> novels)
-    {
-        // Adaptive column count: 3 on mobile phones, 4 on large phones/phablets, 5 on small tablets, 6 on large tablets
-        int cols = _pageWidth switch
-        {
-            > 750 => 6,
-            > 550 => 5,
-            > 420 => 4,
-            _     => 3,
-        };
-
-        var list = novels.ToList();
-        for (int i = 0; i < list.Count; i += cols)
-        {
-            var colDefs = new ColumnDefinitionCollection();
-            for (int c = 0; c < cols; c++)
-                colDefs.Add(new ColumnDefinition { Width = GridLength.Star });
-
-            var row = new Grid
-            {
-                ColumnDefinitions = colDefs,
-                ColumnSpacing = 6,
-                RowSpacing    = 0,
-            };
-
-            for (int c = 0; c < cols && i + c < list.Count; c++)
-                row.Add(BuildCompactCard(list[i + c]), c, 0);
-
-            NovelList.Children.Add(row);
-        }
-    }
+    // ── Filter pills ──────────────────────────────────────────────────────────
 
     private async void OnRecentTapped(object sender, TappedEventArgs e)
     {
@@ -205,22 +104,10 @@ public partial class SourceBrowsePage : ContentPage
         await LoadPageAsync(reset: true);
     }
 
-    private async void OnTop500Tapped(object sender, TappedEventArgs e)
-    {
-        if (_mode == BrowseMode.Top500) return;
-        _mode = BrowseMode.Top500;
-        _query = "";
-        SearchEntry.Text = "";
-        RefreshPills();
-        await LoadPageAsync(reset: true);
-    }
-
     private void RefreshPills()
     {
         SetPillActive(PillRecent,  _mode == BrowseMode.Recent);
         SetPillActive(PillPopular, _mode == BrowseMode.Popular);
-        if (PillTop500 != null)
-            SetPillActive(PillTop500, _mode == BrowseMode.Top500);
     }
 
     private void SetPillActive(Border pill, bool active)
@@ -278,7 +165,6 @@ public partial class SourceBrowsePage : ContentPage
             _hasMore = true;
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                _loadedNovels.Clear();
                 NovelList.Children.Clear();
                 LoadingState.IsVisible = true;
                 EmptyState.IsVisible   = false;
@@ -291,7 +177,6 @@ public partial class SourceBrowsePage : ContentPage
             ListingPage result = _mode switch
             {
                 BrowseMode.Popular => await _service.GetPopularAsync(_source, _page),
-                BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
                 BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page),
                 _                  => await _service.GetRecentAsync(_source, _page),
             };
@@ -305,15 +190,7 @@ public partial class SourceBrowsePage : ContentPage
 
                 if (result.Novels.Count == 0 && reset)
                 {
-                    // CF-protected or parse-failure sources get a WebView-only prompt
-                    if (_source.RequiresCfBypass)
-                    {
-                        ShowWebViewOnlyState();
-                    }
-                    else
-                    {
-                        EmptyState.IsVisible = true;
-                    }
+                    EmptyState.IsVisible = true;
                     ListScroll.IsVisible = false;
                     return;
                 }
@@ -321,13 +198,8 @@ public partial class SourceBrowsePage : ContentPage
                 ListScroll.IsVisible = true;
                 EmptyState.IsVisible = false;
 
-                // Remove old "load more" button before appending new cards
-                var oldLoadMore = NovelList.Children.LastOrDefault(
-                    c => c is Border b && b.AutomationId == "LoadMoreBtn");
-                if (oldLoadMore != null) NovelList.Children.Remove(oldLoadMore);
-
-                _loadedNovels.AddRange(result.Novels);
-                RenderNovelsIntoGrid(result.Novels);
+                foreach (var novel in result.Novels)
+                    NovelList.Children.Add(BuildNovelCard(novel));
 
                 // Load more button if there are more pages
                 if (_hasMore)
@@ -366,254 +238,9 @@ public partial class SourceBrowsePage : ContentPage
         }
     }
 
-    private async Task<ListingPage> GetTop500PageAsync(IBrowsableAdapter source, int page)
-    {
-        if (source is ShukuBrowse shuku)
-        {
-            var url = shuku.GetTop500Url(page);
-            return await _service.FetchPageAsync(source, url);
-        }
-        return await _service.GetPopularAsync(source, page);
-    }
-
     // ── Novel card ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Shows a friendly prompt for CF-protected or parse-incompatible sources
-    /// telling the user to browse in WebView instead.
-    /// </summary>
-    private void ShowWebViewOnlyState()
-    {
-        EmptyState.IsVisible = false;
-        ListScroll.IsVisible = true;
-        NovelList.Children.Clear();
-
-        var icon = new Label
-        {
-            Text = "\uE894",
-            FontFamily = "MaterialSymbols",
-            FontSize = 48,
-            HorizontalOptions = LayoutOptions.Center,
-        };
-        icon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
-
-        var heading = new Label
-        {
-            Text = "Browse in WebView",
-            FontSize = 16,
-            FontAttributes = FontAttributes.Bold,
-            HorizontalOptions = LayoutOptions.Center,
-        };
-        heading.SetDynamicResource(Label.TextColorProperty, "TextPrimary");
-
-        var sub = new Label
-        {
-            Text = $"{_source.SiteName} requires a real browser session.\nTap below to open it in WebView.",
-            FontSize = 13,
-            HorizontalOptions = LayoutOptions.Center,
-            HorizontalTextAlignment = TextAlignment.Center,
-        };
-        sub.SetDynamicResource(Label.TextColorProperty, "TextMuted");
-
-        var btnLabel = new Label
-        {
-            Text = "Open in WebView",
-            FontSize = 13,
-            FontAttributes = FontAttributes.Bold,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        btnLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
-
-        var openBtn = new Border
-        {
-            StrokeThickness = 0,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
-            HeightRequest = 46,
-            Padding = new Thickness(24, 0),
-            HorizontalOptions = LayoutOptions.Center,
-            Content = btnLabel,
-        };
-        openBtn.SetDynamicResource(Border.BackgroundColorProperty, "Accent");
-        openBtn.GestureRecognizers.Add(new TapGestureRecognizer
-        {
-            Command = new Command(async () =>
-            {
-                await openBtn.ScaleToAsync(0.95, 60, Easing.CubicOut);
-                await openBtn.ScaleToAsync(1.0, 60, Easing.SpringOut);
-                var homeUrl = _source.HomeUrl;
-                MainThread.BeginInvokeOnMainThread(async () =>
-                {
-                    try
-                    {
-                        var nav = Shell.Current?.Navigation;
-                        if (nav == null) return;
-                        var webPage = new WebBrowsePage(homeUrl);
-                        await nav.PushAsync(webPage, true);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] WebViewOnly open error: {ex.Message}");
-                    }
-                });
-            })
-        });
-
-        var stack = new VerticalStackLayout
-        {
-            Spacing = 14,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(24, 60),
-            Children = { icon, heading, sub, openBtn },
-        };
-        NovelList.Children.Add(stack);
-    }
-
-    private View BuildNovelCard(NovelEntry novel) => BuildCompactCard(novel);
-
-    /// <summary>Compact vertical card — cover fills full height + title overlay at bottom.</summary>
-    private View BuildCompactCard(NovelEntry novel)
-    {
-        const double cardH = 135;
-
-        // ── Cover / fallback ──────────────────────────────────────────────────
-        View coverContent;
-        if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
-            Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
-        {
-            coverContent = new Image
-            {
-                Source  = ImageSource.FromUri(coverUri),
-                Aspect  = Aspect.AspectFill,
-                HeightRequest     = cardH,
-                HorizontalOptions = LayoutOptions.Fill,
-                VerticalOptions   = LayoutOptions.Fill,
-            };
-        }
-        else
-        {
-            // lily.png centred on AccentContainer, exactly like HistoryCard compact mode
-            var lilyImg = new Image
-            {
-                Source            = ImageSource.FromFile("lily.png"),
-                Aspect            = Aspect.AspectFit,
-                WidthRequest      = 28,
-                HeightRequest     = 28,
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalOptions   = LayoutOptions.Center,
-                Opacity           = 0.45,
-            };
-            var fallback = new Grid
-            {
-                HeightRequest     = cardH,
-                HorizontalOptions = LayoutOptions.Fill,
-                VerticalOptions   = LayoutOptions.Fill,
-            };
-            fallback.SetDynamicResource(Grid.BackgroundColorProperty, "AccentContainer");
-            fallback.Add(lilyImg);
-            coverContent = fallback;
-        }
-
-        // ── Title overlay at bottom ───────────────────────────────────────────
-        string displayTitle = System.Net.WebUtility.HtmlDecode(novel.Title ?? "");
-        displayTitle = Regex.Replace(displayTitle, @"[【\[][^】\]]*[】\]]", "").Trim();
-        displayTitle = Regex.Replace(displayTitle, @"\s*\(\d+\)\s*$", "").Trim();
-        if (string.IsNullOrWhiteSpace(displayTitle)) displayTitle = novel.Title ?? "";
-
-        var titleLbl = new Label
-        {
-            Text           = displayTitle,
-            FontSize       = 10,
-            FontAttributes = FontAttributes.Bold,
-            TextColor      = Colors.White,
-            LineBreakMode  = LineBreakMode.TailTruncation,
-            MaxLines       = 2,
-            Margin         = new Thickness(4, 2),
-        };
-
-        var titleOverlay = new Border
-        {
-            StrokeThickness = 0,
-            BackgroundColor = Color.FromRgba(0, 0, 0, 170),
-            StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle
-            {
-                CornerRadius = new CornerRadius(0, 0, 10, 10)
-            },
-            VerticalOptions   = LayoutOptions.End,
-            HorizontalOptions = LayoutOptions.Fill,
-            Content           = titleLbl,
-        };
-
-        // Cover grid stacks cover + overlay; HorizontalOptions.Fill makes it stretch to column width
-        var cardGrid = new Grid
-        {
-            HeightRequest     = cardH,
-            HorizontalOptions = LayoutOptions.Fill,
-            VerticalOptions   = LayoutOptions.Fill,
-        };
-        cardGrid.Add(coverContent);
-        cardGrid.Add(titleOverlay);
-
-        // The card itself has a fixed aspect-like height so every card row is uniform
-        var card = new Border
-        {
-            StrokeThickness   = 1,
-            StrokeShape       = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
-            Padding           = new Thickness(0),
-            HeightRequest     = cardH,
-            HorizontalOptions = LayoutOptions.Fill,
-            Content           = cardGrid,
-        };
-        card.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
-        card.SetDynamicResource(Border.StrokeProperty, "Stroke");
-
-        // ── Tap → detail sheet or WebView ─────────────────────────────────────
-        card.GestureRecognizers.Add(new TapGestureRecognizer
-        {
-            Command = new Command(async () =>
-            {
-                await card.ScaleToAsync(0.95, 55, Easing.CubicOut);
-                await card.ScaleToAsync(1.0,  55, Easing.SpringOut);
-                await HandleCardTapAsync(novel);
-            })
-        });
-
-        // ── Long-press → copy title ───────────────────────────────────────────
-        CancellationTokenSource? lpCts = null;
-        var ptr = new PointerGestureRecognizer();
-        ptr.PointerPressed += async (_, _) =>
-        {
-            lpCts?.Cancel(); lpCts?.Dispose();
-            var cts = new CancellationTokenSource();
-            lpCts = cts;
-            try
-            {
-                await Task.Delay(500, cts.Token);
-                TryHapticLight();
-                await Clipboard.Default.SetTextAsync(novel.Title);
-                MainThread.BeginInvokeOnMainThread(() => _ = ShowImageActionToastAsync($"Copied: {novel.Title}", 1800));
-            }
-            catch (OperationCanceledException) { /* short tap */ }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] CopyTitle: {ex.Message}");
-            }
-        };
-        ptr.PointerReleased += (_, _) =>
-        {
-            try { if (lpCts?.IsCancellationRequested == false) lpCts.Cancel(); }
-            catch { /* ignore */ }
-        };
-        card.GestureRecognizers.Add(ptr);
-
-        // ── Cover image long-press (when cover exists) ──────────────────────────────────
-        if (!string.IsNullOrWhiteSpace(novel.CoverUrl))
-            AttachCoverImageLongPress(card, novel.CoverUrl.Trim(), novel.Title);
-
-        return card;
-    }
-    private View BuildListCard(NovelEntry novel)
+    private View BuildNovelCard(NovelEntry novel)
     {
         // Cover
         View coverView;
@@ -643,26 +270,24 @@ public partial class SourceBrowsePage : ContentPage
         }
         else
         {
-            // No cover — lily.png fallback on AccentContainer, same as history
-            var lilyImg = new Image
+            var ph = new Label
             {
-                Source            = ImageSource.FromFile("lily.png"),
-                Aspect            = Aspect.AspectFit,
-                WidthRequest      = 28,
-                HeightRequest     = 28,
+                Text              = "\uEA78",
+                FontFamily        = "MaterialSymbols",
+                FontSize          = 28,
                 HorizontalOptions = LayoutOptions.Center,
                 VerticalOptions   = LayoutOptions.Center,
-                Opacity           = 0.45,
             };
+            ph.SetDynamicResource(Label.TextColorProperty, "TextMuted");
             coverView = new Border
             {
                 StrokeThickness = 0,
                 StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
                 WidthRequest    = 64,
                 HeightRequest   = 92,
-                Content         = lilyImg,
+                Content         = ph,
             };
-            ((Border)coverView).SetDynamicResource(Border.BackgroundColorProperty, "AccentContainer");
+            ((Border)coverView).SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
         }
 
         var titleLbl = new Label
@@ -685,6 +310,7 @@ public partial class SourceBrowsePage : ContentPage
         };
         authorLbl.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
+        // Chapter count badge
         string chapterText = novel.ChapterText
             ?? (novel.ChapterCount.HasValue ? $"{novel.ChapterCount} ch" : "");
         var chapterLbl = new Label
@@ -781,50 +407,7 @@ public partial class SourceBrowsePage : ContentPage
         card.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
         card.SetDynamicResource(Border.StrokeProperty, "Stroke");
 
-        card.GestureRecognizers.Add(new TapGestureRecognizer
-        {
-            Command = new Command(async () =>
-            {
-                await card.ScaleToAsync(0.97, 60, Easing.CubicOut);
-                await card.ScaleToAsync(1.0,  60, Easing.SpringOut);
-                await HandleCardTapAsync(novel);
-            })
-        });
-
         return card;
-    }
-
-    private async Task HandleCardTapAsync(NovelEntry novel)
-    {
-        if (_cardViewMode)
-        {
-            await ShowNovelDetailAsync(novel);
-        }
-        else
-        {
-            if (Shell.Current?.Navigation == null) return;
-            var topPage = Shell.Current.Navigation.NavigationStack?.LastOrDefault();
-            if (topPage is WebBrowsePage) return;
-
-            // WebBrowsePage constructor touches native views — must run on main thread.
-            // Use BeginInvokeOnMainThread to avoid potential deadlock from InvokeOnMainThreadAsync
-            // when already on the main thread in some code paths.
-            var novelUrl = novel.Url;
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                try
-                {
-                    var webPage = new WebBrowsePage(novelUrl);
-                    var nav = Shell.Current?.Navigation;
-                    if (nav != null)
-                        await nav.PushAsync(webPage, true);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] WebView nav error: {ex.Message}");
-                }
-            });
-        }
     }
 
     private View BuildLoadMoreButton()
@@ -876,7 +459,7 @@ public partial class SourceBrowsePage : ContentPage
 
     // ── Cover image long-press → same options as Shuka Quest (list uses MAUI Image, not WebView) ──
 
-    private void AttachCoverImageLongPress(View coverView, string imageUrl, string? novelTitle = null)
+    private void AttachCoverImageLongPress(Border coverBorder, string imageUrl)
     {
         if (string.IsNullOrWhiteSpace(imageUrl) ||
             !Uri.TryCreate(imageUrl, UriKind.Absolute, out var u) ||
@@ -899,8 +482,7 @@ public partial class SourceBrowsePage : ContentPage
                     await Task.Delay(500, cts.Token);
                     TryHapticLight();
                     var urlCopy = imageUrl;
-                    var titleCopy = novelTitle;
-                    MainThread.BeginInvokeOnMainThread(() => _ = ShowImageContextMenuAsync(urlCopy, titleCopy));
+                    MainThread.BeginInvokeOnMainThread(() => _ = ShowImageContextMenuAsync(urlCopy));
                 }
                 catch (OperationCanceledException) { /* short tap */ }
             }
@@ -920,7 +502,7 @@ public partial class SourceBrowsePage : ContentPage
             catch { /* ignore */ }
         };
 
-        coverView.GestureRecognizers.Add(pointerGesture);
+        coverBorder.GestureRecognizers.Add(pointerGesture);
     }
 
 #if ANDROID
@@ -962,24 +544,21 @@ public partial class SourceBrowsePage : ContentPage
     private static void TryHapticLight() { }
 #endif
 
-    private async Task ShowImageContextMenuAsync(string? imageUrl, string? novelTitle = null)
+    private async Task ShowImageContextMenuAsync(string? imageUrl)
     {
         if (string.IsNullOrWhiteSpace(imageUrl))
             return;
 
         _currentImageContextMenuUrl = imageUrl;
-        _currentContextMenuNovelTitle = novelTitle;
-        await ShowImageContextMenuSheetAsync(imageUrl, novelTitle);
+        await ShowImageContextMenuSheetAsync(imageUrl);
     }
 
-    private async Task ShowImageContextMenuSheetAsync(string imageUrl, string? novelTitle = null)
+    private async Task ShowImageContextMenuSheetAsync(string imageUrl)
     {
         if (_isImageContextMenuOpen)
             return;
 
         _isImageContextMenuOpen = true;
-        ImageContextMenuTitleLabel.Text    = novelTitle ?? "";
-        ImageContextMenuTitleLabel.IsVisible = !string.IsNullOrWhiteSpace(novelTitle);
         ImageContextMenuUrlLabel.Text = imageUrl;
         ImageContextMenuOverlay.IsVisible = true;
         ImageContextMenuOverlay.Opacity = 0;
@@ -1032,17 +611,6 @@ public partial class SourceBrowsePage : ContentPage
         await HideImageContextMenuSheetAsync();
         if (!string.IsNullOrWhiteSpace(url))
             await CopyImageToClipboardAsync(url);
-    }
-
-    private async void OnImageContextMenuCopyTitleTapped(object sender, TappedEventArgs e)
-    {
-        var title = _currentContextMenuNovelTitle;
-        await HideImageContextMenuSheetAsync();
-        if (!string.IsNullOrWhiteSpace(title))
-        {
-            await Clipboard.Default.SetTextAsync(title);
-            await ShowImageActionToastAsync($"Copied: {title}");
-        }
     }
 
     private async void OnImageContextMenuCopyUrlTapped(object sender, TappedEventArgs e)
@@ -1126,241 +694,5 @@ public partial class SourceBrowsePage : ContentPage
             ImageActionToast.TranslateToAsync(0, 20, 250, Easing.CubicIn));
 
         ImageActionToast.IsVisible = false;
-    }
-
-    // ── Novel detail bottom sheet ─────────────────────────────────────────────
-
-    private async Task ShowNovelDetailAsync(NovelEntry novel)
-    {
-        if (_isDetailSheetOpen) return;
-
-        _activeDetailNovel = novel;
-
-        // Reset translated labels
-        DetailTitleEnLabel.IsVisible   = false;
-        DetailAuthorEnLabel.IsVisible  = false;
-        DetailSummaryEnLabel.IsVisible = false;
-        TranslateBtnLabel.Text = "Translate";
-        TranslateBtnIcon.Text  = "\uE8E2"; // translate icon
-        TranslateSpinner.IsRunning = false;
-        TranslateSpinner.IsVisible = false;
-
-        // Cover
-        if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
-            Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
-        {
-            DetailCoverImage.Source    = ImageSource.FromUri(coverUri);
-            DetailCoverBorder.IsVisible  = true;
-            DetailCoverFallback.IsVisible = false;
-        }
-        else
-        {
-            DetailCoverBorder.IsVisible  = false;
-            DetailCoverFallback.IsVisible = true;
-        }
-
-        // Title / Author / Chapters
-        DetailTitleLabel.Text = novel.Title;
-
-        if (!string.IsNullOrWhiteSpace(novel.Author))
-        {
-            DetailAuthorLabel.Text      = novel.Author;
-            DetailAuthorLabel.IsVisible = true;
-        }
-        else
-        {
-            DetailAuthorLabel.IsVisible = false;
-        }
-
-        string chapterText = novel.ChapterText
-            ?? (novel.ChapterCount.HasValue ? $"{novel.ChapterCount} chapters" : "");
-        DetailChapterLabel.Text      = chapterText;
-        DetailChapterLabel.IsVisible = !string.IsNullOrWhiteSpace(chapterText);
-
-        // Summary
-        bool hasSummary = !string.IsNullOrWhiteSpace(novel.Description);
-        DetailSummaryLabel.Text      = novel.Description ?? "";
-        DetailSummaryLabel.IsVisible = hasSummary;
-        DetailNoSummaryLabel.IsVisible = !hasSummary;
-
-        // Show sheet
-        _isDetailSheetOpen = true;
-        NovelDetailOverlay.IsVisible    = true;
-        NovelDetailOverlay.Opacity      = 0;
-        NovelDetailSheet.TranslationY   = 600;
-        NovelDetailSheet.Opacity        = 1;
-
-        await Task.WhenAll(
-            NovelDetailOverlay.FadeToAsync(1, 200, Easing.CubicOut),
-            NovelDetailSheet.TranslateToAsync(0, 0, 260, Easing.CubicOut));
-    }
-
-    private async Task HideNovelDetailAsync()
-    {
-        if (!_isDetailSheetOpen) return;
-
-        // Cancel any in-progress translation
-        _translateCts?.Cancel();
-        _translateCts?.Dispose();
-        _translateCts = null;
-
-        _isDetailSheetOpen = false;
-
-        await Task.WhenAll(
-            NovelDetailSheet.TranslateToAsync(0, 600, 220, Easing.CubicIn),
-            NovelDetailOverlay.FadeToAsync(0, 200, Easing.CubicIn));
-
-        NovelDetailOverlay.IsVisible = false;
-        _activeDetailNovel = null;
-    }
-
-    private void OnNovelDetailOverlayTapped(object sender, TappedEventArgs e)
-        => _ = HideNovelDetailAsync();
-
-    private void OnNovelDetailSheetTapped(object sender, TappedEventArgs e) { /* absorb */ }
-
-    private void OnNovelDetailCloseTapped(object sender, TappedEventArgs e)
-        => _ = HideNovelDetailAsync();
-
-    // ── Translate (title + author + summary only) ─────────────────────────────
-
-    private async void OnTranslateTapped(object sender, TappedEventArgs e)
-    {
-        var novel = _activeDetailNovel;
-        if (novel == null) return;
-
-        // If already translated, toggle off
-        bool alreadyTranslated = DetailTitleEnLabel.IsVisible
-                              || DetailSummaryEnLabel.IsVisible;
-        if (alreadyTranslated)
-        {
-            DetailTitleEnLabel.IsVisible   = false;
-            DetailAuthorEnLabel.IsVisible  = false;
-            DetailSummaryEnLabel.IsVisible = false;
-            TranslateBtnLabel.Text = "Translate";
-            TranslateBtnIcon.Text  = "\uE8E2";
-            return;
-        }
-
-        // Start translation
-        _translateCts?.Cancel();
-        _translateCts?.Dispose();
-        _translateCts = new CancellationTokenSource();
-        var ct = _translateCts.Token;
-
-        TranslateSpinner.IsRunning = true;
-        TranslateSpinner.IsVisible = true;
-        TranslateBtnLabel.Text     = "Translating…";
-        TranslateBtnIcon.Text      = "\uE8E2";
-
-        try
-        {
-            using var http = new HttpClient();
-            http.Timeout = TimeSpan.FromSeconds(15);
-            var translator = new Shuka.Core.Translator(http);
-
-            // Translate title, author and summary concurrently
-            var titleTask  = string.IsNullOrWhiteSpace(novel.Title)
-                ? Task.FromResult<string?>(null)
-                : TranslateSafeAsync(translator, novel.Title, ct);
-
-            var authorTask = string.IsNullOrWhiteSpace(novel.Author)
-                ? Task.FromResult<string?>(null)
-                : TranslateSafeAsync(translator, novel.Author, ct);
-
-            var summaryTask = string.IsNullOrWhiteSpace(novel.Description)
-                ? Task.FromResult<string?>(null)
-                : TranslateSafeAsync(translator, novel.Description, ct);
-
-            await Task.WhenAll(titleTask, authorTask, summaryTask);
-
-            ct.ThrowIfCancellationRequested();
-
-            string? titleEn  = await titleTask;
-            string? authorEn = await authorTask;
-            string? summaryEn = await summaryTask;
-
-            // Show translated labels only if result differs from original
-            if (!string.IsNullOrWhiteSpace(titleEn) &&
-                !titleEn.Equals(novel.Title, StringComparison.OrdinalIgnoreCase))
-            {
-                DetailTitleEnLabel.Text      = titleEn;
-                DetailTitleEnLabel.IsVisible = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(authorEn) &&
-                !authorEn.Equals(novel.Author, StringComparison.OrdinalIgnoreCase))
-            {
-                DetailAuthorEnLabel.Text      = authorEn;
-                DetailAuthorEnLabel.IsVisible = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(summaryEn))
-            {
-                DetailSummaryEnLabel.Text      = summaryEn;
-                DetailSummaryEnLabel.IsVisible = true;
-                // Hide "no summary" label if we got a translation
-                DetailNoSummaryLabel.IsVisible = false;
-            }
-
-            TranslateBtnLabel.Text = "Hide translation";
-            TranslateBtnIcon.Text  = "\uE8E2";
-        }
-        catch (OperationCanceledException)
-        {
-            // Sheet was closed mid-translation — silently discard
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Translate error: {ex.Message}");
-            TranslateBtnLabel.Text = "Translation failed";
-        }
-        finally
-        {
-            TranslateSpinner.IsRunning = false;
-            TranslateSpinner.IsVisible = false;
-        }
-    }
-
-    /// <summary>Translate a short string, swallowing non-cancellation exceptions.</summary>
-    private static async Task<string?> TranslateSafeAsync(
-        Shuka.Core.Translator translator, string text, CancellationToken ct)
-    {
-        try { return await translator.Translate(text, ct: ct); }
-        catch (OperationCanceledException) { throw; }
-        catch { return null; }
-    }
-
-    // ── Detail sheet action buttons ───────────────────────────────────────────
-
-    private void OnDetailOpenWebTapped(object sender, TappedEventArgs e)
-    {
-        var novel = _activeDetailNovel;
-        _ = HideNovelDetailAsync();
-        if (novel == null || string.IsNullOrWhiteSpace(novel.Url)) return;
-
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            try
-            {
-                var nav = Shell.Current?.Navigation;
-                if (nav == null) return;
-                if (nav.NavigationStack?.LastOrDefault() is WebBrowsePage) return;
-                var webPage = new WebBrowsePage(novel.Url);
-                await nav.PushAsync(webPage, true);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] DetailOpenWeb error: {ex.Message}");
-            }
-        });
-    }
-
-    private async void OnDetailDownloadTapped(object sender, TappedEventArgs e)
-    {
-        var novel = _activeDetailNovel;
-        await HideNovelDetailAsync();
-        if (novel == null) return;
-        OnDownloadTapped(novel);
     }
 }
