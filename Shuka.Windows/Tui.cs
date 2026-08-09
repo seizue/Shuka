@@ -88,15 +88,26 @@ internal static class Tui
                 .DefaultValue(0)
                 .ValidationErrorMessage("[red]Enter a number[/]"));
 
-        var translatePrompt = new SelectionPrompt<string>()
-            .Title("[grey]Translation behavior?[/]")
-            .HighlightStyle(new Style(Color.IndianRed1))
-            .AddChoices("Translate to English", "Keep original (no translation)");
-        
-        translatePrompt.DefaultValue(defaultTranslate ? "Translate to English" : "Keep original (no translation)");
-        
-        var translateChoice = AnsiConsole.Prompt(translatePrompt);
-        bool translate = translateChoice == "Translate to English";
+        // Skip translation prompt for English-only sources (noveldex.io)
+        bool isEnglishSource = url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
+        bool translate;
+        if (isEnglishSource)
+        {
+            translate = false;
+            AnsiConsole.MarkupLine("[grey]Translation skipped (noveldex.io content is already in English).[/]");
+        }
+        else
+        {
+            var translatePrompt = new SelectionPrompt<string>()
+                .Title("[grey]Translation behavior?[/]")
+                .HighlightStyle(new Style(Color.IndianRed1))
+                .AddChoices("Translate to English", "Keep original (no translation)");
+
+            translatePrompt.DefaultValue(defaultTranslate ? "Translate to English" : "Keep original (no translation)");
+
+            var translateChoice = AnsiConsole.Prompt(translatePrompt);
+            translate = translateChoice == "Translate to English";
+        }
 
         AnsiConsole.WriteLine();
 
@@ -183,15 +194,26 @@ internal static class Tui
 
         if (queue.Count == 0) return;
 
-        var translatePrompt = new SelectionPrompt<string>()
-            .Title("[grey]Translation behavior for batch?[/]")
-            .HighlightStyle(new Style(Color.IndianRed1))
-            .AddChoices("Translate to English", "Keep original (no translation)");
-        
-        translatePrompt.DefaultValue(defaultTranslate ? "Translate to English" : "Keep original (no translation)");
-        
-        var translateChoice = AnsiConsole.Prompt(translatePrompt);
-        bool translate = translateChoice == "Translate to English";
+        // Check if all URLs are from English-only sources (noveldex.io)
+        bool allEnglishSources = queue.All(q => q.Url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase));
+        bool translate;
+        if (allEnglishSources)
+        {
+            translate = false;
+            AnsiConsole.MarkupLine("[grey]Translation skipped (all novels are from noveldex.io, content is already in English).[/]");
+        }
+        else
+        {
+            var translatePrompt = new SelectionPrompt<string>()
+                .Title("[grey]Translation behavior for batch?[/]")
+                .HighlightStyle(new Style(Color.IndianRed1))
+                .AddChoices("Translate to English", "Keep original (no translation)");
+
+            translatePrompt.DefaultValue(defaultTranslate ? "Translate to English" : "Keep original (no translation)");
+
+            var translateChoice = AnsiConsole.Prompt(translatePrompt);
+            translate = translateChoice == "Translate to English";
+        }
 
         AnsiConsole.WriteLine();
 

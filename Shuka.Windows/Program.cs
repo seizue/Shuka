@@ -71,6 +71,31 @@ if (args.Length >= 2 && args[0] == "--solve-cf")
     return;
 }
 
+// ── --solve-noveldex: open browser so user can load a noveldex chapter ────────
+if (args.Length >= 2 && args[0] == "--solve-noveldex")
+{
+    Console.WriteLine("Open the chapter page in the browser, let it fully load, then press Enter.");
+    await PlaywrightFetcher.SolveNoveldexInteractiveAsync(args[1]);
+    return;
+}
+
+// ── --dump-html: debug — fetch a URL with Playwright and dump HTML to file ────
+if (args.Length >= 2 && args[0] == "--dump-html")
+{
+    var sh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
+    using var sc = new HttpClient(sh);
+    sc.DefaultRequestHeaders.Add("User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    await using var dbgFetcher = new PlaywrightFetcher(sc);
+    Console.WriteLine($"Fetching: {args[1]}");
+    string dumpHtml = await dbgFetcher.FetchAsync(args[1]);
+    string dumpPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "shuka-dump.html");
+    File.WriteAllText(dumpPath, dumpHtml, Encoding.UTF8);
+    Console.WriteLine($"Dumped {dumpHtml.Length} bytes → {dumpPath}");
+    return;
+}
+
 // ── HTTP clients ──────────────────────────────────────────────────────────────
 var siteHandler = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
 using var siteClient = new HttpClient(siteHandler) { Timeout = TimeSpan.FromSeconds(30) };

@@ -14,7 +14,7 @@ public class BookService
     private readonly Translator _translator;
 
     public static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter()];
 
     /// <summary>
     /// Upgrades <c>http://</c> to <c>https://</c> when the URL matches a known reader site.
@@ -293,7 +293,21 @@ public class BookService
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(30));
 
-            using var req = new HttpRequestMessage(HttpMethod.Get, coverUrl);
+            // Strip Next.js image optimization parameters to get original quality
+            string cleanUrl = coverUrl;
+            if (coverUrl.Contains("/_next/image?url="))
+            {
+                var match = Regex.Match(coverUrl, @"url=([^&]+)");
+                if (match.Success)
+                {
+                    string decoded = Uri.UnescapeDataString(match.Groups[1].Value);
+                    if (decoded.Contains('?'))
+                        decoded = decoded.Substring(0, decoded.IndexOf('?'));
+                    cleanUrl = decoded.StartsWith("http") ? decoded : coverUrl;
+                }
+            }
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, cleanUrl);
             // Add a Referer derived from the cover URL's host so CDNs that check it
             // (e.g. jjwxc.net static servers) don't block or stall the request.
             try
@@ -308,12 +322,13 @@ public class BookService
             byte[] bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
 
             string ext = Path.GetExtension(new Uri(coverUrl).AbsolutePath).ToLowerInvariant();
-            string mime = ext switch { ".png" => "image/png", ".gif" => "image/gif", ".webp" => "image/webp", _ => "image/jpeg" };
+            string mime = ext switch { ".png" => "image/png", ".gif" => "image/gif", ".webp" => "image/webp", ".avif" => "image/avif", _ => "image/jpeg" };
             if (bytes.Length >= 4)
             {
                 if (bytes[0] == 0x89 && bytes[1] == 0x50) mime = "image/png";
                 else if (bytes[0] == 0xFF && bytes[1] == 0xD8) mime = "image/jpeg";
                 else if (bytes[0] == 0x47 && bytes[1] == 0x49) mime = "image/gif";
+                else if (bytes.Length >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) mime = "image/avif"; // ftyp
             }
             log?.Invoke($"Cover OK ({bytes.Length / 1024}KB, {mime})");
             return (bytes, mime);
@@ -331,7 +346,7 @@ public class BookService
 
     private static ISiteAdapter DetectAdapter(string url) =>
         Adapters.FirstOrDefault(a => a.Matches(url))
-        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com");
+        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io");
 
     private static string? TryExtractCover(string html, string baseUrl)
     {

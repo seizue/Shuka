@@ -21,8 +21,12 @@ public class CzBooksBrowse : IBrowsableAdapter
     public string IconGlyph => "\uE894"; // language (globe)
     public bool RequiresCfBypass => true;
 
-    public string GetRecentUrl(int page = 1) => "https://czbooks.net/";
-    public string GetPopularUrl(int page = 1) => "https://czbooks.net/hot/1";
+    public string HomeUrl => "https://czbooks.net/c/baihe";
+
+    public string GetRecentUrl(int page = 1) =>
+        page == 1 ? "https://czbooks.net/c/baihe" : $"https://czbooks.net/c/baihe/{page}";
+    public string GetPopularUrl(int page = 1) =>
+        page == 1 ? "https://czbooks.net/c/baihe" : $"https://czbooks.net/c/baihe/{page}";
     public string GetSearchUrl(string query, int page = 1) =>
         $"https://czbooks.net/s/{Uri.EscapeDataString(query)}/{page}";
 
@@ -31,60 +35,85 @@ public class CzBooksBrowse : IBrowsableAdapter
         var novels = new List<NovelEntry>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // czbooks book links: /n/{bookId}  (no sub-path)
-        // Chapter links look like /n/{bookId}/{chapterId} and won't match because
-        // the regex requires a quote character directly after the alphanumeric bookId.
+        // czbooks book links: /n/{bookId}  (no chapter sub-path)
         var linkPattern = new Regex(
-            @"href=[""'](?:https?://czbooks\.net)?/n/([a-zA-Z0-9]+)[""']",
+            @"href=[""'](?:https?:)?(?://czbooks\.net)?/n/([a-zA-Z0-9]+)(?:/[^""'#\s]*|\?[^""'#\s]*)?[""']",
             RegexOptions.IgnoreCase);
 
         foreach (Match m in linkPattern.Matches(html))
         {
             string bookId = m.Groups[1].Value;
             if (bookId.Length < 3) continue; // skip noise
+            if (string.Equals(bookId, "info", StringComparison.OrdinalIgnoreCase)) continue;
+
+            // Skip chapter links (e.g. /n/bookId/chapterId)
+            string fullHref = m.Value;
+            if (Regex.IsMatch(fullHref, @"/n/[a-zA-Z0-9]+/[a-zA-Z0-9]+", RegexOptions.IgnoreCase))
+                continue;
+
             if (!seen.Add(bookId)) continue;
 
-            // Look forward from the link position for card content (title, author, etc.)
-            int fwdEnd = Math.Min(html.Length, m.Index + 700);
-            string fwd = html.Substring(m.Index, fwdEnd - m.Index);
-
-            // Also grab a small backward window for cover images that precede the link
-            int bwdStart = Math.Max(0, m.Index - 150);
-            string ctx = html.Substring(bwdStart, fwdEnd - bwdStart);
+            // Grab context around this link for metadata extraction
+            int start = Math.Max(0, m.Index - 400);
+            int end   = Math.Min(html.Length, m.Index + 800);
+            string ctx = html.Substring(start, end - start);
 
             // ── Title ─────────────────────────────────────────────────────────────
             string title = "";
-            var titleM = Regex.Match(fwd,
-                @"novel-item-title[^>]*>\s*([^<]{2,80})", RegexOptions.IgnoreCase);
+            var titleM = Regex.Match(ctx,
+                @"(?:novel-item-title|class=[""'][^""']*\btitle\b[^""']*[""'])[^>]*>\s*([^<]{2,120})",
+                RegexOptions.IgnoreCase);
             if (titleM.Success)
                 title = System.Net.WebUtility.HtmlDecode(titleM.Groups[1].Value.Trim());
 
             if (string.IsNullOrWhiteSpace(title))
             {
-                var hM = Regex.Match(fwd,
-                    @"<h[1-6][^>]*>\s*([^<]{2,80})\s*</h[1-6]>", RegexOptions.IgnoreCase);
+                var hM = Regex.Match(ctx,
+                    @"<h[1-6][^>]*>\s*([^<]{2,120})\s*</h[1-6]>", RegexOptions.IgnoreCase);
                 if (hM.Success) title = System.Net.WebUtility.HtmlDecode(hM.Groups[1].Value.Trim());
             }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                var aM = Regex.Match(ctx,
+                    @"href=[""'](?:https?:)?(?://czbooks\.net)?/n/" + Regex.Escape(bookId) + @"(?:/[^""'#\s]*|\?[^""'#\s]*)?[""'][^>]*>\s*([^<]{2,120}?)\s*</a>",
+                    RegexOptions.IgnoreCase);
+                if (aM.Success) title = System.Net.WebUtility.HtmlDecode(aM.Groups[1].Value.Trim());
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                var altM = Regex.Match(ctx, @"<img[^>]+alt=[""']([^""']{2,120})[""']", RegexOptions.IgnoreCase);
+                if (altM.Success) title = System.Net.WebUtility.HtmlDecode(altM.Groups[1].Value.Trim());
+            }
+
             if (string.IsNullOrWhiteSpace(title)) continue;
 
             // ── Author ────────────────────────────────────────────────────────────
             string? author = null;
-            var authM = Regex.Match(fwd,
-                @"novel-item-author[^>]*>[\s\S]{0,60}?<a[^>]*>([^<]+)</a>",
+            var authM = Regex.Match(ctx,
+                @"(?:novel-item-author|author)[^>]*>(?:[\s\S]{0,60}?<a[^>]*>([^<]+)</a>|\s*([^<]{1,40}))",
                 RegexOptions.IgnoreCase);
             if (authM.Success)
-                author = System.Net.WebUtility.HtmlDecode(authM.Groups[1].Value.Trim());
+            {
+                string val = authM.Groups[1].Success ? authM.Groups[1].Value : authM.Groups[2].Value;
+                author = System.Net.WebUtility.HtmlDecode(val.Trim());
+            }
             if (string.IsNullOrWhiteSpace(author))
             {
-                authM = Regex.Match(ctx, @"作者[：:\s]*([^\s<,，]{1,30})");
+                authM = Regex.Match(ctx, @"作者[：:\s]*([^\s<,，\n]{1,30})");
                 if (authM.Success) author = authM.Groups[1].Value.Trim();
             }
 
             // ── Cover ─────────────────────────────────────────────────────────────
             string? cover = null;
             var imgM = Regex.Match(ctx,
-                @"<img[^>]+src=[""'](https?://[^""']+)[""']", RegexOptions.IgnoreCase);
-            if (imgM.Success) cover = imgM.Groups[1].Value;
+                @"(?:src|data-src|srcset)=[""']?((?:https?:)?//[^""'\s>]+\.(?:jpg|jpeg|png|webp))", RegexOptions.IgnoreCase);
+            if (imgM.Success)
+            {
+                cover = imgM.Groups[1].Value;
+                if (cover.StartsWith("//")) cover = "https:" + cover;
+            }
 
             var chapterMeta = ExtractChapterMeta(ctx);
             novels.Add(new NovelEntry(
@@ -95,9 +124,13 @@ public class CzBooksBrowse : IBrowsableAdapter
         }
 
         bool hasNext = html.Contains("下一頁") || html.Contains("下一页") ||
-                       Regex.IsMatch(html, @"/s/[^/]+/\d+", RegexOptions.IgnoreCase);
+                       html.Contains("pagination") ||
+                       Regex.IsMatch(html, @"/c/baihe/\d+", RegexOptions.IgnoreCase) ||
+                       Regex.IsMatch(html, @"/(?:new|hot)/\d+", RegexOptions.IgnoreCase);
         int currentPage = 1;
-        var pageM = Regex.Match(pageUrl, @"/(\d+)$");
+        var pageM = Regex.Match(pageUrl, @"/c/baihe/(\d+)$", RegexOptions.IgnoreCase);
+        if (!pageM.Success) pageM = Regex.Match(pageUrl, @"/(?:new|hot|s/[^/]+)/(\d+)$", RegexOptions.IgnoreCase);
+        if (!pageM.Success) pageM = Regex.Match(pageUrl, @"/(\d+)$");
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
 
         return new ListingPage(novels, hasNext && novels.Count > 0, currentPage);

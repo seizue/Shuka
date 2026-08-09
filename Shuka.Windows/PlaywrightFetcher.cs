@@ -19,6 +19,8 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
 
     private IPlaywright? _playwright;
     private IBrowserContext? _context;
+    private IBrowserContext? _noveldexContext;  // visible (non-headless) context for noveldex
+    private IPage? _noveldexWarmPage;           // kept open to maintain session activity
 
     public PlaywrightFetcher(HttpClient siteClient)
     {
@@ -28,13 +30,14 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     // ── Public fetch entry point ──────────────────────────────────────────────
 
     /// <summary>
-    /// Fetches a URL. For 69shuba.com goes straight to Playwright;
+    /// Fetches a URL. For JS-rendered sites goes straight to Playwright;
     /// for other sites tries plain HTTP first and falls back on CF detection.
     /// </summary>
     public async Task<string> FetchAsync(string url, int retries = 4)
     {
-        // Known CF-protected site — skip HTTP entirely
-        if (url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase))
+        // Known JS-rendered sites — skip HTTP entirely and use Playwright
+        if (url.Contains("69shuba.com",  StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("noveldex.io",  StringComparison.OrdinalIgnoreCase))
             return await FetchWithPlaywrightVerified(url);
 
         int delay = 1000;
@@ -128,12 +131,29 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     {
         await EnsureBrowserAsync();
 
+        // noveldex.io chapter pages encrypt content and detect headless Chromium.
+        // Try headless first, fall back to visible context if content doesn't load.
+        if (IsNoveldexUrl(url))
+        {
+            // Try headless first (reuses main context)
+            string html = await FetchWithNoveldexStrategy(url, _context!, ct, useHeadless: true);
+            // If headless failed to get real content, try visible context as fallback
+            if (IsNoveldexChapterUrl(url) && html.Length < 1000)
+            {
+                Console.Write("[noveldex] Headless failed, trying visible...");
+                html = await FetchWithNoveldexStrategy(url, await EnsureNoveldexContextAsync(), ct, useHeadless: false);
+            }
+            return html;
+        }
+
+        // Non-noveldex sites use standard headless context
         var page = await _context!.NewPageAsync();
         try
         {
             ct.ThrowIfCancellationRequested();
             await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.Load, Timeout = 45000 });
 
+            // Wait for CF/bot challenges to clear
             var deadline = DateTime.UtcNow.AddSeconds(40);
             while (DateTime.UtcNow < deadline)
             {
@@ -156,6 +176,227 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         finally
         {
             await page.CloseAsync();
+        }
+    }
+
+    private async Task<string> FetchWithNoveldexStrategy(string url, IBrowserContext ctx, CancellationToken ct, bool useHeadless)
+    {
+        // For noveldex, reuse the warm page if available to avoid creating 145+ tabs
+        IPage page = useHeadless ? await ctx.NewPageAsync() : _noveldexWarmPage ?? await ctx.NewPageAsync();
+        bool shouldClose = (page == _noveldexWarmPage) ? false : true;
+
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.Load, Timeout = 45000 });
+
+            // Wait for CF/bot challenges to clear
+            var deadline = DateTime.UtcNow.AddSeconds(40);
+            while (DateTime.UtcNow < deadline)
+            {
+                ct.ThrowIfCancellationRequested();
+                string t = await page.TitleAsync();
+                bool isChallenge =
+                    t.Contains("Just a moment") || t.Contains("Checking your browser") ||
+                    t.Contains("Please Wait")   || t.Contains("Security Check") ||
+                    t.Contains("请稍候")         || t.Contains("验证") ||
+                    string.IsNullOrWhiteSpace(t);
+                if (!isChallenge) break;
+                Console.Write(".");
+                await Task.Delay(1000, ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+
+            string extracted = await WaitForNoveldexHydrationAsync(page, url, ct);
+            // For chapter pages we return the extracted content directly —
+            // avoids noscript blocks that ContentAsync includes verbatim.
+            if (!string.IsNullOrEmpty(extracted)) return extracted;
+
+            return await page.ContentAsync();
+        }
+        finally
+        {
+            if (shouldClose) await page.CloseAsync();
+        }
+    }
+
+    private static bool IsNoveldexUrl(string url) =>
+        url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsNoveldexChapterUrl(string url) =>
+        url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase) &&
+        url.Contains("/chapter/",   StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns (creating if needed) a non-headless browser context for noveldex.io.
+    /// The window is minimized so it doesn't distract the user.
+    /// Shares the same persistent profile as the headless context so any saved
+    /// login session is reused.
+    /// </summary>
+    private async Task<IBrowserContext> EnsureNoveldexContextAsync()
+    {
+        if (_noveldexContext != null) return _noveldexContext;
+
+        await EnsureBrowserAsync(); // ensure _playwright is initialised
+
+        string userDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Shuka", "browser-profile-noveldex");
+        Directory.CreateDirectory(userDataDir);
+
+        _noveldexContext = await _playwright!.Chromium.LaunchPersistentContextAsync(userDataDir, new()
+        {
+            Headless = false,
+            Args     = ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            UserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            ViewportSize      = new() { Width = 1280, Height = 800 },
+            JavaScriptEnabled = true,
+            IgnoreHTTPSErrors = true,
+        });
+
+        await _noveldexContext.AddInitScriptAsync(@"
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} };
+        ");
+
+        // Warm up: navigate to noveldex home AND the series list so the browser
+        // builds up real browsing history/cookies before any chapter is fetched.
+        // noveldex checks referrer chain — home → series → chapter looks natural.
+        Console.Write("  [noveldex] Warming up browser session...");
+        var warmPage = await _noveldexContext.NewPageAsync();
+        try
+        {
+            // Step 1: land on home
+            await warmPage.GotoAsync("https://noveldex.io",
+                new() { WaitUntil = WaitUntilState.Load, Timeout = 30000 });
+            await Task.Delay(1500);
+
+            // Step 2: navigate to the series list (simulates browsing)
+            await warmPage.GotoAsync("https://noveldex.io/series?type=Light+Novel%2CWeb+Novel%2CPublished+Novel%2COriginal+Fiction%2COne+Shot%2CFanfiction%2CNovel",
+                new() { WaitUntil = WaitUntilState.Load, Timeout = 30000 });
+            await Task.Delay(2000);
+        }
+        catch { /* ignore warm-up failures */ }
+        finally
+        {
+            // Keep the page open — noveldex may check that a tab is still alive
+            _noveldexWarmPage = warmPage;
+        }
+        Console.WriteLine(" done");
+
+        return _noveldexContext;
+    }
+
+    /// <summary>
+    /// Waits for noveldex.io page hydration, then extracts content directly from
+    /// the live DOM via JS — bypassing ContentAsync which always includes noscript
+    /// blocks verbatim.
+    ///
+    /// For chapter pages: waits for paragraph content to appear, then returns a
+    /// synthetic HTML string with the extracted text wrapped in shuka-extracted div.
+    /// For series/index pages: waits for chapter links, then returns ContentAsync
+    /// with noscript blocks stripped.
+    /// Returns empty string if extraction fails (caller falls back to ContentAsync).
+    /// </summary>
+    private static async Task<string> WaitForNoveldexHydrationAsync(
+        IPage page, string url, CancellationToken ct)
+    {
+        bool isChapterPage = url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase);
+
+        if (isChapterPage)
+        {
+            // Wait until real paragraph content is in the DOM.
+            // Chapter paragraphs appear inside the main content area, not in nav/footer.
+            // We check for at least 8 paragraphs with 80+ chars — footer only has ~2 short paragraphs.
+            try
+            {
+                await page.WaitForFunctionAsync(
+                    @"() => {
+                        let count = 0;
+                        const ps = document.querySelectorAll('p');
+                        for (const p of ps) {
+                            if ((p.innerText || '').trim().length > 80) count++;
+                        }
+                        return count >= 8;
+                    }",
+                    null,
+                    new() { Timeout = 40000, PollingInterval = 600 });
+            }
+            catch (TimeoutException)
+            {
+                Console.Write("[hydration-timeout]");
+                return string.Empty;
+            }
+
+            // Extract paragraphs directly — completely bypasses ContentAsync/noscript
+            try
+            {
+                var paragraphs = await page.EvaluateAsync<string[]>(@"
+                    () => {
+                        const result = [];
+                        document.querySelectorAll('p').forEach(p => {
+                            const t = (p.innerText || '').trim();
+                            if (t.length > 10) result.push(t);
+                        });
+                        return result;
+                    }");
+
+                if (paragraphs != null && paragraphs.Length > 0)
+                {
+                    // Return as synthetic HTML that ExtractChapterText can parse
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append("<html><body><div id=\"shuka-extracted\">");
+                    foreach (string para in paragraphs)
+                    {
+                        string escaped = para
+                            .Replace("&", "&amp;")
+                            .Replace("<", "&lt;")
+                            .Replace(">", "&gt;");
+                        sb.Append("<p>").Append(escaped).Append("</p>");
+                    }
+                    sb.Append("</div></body></html>");
+                    return sb.ToString();
+                }
+            }
+            catch { /* fall through */ }
+
+            return string.Empty;
+        }
+        else
+        {
+            // Series/index page: wait for chapter links and cover images then return stripped HTML
+            try
+            {
+                await page.WaitForSelectorAsync(
+                    "a[href*=\"/chapter/\"]",
+                    new() { Timeout = 25000 });
+            }
+            catch (TimeoutException)
+            {
+                Console.Write("[index-timeout]");
+            }
+
+            // Wait for cover images to load (they're loaded dynamically)
+            try
+            {
+                await page.WaitForFunctionAsync(
+                    @"() => {
+                        const imgs = document.querySelectorAll('img[src*=""media.noveldex.io""], img[src*=""cover""]');
+                        return imgs.length > 0 && imgs[0].complete && imgs[0].naturalWidth > 0;
+                    }",
+                    null,
+                    new() { Timeout = 10000 });
+            }
+            catch (TimeoutException)
+            {
+                // Cover image might not load, continue anyway
+            }
+
+            // Strip noscript blocks from the serialised DOM before returning
+            string raw = await page.ContentAsync();
+            return Regex.Replace(raw, @"<noscript[\s\S]*?</noscript>", "",
+                RegexOptions.IgnoreCase);
         }
     }
 
@@ -193,21 +434,59 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         _context = await _playwright.Chromium.LaunchPersistentContextAsync(userDataDir, new()
         {
             Headless = true,
-            Args     = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+            Args     =
+            [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--allow-running-insecure-content",
+                "--disable-setuid-sandbox",
+                "--ignore-certificate-errors",
+            ],
             UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             ExtraHTTPHeaders = new Dictionary<string, string>
             {
-                ["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.7",
+                ["Accept-Language"] = "en-US,en;q=0.9",
                 ["Accept"]          = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             },
             ViewportSize = new() { Width = 1280, Height = 800 },
+            JavaScriptEnabled = true,
         });
 
+        // Stealth: patch all the common headless fingerprints
         await _context.AddInitScriptAsync(@"
+            // Hide webdriver flag
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins',  { get: () => [1, 2, 3] });
-            Object.defineProperty(navigator, 'languages',{ get: () => ['zh-CN','zh','en'] });
-            window.chrome = { runtime: {} };
+            // Fake plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => {
+                    const arr = [
+                        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+                        { name: 'Chrome PDF Viewer',  filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 0 },
+                        { name: 'Native Client',      filename: 'internal-nacl-plugin', description: '', length: 2 },
+                    ];
+                    arr.__proto__ = PluginArray.prototype;
+                    return arr;
+                }
+            });
+            // Fake languages matching Accept-Language header
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+            // Chrome runtime
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} };
+            // Permissions API spoof
+            const originalQuery = window.navigator.permissions ? window.navigator.permissions.query : null;
+            if (originalQuery) {
+                window.navigator.permissions.query = (params) =>
+                    params.name === 'notifications'
+                        ? Promise.resolve({ state: Notification.permission })
+                        : originalQuery(params);
+            }
+            // Remove headless-specific properties
+            delete window.__playwright;
+            delete window.__pw_manual;
+            delete window.__selenium_unwrapped;
         ");
     }
 
@@ -215,7 +494,18 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     /// Opens a visible browser window so the user can solve a CF challenge manually.
     /// Cookies are saved to the persistent profile and reused by headless runs.
     /// </summary>
-    public static async Task SolveCfInteractiveAsync(string targetUrl)
+    public static async Task SolveCfInteractiveAsync(string targetUrl) =>
+        await SolveInteractiveAsync(targetUrl, "CF cookies saved. Future downloads should work without retries.");
+
+    /// <summary>
+    /// Opens a visible browser window for noveldex.io so the user can trigger
+    /// the chapter content to load (and optionally log in), saving the session
+    /// to the persistent profile for reuse by headless runs.
+    /// </summary>
+    public static async Task SolveNoveldexInteractiveAsync(string targetUrl) =>
+        await SolveInteractiveAsync(targetUrl, "Session saved. Run your download again — chapter content should now load.");
+
+    private static async Task SolveInteractiveAsync(string targetUrl, string doneMessage)
     {
         string userDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -266,7 +556,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         await Task.Delay(2000);
         await ctx.CloseAsync();
 
-        Console.WriteLine("CF cookies saved. Future downloads should work without retries.");
+        Console.WriteLine(doneMessage);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -296,6 +586,8 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_noveldexWarmPage is not null) try { await _noveldexWarmPage.CloseAsync(); } catch { }
+        if (_noveldexContext is not null) await _noveldexContext.CloseAsync();
         if (_context is not null) await _context.CloseAsync();
         _playwright?.Dispose();
     }

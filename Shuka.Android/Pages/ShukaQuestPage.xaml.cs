@@ -62,6 +62,11 @@ public partial class ShukaQuestPage : ContentPage
         // yamibo.com: /novel/{id}
         ["yamibo.com"] = url => System.Text.RegularExpressions.Regex.IsMatch(
             url, @"yamibo\.com/novel/\d+/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+
+        // noveldex.io: /series/{category}/{slug} (not /series?..., not /chapter/)
+        ["noveldex.io"] = url => System.Text.RegularExpressions.Regex.IsMatch(
+            url, @"noveldex\.io/series/(?!chapter/)[^/]+/[^/?#]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+            !url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase),
     };
 
     /// <summary>Returns true if the URL is a valid novel index page for its site.</summary>
@@ -2526,12 +2531,14 @@ public partial class ShukaQuestPage : ContentPage
         // Check if we're on a known source site
         bool onKnownSite = DetectSite(url) != null;
         bool onNovelPage = IsNovelPage(url);
+        bool isEnglishSource = url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
             FabDownload.IsVisible = onNovelPage;
             FabFetch.IsVisible = onNovelPage;
             FabBookmark.IsVisible = onNovelPage; // Only show on actual novel pages
+            FabTranslate.IsVisible = !isEnglishSource;
 
             // Update bookmark icon state
             if (onNovelPage)

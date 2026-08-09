@@ -34,6 +34,11 @@ public class ShukuBrowse : IBrowsableAdapter
             ? "https://www.52shuku.net/yanqing/"
             : $"https://www.52shuku.net/yanqing/index_{page}.html";
 
+    public string GetTop500Url(int page = 1) =>
+        page == 1
+            ? "https://www.52shuku.net/tuijian/gl_top.html"
+            : $"https://www.52shuku.net/tuijian/gl_top_{page}.html";
+
     // Search is disabled on the site — fall back to recent listing but include query for local filtering
     public string GetSearchUrl(string query, int page = 1) =>
         GetRecentUrl(page) + "?q=" + Uri.EscapeDataString(query);
@@ -49,29 +54,47 @@ public class ShukuBrowse : IBrowsableAdapter
         if (queryMatch.Success)
             query = Uri.UnescapeDataString(queryMatch.Groups[1].Value);
 
-        // Each novel entry on 52shuku is structured as:
-        //   ## [Title_Author【status】](https://www.52shuku.net/{cat}/{folder}/bk{id}.html)
-        //   　　《Title》作者：Author【status】　　简介：　　Description...
-        //   ( date )
-        //
-        // The heading link contains both title and author separated by underscore.
+        // Each novel entry on 52shuku listing pages is structured as:
+        //   <article class="excerpt">
+        //     <header><h2><a href="https://www.52shuku.net/.../bk....html">Title_Author【status】 </a></h2></header>
+        //     <span class="note">　　[GL] 《Title》作者：Author【status】　　简介：　　Synopsis text...</span>
+        //     ...
+        //   </article>
 
-        var entryPattern = new Regex(
-            @"##\s*\[([^\]]+)\]\((https?://(?:www\.)?52shuku\.net/[^)]+\.html)\)",
+        var articlePattern = new Regex(
+            @"<article[^>]*\bexcerpt\b[^>]*>([\s\S]*?)</article>",
             RegexOptions.IgnoreCase);
 
-        foreach (Match m in entryPattern.Matches(html))
+        var linkPattern = new Regex(
+            @"<a\s[^>]*href=[""'](https?://(?:www\.)?52shuku\.net/[^""']+\.html)[""'][^>]*>\s*([^<]{2,120}?)\s*</a>",
+            RegexOptions.IgnoreCase);
+
+        var notePattern = new Regex(
+            @"<span[^>]*\bnote\b[^>]*>([\s\S]*?)</span>",
+            RegexOptions.IgnoreCase);
+
+        foreach (Match am in articlePattern.Matches(html))
         {
-            string headingText = m.Groups[1].Value.Trim();
-            string url         = m.Groups[2].Value.Trim();
+            string articleHtml = am.Groups[1].Value;
 
-            // Derive a unique key from the URL path
-            string urlKey = url;
-            if (!seen.Add(urlKey)) continue;
+            // Find the book link in the h2 heading
+            var lm = linkPattern.Match(articleHtml);
+            if (!lm.Success) continue;
 
-            // Heading format: "Title_Author【status】" or "Title_Author[status]"
+            string url = lm.Groups[1].Value.Trim();
+
+            // Ignore non-novel aggregation / category / top list links
+            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/") || url.EndsWith("/shuoming.html"))
+                continue;
+
+            if (!seen.Add(url)) continue;
+
+            // Heading text: "Title_Author【status】"
+            string headingText = System.Net.WebUtility.HtmlDecode(
+                Regex.Replace(lm.Groups[2].Value, @"<[^>]+>", "").Trim());
+
             // Strip status suffix like 【完结】【完结+番外】
-            string cleanHeading = Regex.Replace(headingText, @"[【\[【][^】\]]*[】\]]", "").Trim();
+            string cleanHeading = Regex.Replace(headingText, @"[【\[][^】\]]*[】\]]", "").Trim();
             cleanHeading = cleanHeading.TrimEnd('_').Trim();
 
             // Split on last underscore to separate title from author
@@ -87,34 +110,94 @@ public class ShukuBrowse : IBrowsableAdapter
 
             if (string.IsNullOrWhiteSpace(title) || title.Length < 2) continue;
 
-            // Extract description from the block following the heading
-            // Look for 简介：text after the heading match
+            // Extract synopsis from <span class="note">
+            // The note looks like: "　　[GL] 《Title》作者：Author【status】　　简介：　　actual synopsis..."
+            // or:                  "　　[GL] 《Title》作者：Author　　文案：　　blurb..."
             string? desc = null;
-            int blockStart = m.Index + m.Length;
-            int blockEnd   = Math.Min(html.Length, blockStart + 800);
-            string block   = html.Substring(blockStart, blockEnd - blockStart);
+            var nm = notePattern.Match(articleHtml);
+            if (nm.Success)
+            {
+                string noteRaw = System.Net.WebUtility.HtmlDecode(
+                    Regex.Replace(nm.Groups[1].Value, @"<[^>]+>", " ").Trim());
+                noteRaw = noteRaw.Replace("\u3000", " ").Trim();
 
-            var descM = Regex.Match(block, @"简介[：:]\s*　*([^（\(]{10,200})");
+                int tipsIdx = noteRaw.IndexOf("Tips", StringComparison.OrdinalIgnoreCase);
+                if (tipsIdx > 0)
+                    noteRaw = noteRaw[..tipsIdx].Trim();
+
+                int tagIdx = noteRaw.IndexOf("所属专题", StringComparison.OrdinalIgnoreCase);
+                if (tagIdx > 0)
+                    noteRaw = noteRaw[..tagIdx].Trim();
+
+                var synM = Regex.Match(noteRaw, @"(?:简介|文案)[：:]\s*(.+)", RegexOptions.Singleline);
+                if (synM.Success)
+                    desc = Regex.Replace(synM.Groups[1].Value, @"\s+", " ").Trim();
+                else
+                    desc = noteRaw.Length > 10 ? noteRaw : null;
+            }
+
+            var chMeta = ExtractChapterMeta((desc ?? "") + " " + headingText);
+            novels.Add(new NovelEntry(title, author, url, null, desc, null, chMeta.count, chMeta.text));
+        }
+
+        // Support for Top 500 page entries: <h3>1、<a href="...">Title_Author【status】</a></h3>
+        var h3Pattern = new Regex(
+            @"<h3[^>]*>\s*(?:\d+[\u3001\.、])?\s*<a\s[^>]*href=[""'](https?://(?:www\.)?52shuku\.net/[^""']+\.html)[""'][^>]*>\s*([^<]{2,120}?)\s*</a>\s*</h3>",
+            RegexOptions.IgnoreCase);
+
+        foreach (Match hm in h3Pattern.Matches(html))
+        {
+            string url = hm.Groups[1].Value.Trim();
+            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/")) continue;
+            if (!seen.Add(url)) continue;
+
+            string headingText = System.Net.WebUtility.HtmlDecode(
+                Regex.Replace(hm.Groups[2].Value, @"<[^>]+>", "").Trim());
+
+            string cleanHeading = Regex.Replace(headingText, @"[【\[][^】\]]*[】\]]", "").Trim();
+            cleanHeading = cleanHeading.TrimEnd('_').Trim();
+
+            string title = cleanHeading;
+            string? author = null;
+            int lastUnderscore = cleanHeading.LastIndexOf('_');
+            if (lastUnderscore > 0)
+            {
+                title = cleanHeading[..lastUnderscore].Trim();
+                author = cleanHeading[(lastUnderscore + 1)..].Trim();
+                if (string.IsNullOrWhiteSpace(author)) author = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(title) || title.Length < 2) continue;
+
+            string? desc = null;
+            int blockStart = hm.Index + hm.Length;
+            int blockEnd = Math.Min(html.Length, blockStart + 600);
+            string block = html.Substring(blockStart, blockEnd - blockStart);
+            var descM = Regex.Match(block, @"<p[^>]*>([\s\S]*?)</p>", RegexOptions.IgnoreCase);
             if (descM.Success)
-                desc = System.Net.WebUtility.HtmlDecode(descM.Groups[1].Value.Trim());
+            {
+                string noteRaw = System.Net.WebUtility.HtmlDecode(
+                    Regex.Replace(descM.Groups[1].Value, @"<[^>]+>", " ").Trim());
+                noteRaw = noteRaw.Replace("\u3000", " ").Trim();
+                var synM = Regex.Match(noteRaw, @"(?:简介|文案)[：:]\s*　*(.{10,600})", RegexOptions.Singleline);
+                desc = synM.Success ? synM.Groups[1].Value.Trim() : (noteRaw.Length > 10 ? noteRaw : null);
+            }
 
-            // No cover images on this site
-            var chMeta = ExtractChapterMeta(block + " " + (desc ?? ""));
+            var chMeta = ExtractChapterMeta((desc ?? "") + " " + headingText);
             novels.Add(new NovelEntry(title, author, url, null, desc, null, chMeta.count, chMeta.text));
         }
 
         // Fallback: scan for any 52shuku book links with adjacent text
         if (novels.Count == 0)
         {
-            var linkPattern = new Regex(
+            var linkFallback = new Regex(
                 @"href=[""'](https?://(?:www\.)?52shuku\.net/[^""']+/bk[^""']+\.html)[""'][^>]*>\s*([^<]{2,80})\s*</a>",
                 RegexOptions.IgnoreCase);
-            foreach (Match m in linkPattern.Matches(html))
+            foreach (Match m in linkFallback.Matches(html))
             {
                 string url = m.Groups[1].Value;
                 if (!seen.Add(url)) continue;
                 string rawTitle = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value.Trim());
-                // Strip status tags
                 string title = Regex.Replace(rawTitle, @"[【\[][^】\]]*[】\]]", "").Trim();
                 if (title.Length < 2) continue;
                 novels.Add(new NovelEntry(title, null, url, null, null, null));
@@ -131,7 +214,7 @@ public class ShukuBrowse : IBrowsableAdapter
         }
 
         // Pagination: pages use index_{page}.html
-        bool hasNext = html.Contains("下一页");
+        bool hasNext = html.Contains("下一页") || html.Contains("next page", StringComparison.OrdinalIgnoreCase);
         int currentPage = 1;
         var pageM = Regex.Match(pageUrl, @"index_(\d+)\.html$");
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);

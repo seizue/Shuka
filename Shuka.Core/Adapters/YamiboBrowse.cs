@@ -48,87 +48,61 @@ public class YamiboBrowse : IBrowsableAdapter
         var novels = new List<NovelEntry>();
         var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // First find each row in the <tbody> of the novel list
-        var trPattern = new Regex(@"<tr[^>]+data-key=""(\d+)""[^>]*>([\s\S]*?)</tr>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
+        // Find all /novel/{id} links (e.g. href="/novel/12345" or href="https://www.yamibo.com/novel/12345")
+        var linkPat = new Regex(
+            @"href=[""']?(?:https?:)?(?://(?:www\.)?yamibo\.com)?/novel/(\d+)[?#""'\s>]/?",
+            RegexOptions.IgnoreCase);
 
-        foreach (Match m in trPattern.Matches(html))
+        foreach (Match m in linkPat.Matches(html))
         {
-            string novelId = m.Groups[1].Value.Trim();
-            string innerHtml = m.Groups[2].Value;
-
-            // Extract title: <a href="/novel/{novelId}">Title</a>
-            var titleMatch = Regex.Match(innerHtml, $@"<a\s+href=""/novel/{novelId}""[^>]*>([\s\S]*?)</a>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
-            if (!titleMatch.Success) continue;
-            string rawTitle = WebUtility.HtmlDecode(titleMatch.Groups[1].Value.Trim());
-
-            // Extract author: <a href="/user/space?id={uid}">Author</a>
-            var authorMatch = Regex.Match(innerHtml, @"<a[^>]*href=""/user/space\?id=\d+""[^>]*>([\s\S]*?)</a>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
-            string rawAuth = authorMatch.Success ? WebUtility.HtmlDecode(authorMatch.Groups[1].Value.Trim()) : "Unknown";
-
-            // Extract category and status from <td> cells
-            var tdMatches = Regex.Matches(innerHtml, @"<td[^>]*>([\s\S]*?)</td>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
-            string category = "";
-            string status = "";
-
-            if (tdMatches.Count > 3)
-            {
-                category = WebUtility.HtmlDecode(tdMatches[3].Groups[1].Value.Trim()).Trim('[', ']');
-            }
-            if (tdMatches.Count > 4)
-            {
-                status = WebUtility.HtmlDecode(tdMatches[4].Groups[1].Value.Trim());
-            }
-
+            string novelId = m.Groups[1].Value;
             string url = $"https://www.yamibo.com/novel/{novelId}";
             if (!seen.Add(url)) continue;
 
-            if (string.IsNullOrWhiteSpace(rawTitle) || rawTitle.Length < 1) continue;
+            // Grab a window of text around this link to extract title/author/metadata
+            int start = Math.Max(0, m.Index - 400);
+            int length = Math.Min(html.Length - start, 800);
+            string window = html.Substring(start, length);
 
-            // Build tags string from category + status
-            string tags = string.Join(" · ",
-                new[] { category, status }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            // Extract title: from <a href=".../novel/123">Title</a>
+            string title = "";
+            var titleMatch = Regex.Match(window,
+                @"href=[""']?[^""'\s>]*?/novel/" + Regex.Escape(novelId) + @"[^""'\s>]*[""']?[^>]*>([\s\S]*?)</a>",
+                RegexOptions.IgnoreCase);
+            if (titleMatch.Success)
+            {
+                title = Regex.Replace(titleMatch.Groups[1].Value, @"<[^>]+>", "").Trim();
+                title = WebUtility.HtmlDecode(title);
+            }
 
-            // Cover image follows a predictable URL pattern from the novel ID
+            if (string.IsNullOrWhiteSpace(title) || title.Length < 2 || title == "小说" || title == "百合会")
+                continue;
+
+            // Extract author: <a href="/user/space?id={uid}">Author</a> or Author text
+            string author = "Unknown";
+            var authorMatch = Regex.Match(window,
+                @"<a[^>]*href=[""']?/user/space\?id=\d+[""']?[^>]*>([\s\S]*?)</a>",
+                RegexOptions.IgnoreCase);
+            if (authorMatch.Success)
+            {
+                author = Regex.Replace(authorMatch.Groups[1].Value, @"<[^>]+>", "").Trim();
+                author = WebUtility.HtmlDecode(author);
+            }
+
+            // Cover image follows predictable URL pattern from the novel ID
             string? cover = BuildCoverUrl(novelId);
 
-            // Chapter count from td cells (yamibo shows word/chapter count in columns)
+            // Chapter count from td cells / context text
             int? chapterCount = null;
             string? chapterText = null;
-            foreach (Match td in tdMatches)
+            var ch = Regex.Match(window, @"([0-9]{1,5})\s*(?:章|chapters?)", RegexOptions.IgnoreCase);
+            if (ch.Success && int.TryParse(ch.Groups[1].Value, out int chCount) && chCount > 0)
             {
-                string tdText = Regex.Replace(td.Groups[1].Value, @"<[^>]+>", "").Trim();
-                var ch = Regex.Match(tdText, @"([0-9]{1,5})\s*(?:章|chapters?)", RegexOptions.IgnoreCase);
-                if (ch.Success && int.TryParse(ch.Groups[1].Value, out int chCount) && chCount > 0)
-                {
-                    chapterCount = chCount;
-                    chapterText = $"{chCount} ch";
-                    break;
-                }
+                chapterCount = chCount;
+                chapterText = $"{chCount} ch";
             }
 
-            novels.Add(new NovelEntry(rawTitle, rawAuth, url, cover, null, tags, chapterCount, chapterText));
-        }
-
-        // Fallback for search result pages that may differ in structure:
-        // Look for any /novel/{id} links with text inside the main content
-        if (novels.Count == 0)
-        {
-            var linkPat = new Regex(
-                @"<a\s+href=""/novel/(\d+)""[^>]*>\s*([^<]{1,100}?)\s*</a>",
-                RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
-            foreach (Match m in linkPat.Matches(html))
-            {
-                string novelId = m.Groups[1].Value;
-                string title   = WebUtility.HtmlDecode(m.Groups[2].Value.Trim());
-
-                // Ignore navigation/breadcrumb "小说" links, etc.
-                if (title.Length < 2 || title == "小说" || title == "百合会") continue;
-
-                string url = $"https://www.yamibo.com/novel/{novelId}";
-                if (!seen.Add(url)) continue;
-
-                novels.Add(new NovelEntry(title, null, url, BuildCoverUrl(novelId), null, null));
-            }
+            novels.Add(new NovelEntry(title, author, url, cover, null, null, chapterCount, chapterText));
         }
 
         // ── Pagination ────────────────────────────────────────────────────────────

@@ -52,15 +52,18 @@ public class QuanbenBrowse : IBrowsableAdapter
             @"(<img[^>]+>[\s\S]{0,600}?<h3[\s\S]*?</h3>[\s\S]{0,400}?(?:作者|author)[：:\s]*[^<\n]{1,40})",
             RegexOptions.IgnoreCase);
 
-        // Simpler approach: find all /n/{bookId}/ links and grab surrounding context
+        // Find all /n/{bookId} links (e.g. /n/abc1234/list.html or /n/abc1234/)
         var linkPattern = new Regex(
-            @"href=[""'](?:https?://(?:www\.)?quanben\.io)?/n/([^""'/\.]+)(?:/|\.html)[""']",
+            @"href=[""'](?:https?:)?(?://(?:www\.)?quanben\.io)?/n/([a-zA-Z0-9_\-]+)(?:/[^""']*|\.html)?[""']",
             RegexOptions.IgnoreCase);
 
         // Walk through all /n/ links in document order
         foreach (Match m in linkPattern.Matches(html))
         {
             string bookId = m.Groups[1].Value;
+            if (bookId.Length < 2) continue;
+            if (string.Equals(bookId, "index", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(bookId, "search", StringComparison.OrdinalIgnoreCase)) continue;
             if (!seen.Add(bookId)) continue;
 
             // Grab a window of text around this link to extract title/author/cover
@@ -68,10 +71,10 @@ public class QuanbenBrowse : IBrowsableAdapter
             int length = Math.Min(html.Length - start, 1200);
             string window = html.Substring(start, length);
 
-            // Title: prefer <h3> or <h4> near the link
+            // Title: prefer <h3>, <h4> or <h2> near the link
             string title = "";
             var titleM = Regex.Match(window,
-                @"<h[34][^>]*>\s*(?:<a[^>]*>)?\s*([^<]{2,80})\s*(?:</a>)?\s*</h[34]>",
+                @"<h[234][^>]*>\s*(?:<a[^>]*>)?\s*([^<]{2,120})\s*(?:</a>)?\s*</h[234]>",
                 RegexOptions.IgnoreCase);
             if (titleM.Success) title = System.Net.WebUtility.HtmlDecode(titleM.Groups[1].Value.Trim());
 
@@ -79,18 +82,29 @@ public class QuanbenBrowse : IBrowsableAdapter
             if (string.IsNullOrWhiteSpace(title))
             {
                 var aM = Regex.Match(window,
-                    @"href=[""'][^""']*/n/" + Regex.Escape(bookId) + @"/[""'][^>]*>\s*([^<]{2,80})\s*</a>",
+                    @"href=[""'][^""']*/n/" + Regex.Escape(bookId) + @"(?:/[^""']*|\.html)?[""'][^>]*>\s*([^<]{2,120})\s*</a>",
                     RegexOptions.IgnoreCase);
                 if (aM.Success) title = System.Net.WebUtility.HtmlDecode(aM.Groups[1].Value.Trim());
             }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                var altM = Regex.Match(window, @"<img[^>]+alt=[""']([^""']{2,120})[""']", RegexOptions.IgnoreCase);
+                if (altM.Success) title = System.Net.WebUtility.HtmlDecode(altM.Groups[1].Value.Trim());
+            }
+
             if (string.IsNullOrWhiteSpace(title)) continue;
 
             // Cover: img src near this block
             string? cover = null;
             var imgM = Regex.Match(window,
-                @"<img[^>]+src=[""'](https?://[^""']+)[""']",
+                @"(?:src|data-src)=[""']((?:https?:)?//[^""'\s>]+\.(?:jpg|jpeg|png|webp))[""']",
                 RegexOptions.IgnoreCase);
-            if (imgM.Success) cover = imgM.Groups[1].Value;
+            if (imgM.Success)
+            {
+                cover = imgM.Groups[1].Value;
+                if (cover.StartsWith("//")) cover = "https:" + cover;
+            }
 
             // Author: 作者: or 作者：
             string? author = null;
@@ -100,7 +114,7 @@ public class QuanbenBrowse : IBrowsableAdapter
             // Description: short text after author line
             string? desc = null;
             var descM = Regex.Match(window,
-                @"<p[^>]*>\s*([^\s<][^<]{15,200})\s*</p>",
+                @"<(?:p|div)[^>]*>\s*([^\s<][^<]{15,250})\s*</(?:p|div)>",
                 RegexOptions.IgnoreCase);
             if (descM.Success)
                 desc = System.Net.WebUtility.HtmlDecode(descM.Groups[1].Value.Trim());

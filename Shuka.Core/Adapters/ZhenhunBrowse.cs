@@ -27,12 +27,12 @@ public class ZhenhunBrowse : IBrowsableAdapter
 
     public string GetRecentUrl(int page = 1) =>
         page == 1
-            ? "https://www.zhenhunxiaoshuo.com/newbook/"
-            : $"https://www.zhenhunxiaoshuo.com/newbook/{page}.html";
+            ? "https://www.zhenhunxiaoshuo.com/"
+            : $"https://www.zhenhunxiaoshuo.com/paihangbang/{page}.html";
 
     public string GetPopularUrl(int page = 1) =>
         page == 1
-            ? "https://www.zhenhunxiaoshuo.com/paihangbang/"
+            ? "https://www.zhenhunxiaoshuo.com/"
             : $"https://www.zhenhunxiaoshuo.com/paihangbang/{page}.html";
 
     public string GetSearchUrl(string query, int page = 1) =>
@@ -50,24 +50,32 @@ public class ZhenhunBrowse : IBrowsableAdapter
         var novels = new List<NovelEntry>();
         var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Book URLs are slug-only paths: href="/slug/" or full https://...
-        // Pattern grabs the slug, rejects purely numeric slugs (chapter URLs) and
-        // known non-book paths.
+        // Book URLs are slug-only paths: href="/slug/" or href="/slug" or full https://...
         var linkRe = new Regex(
-            @"href=[""'](?:https?://(?:www\.)?zhenhunxiaoshuo\.com)?/([a-z0-9][a-z0-9\-]*[a-z0-9])/[""']",
+            @"href=[""'](?:https?:)?(?://(?:www\.)?zhenhunxiaoshuo\.com)?/([a-z0-9][a-z0-9\-]*[a-z0-9])/?[""']",
             RegexOptions.IgnoreCase);
 
-        // Blacklist path segments that are site navigation, not books
+        // Blacklist path segments that are site navigation / category filters, not books
         var skipSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "newbook", "paihangbang", "search", "tag", "author",
-            "category", "list", "complete", "update", "img", "css", "js"
+            "newbook", "paihangbang", "search", "tag", "author", "authors", "zuozhe",
+            "category", "categories", "list", "complete", "update", "img", "css", "js",
+            "about", "contact", "sitemap", "notice", "chunai", "yanqing", "baihe",
+            "danmei", "gl", "bl", "home", "index", "page"
+        };
+
+        var skipTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "纯爱小说", "言情小说", "百合小说", "耽美小说", "作者", "首页", "排行榜",
+            "最新小说", "完结小说", "分类", "标签", "搜索", "全本", "目录",
+            "纯爱", "言情", "百合", "耽美"
         };
 
         foreach (Match m in linkRe.Matches(html))
         {
             string slug = m.Groups[1].Value;
             if (skipSlugs.Contains(slug)) continue;
+            if (slug.StartsWith("page", StringComparison.OrdinalIgnoreCase)) continue;
             if (!seen.Add(slug)) continue;
 
             string url = $"https://www.zhenhunxiaoshuo.com/{slug}/";
@@ -106,6 +114,8 @@ public class ZhenhunBrowse : IBrowsableAdapter
 
             title = Regex.Replace(title, @"\s*(最新章节|全文阅读|免费阅读|在线阅读).*$", "").Trim();
             if (title.Length < 2) continue;
+            if (skipTitles.Contains(title)) continue;
+            if (Regex.IsMatch(title, @"^(?:首页|下一页|上一页|末页|页次|第\d+页)", RegexOptions.IgnoreCase)) continue;
 
             // Author
             string? author = null;

@@ -57,11 +57,10 @@ public partial class MainPage : ContentPage
         Instance = this;
         _discoverService = new DiscoverService(new Platform.WebViewCloudflareBypass());
 
-        // Start source availability checks in the background.
-        // Results come back asynchronously; subscribing here lets us refresh the
-        // source list as each ping resolves without blocking the UI.
+        // Subscribe to status updates so we can refresh source cards when pings resolve.
+        // The actual pings are deferred until after the first frame renders (see OnAppearing)
+        // to avoid competing with the initial UI layout pass.
         SourceStatusService.Instance.StatusUpdated += OnSourceStatusUpdated;
-        SourceStatusService.Instance.StartChecksIfNeeded();
 
         UrlEntry.TextChanged += (_, e) =>
         {
@@ -136,6 +135,16 @@ public partial class MainPage : ContentPage
         UpdateDiscoverBottomInset();
 
         await TabTransition.SlideInAsync(RootGrid);
+
+        // Kick off source availability pings only after the first frame has rendered.
+        // Doing this in the constructor caused a ~1s freeze because HttpClient
+        // initialisation and 9 parallel HEAD requests competed with the layout pass.
+        // StartChecksIfNeeded is idempotent — safe to call on every OnAppearing.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(300); // give the main thread one more frame to breathe
+            SourceStatusService.Instance.StartChecksIfNeeded();
+        });
     }
 
     protected override void OnSizeAllocated(double width, double height)
@@ -699,22 +708,19 @@ public partial class MainPage : ContentPage
                     }
 
                     var topPage = Shell.Current?.Navigation?.NavigationStack?.LastOrDefault();
-                    if (topPage is WebBrowsePage)
+                    if (topPage is SourceBrowsePage || topPage is WebBrowsePage)
                         return;
-
-                    // Register the fetch callback before opening the WebView
-                    WebBrowsePage.OnUrlFetched = FillUrlFromWebView;
 
                     // Wait for animation
                     await scaleTask;
                     await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
 
-                    // WebBrowsePage MUST be created on the main thread (MAUI requirement)
-                    var webPage = new WebBrowsePage(url);
+                    // Open the card-list browse view; user can tap the WebView toggle inside
+                    var browsePage = new SourceBrowsePage(source);
 
                     var nav = Shell.Current?.Navigation;
                     if (nav != null)
-                        await nav.PushAsync(webPage, true);
+                        await nav.PushAsync(browsePage, true);
                 }
                 catch (Exception ex)
                 {
@@ -1716,7 +1722,7 @@ public partial class MainPage : ContentPage
     private View BuildSearchResultCard(IBrowsableAdapter source, NovelEntry novel)
     {
         // Portrait-style card: cover on top, info below — fits nicely in 3-column grid
-        const double coverHeight = 110;
+        const double coverHeight = 95;
         bool suppressCardTap = false;
 
         // ── Cover ────────────────────────────────────────────────────────────
@@ -2007,19 +2013,16 @@ public partial class MainPage : ContentPage
                 if (suppressCardTap)
                     return;
 
+                // WebBrowsePage must be constructed on the main thread — never inside Task.Run
                 var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
-
-                WebBrowsePage? webPage = null;
-                await Task.Run(() =>
-                {
-                    webPage = new WebBrowsePage(novel.Url);
-                });
+                var webPage = new WebBrowsePage(novel.Url);
 
                 await scaleTask;
                 await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
 
-                if (webPage != null)
-                    await Shell.Current.Navigation.PushAsync(webPage);
+                var nav = Shell.Current?.Navigation;
+                if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
+                    await nav.PushAsync(webPage);
             })
         });
         return card;

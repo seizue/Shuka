@@ -94,6 +94,14 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     if (waited >= MaxWaitMs) timedOut = true;
                 }
 
+                // For noveldex.io chapter pages, wait for paragraph content to appear (Next.js hydration)
+                if (!timedOut && Regex.IsMatch(url, @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase))
+                {
+                    await WaitForNoveldexChapterAsync(webView, ct);
+                    ct.ThrowIfCancellationRequested();
+                    html = await GetPageHtmlAsync(webView);
+                }
+
                 // For czbooks index pages, also wait for chapter links to render
                 if (!timedOut && url.Contains("czbooks.net/n/") &&
                     !Regex.IsMatch(url, @"czbooks\.net/n/[^/]+/[^/]+"))
@@ -131,6 +139,36 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         });
 
         return tcs.Task;
+    }
+
+    /// <summary>
+    /// For noveldex.io chapter pages (Next.js SPA), polls until paragraph content
+    /// appears in the DOM — up to 30s. This prevents the download from stalling
+    /// on chapters that take longer to hydrate.
+    /// </summary>
+    private static async Task WaitForNoveldexChapterAsync(WebView webView, CancellationToken ct)
+    {
+        const int pollMs  = 1200;
+        const int maxWait = 30000;
+        int waited = 0;
+
+        while (waited < maxWait)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(pollMs, ct);
+            waited += pollMs;
+
+            // Check if any paragraph content has appeared (chapter text)
+            string? js = await webView.EvaluateJavaScriptAsync(
+                "(function(){ var ps = document.querySelectorAll('p'); var len = 0; " +
+                "for(var i=0;i<ps.length;i++){ len += ps[i].innerText.length; } return len.toString(); })()");
+
+            if (int.TryParse(js?.Trim('"'), out int textLen) && textLen > 200)
+            {
+                await Task.Delay(800, ct);
+                return;
+            }
+        }
     }
 
     /// <summary>
