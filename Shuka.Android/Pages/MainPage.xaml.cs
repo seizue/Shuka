@@ -68,6 +68,14 @@ public partial class MainPage : ContentPage
             // Hide preview card when URL is cleared
             if (string.IsNullOrEmpty(e.NewTextValue))
                 PreviewInfoCard.IsVisible = false;
+
+            // Automatically turn off translate switch when an English-only source (noveldex.io) is entered
+            if (!string.IsNullOrEmpty(e.NewTextValue) &&
+                e.NewTextValue.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase))
+            {
+                TranslateSwitch.IsToggled = false;
+                UpdateTranslateOptionUi(false);
+            }
         };
         CoverEntry.TextChanged += (_, e) => CoverClearBtn.IsVisible = !string.IsNullOrEmpty(e.NewTextValue);
         GlobalSearchEntry.TextChanged += (_, e) =>

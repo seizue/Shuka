@@ -57,7 +57,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     tcs.TrySetCanceled(ct);
-                    Cleanup(hostLayout, overlay);
+                    Cleanup(hostLayout, overlay, webView);
                 });
             });
 
@@ -134,7 +134,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             }
             finally
             {
-                Cleanup(hostLayout, overlay);
+                Cleanup(hostLayout, overlay, webView);
             }
         });
 
@@ -295,15 +295,32 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         return (null, null);
     }
 
-    private static void Cleanup(Layout? hostLayout, Grid? overlay)
+    private static void Cleanup(Layout? hostLayout, Grid? overlay, WebView? webView = null)
     {
-        if (hostLayout == null || overlay == null) return;
         MainThread.BeginInvokeOnMainThread(() =>
         {
             try
             {
-                if (hostLayout.Contains(overlay))
-                    hostLayout.Remove(overlay);
+                if (webView != null)
+                {
+                    webView.Source = null;
+#if ANDROID
+                    if (webView.Handler?.PlatformView is global::Android.Webkit.WebView androidWebView)
+                    {
+                        androidWebView.StopLoading();
+                        androidWebView.ClearHistory();
+                        androidWebView.Destroy();
+                    }
+#endif
+                    webView.Handler?.DisconnectHandler();
+                }
+
+                if (overlay != null)
+                {
+                    overlay.Clear();
+                    if (hostLayout != null && hostLayout.Contains(overlay))
+                        hostLayout.Remove(overlay);
+                }
             }
             catch { /* ignore cleanup errors */ }
         });

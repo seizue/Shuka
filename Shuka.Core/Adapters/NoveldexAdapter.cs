@@ -17,7 +17,7 @@ namespace Shuka.Core.Adapters;
 public class NoveldexAdapter : ISiteAdapter
 {
     public string SiteName => "noveldex.io";
-    public bool RequiresCfBypass => false;
+    public bool RequiresCfBypass => true;   // JS-rendered Next.js SPA — needs WebView
 
     public bool Matches(string url) =>
         url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
@@ -84,8 +84,7 @@ public class NoveldexAdapter : ISiteAdapter
             author = WebUtility.HtmlDecode(teamM.Groups[1].Value.Trim());
 
         // ── Chapter list ──────────────────────────────────────────────────────
-        // noveldex paginates chapter links — only 100 are in the initial HTML.
-        // Read total count from __NEXT_DATA__ JSON or page headers, and synthesise all URLs 1..N.
+        // Read total count from __NEXT_DATA__ JSON or page headers/links, and synthesise all URLs 1..N.
         int totalChapters = 0;
 
         // Strategy 1: Check __NEXT_DATA__ JSON
@@ -95,32 +94,34 @@ public class NoveldexAdapter : ISiteAdapter
         if (nextDataM.Success)
         {
             string json = nextDataM.Groups[1].Value;
-            var jsonM = Regex.Match(json, @"""(?:totalChapters|chaptersCount|chapterCount)""\s*:\s*(\d+)");
-            if (jsonM.Success && int.TryParse(jsonM.Groups[1].Value, out int jsonCount))
+            var jsonM = Regex.Match(json, @"""(?:totalChapters|chaptersCount|chapterCount|chapters_count|total_chapters|total|count)""\s*:\s*(\d+)");
+            if (jsonM.Success && int.TryParse(jsonM.Groups[1].Value, out int jsonCount) && jsonCount > 0)
             {
                 totalChapters = jsonCount;
             }
-        }
 
-        // Strategy 2: Explicit "Chapters (N)" or "Total Chapters: N" in HTML
-        if (totalChapters == 0)
-        {
-            var explicitM = Regex.Match(cleanHtml,
-                @"(?:Chapters?\s*\(\s*(\d+)\s*\)|Total\s*Chapters?:?\s*(\d+))",
-                RegexOptions.IgnoreCase);
-            if (explicitM.Success)
+            // Also check for highest chapter number in JSON
+            foreach (Match m in Regex.Matches(json, @"""(?:number|chapter_number|chapterNum)""\s*:\s*(\d+)"))
             {
-                string numStr = explicitM.Groups[1].Success ? explicitM.Groups[1].Value : explicitM.Groups[2].Value;
-                int.TryParse(numStr, out totalChapters);
+                if (int.TryParse(m.Groups[1].Value, out int c) && c > totalChapters)
+                    totalChapters = c;
             }
         }
 
-        // Strategy 3: Find max chapter count match from text like "511 chapters"
+        // Strategy 2: Find max chapter number from any /chapter/(\d+) links in HTML
+        foreach (Match m in Regex.Matches(html, @"/chapter/(\d+)", RegexOptions.IgnoreCase))
+        {
+            if (int.TryParse(m.Groups[1].Value, out int c) && c > totalChapters)
+                totalChapters = c;
+        }
+
+        // Strategy 3: Explicit "Chapters (N)", "Total Chapters: N", or "N Chapters" in HTML
         if (totalChapters == 0)
         {
-            foreach (Match m in Regex.Matches(cleanHtml, @"(\d+)\s*[Cc]hapters?", RegexOptions.IgnoreCase))
+            foreach (Match m in Regex.Matches(cleanHtml, @"(\d+)\s*Chapters?|Chapters?\s*\(?\s*(\d+)\s*\)?", RegexOptions.IgnoreCase))
             {
-                if (int.TryParse(m.Groups[1].Value, out int c) && c > totalChapters)
+                string numStr = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
+                if (int.TryParse(numStr, out int c) && c > totalChapters)
                     totalChapters = c;
             }
         }
@@ -227,23 +228,19 @@ public class NoveldexAdapter : ISiteAdapter
 
     public List<string> ExtractChapterText(string html)
     {
-        // ── Strategy 1: Playwright-injected sentinel div ───────────────────────
-        // When fetched via Playwright, WaitForNoveldexHydrationAsync injects a
-        // <div id="shuka-extracted"> with the already-decrypted paragraph text.
-        var sentinelM = Regex.Match(html,
-            @"<div[^>]+id=[""']shuka-extracted[""'][^>]*>([\s\S]+?)</div>",
-            RegexOptions.IgnoreCase);
-        if (sentinelM.Success)
+        var result = new List<string>();
+
+        // ── Strategy 1: Paragraph (<p>) tags from rendered DOM ─────────────────
+        foreach (Match pm in Regex.Matches(html, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
         {
-            var result = new List<string>();
-            foreach (Match pm in Regex.Matches(sentinelM.Groups[1].Value,
-                @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
-            {
-                string text = System.Net.WebUtility.HtmlDecode(pm.Groups[1].Value.Trim());
-                if (text.Length >= 10) result.Add(text);
-            }
-            if (result.Count > 0) return result;
+            string raw = pm.Groups[1].Value;
+            if (raw.Contains("<img", StringComparison.OrdinalIgnoreCase)) continue;
+            string text = Regex.Replace(raw, @"<[^>]+>", "").Trim();
+            text = System.Net.WebUtility.HtmlDecode(text);
+            if (text.Length >= 10 && !Regex.IsMatch(text, @"^(?:JavaScript|Cookies|Privacy|Terms|Copyright)", RegexOptions.IgnoreCase))
+                result.Add(text);
         }
+        if (result.Count > 0) return result;
 
         // ── Strategy 2: __NEXT_DATA__ JSON (reliable, present before hydration) ──
         var nextDataM = Regex.Match(html,
