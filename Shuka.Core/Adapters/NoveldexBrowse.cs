@@ -23,8 +23,8 @@ public class NoveldexBrowse : IBrowsableAdapter
 {
     public string SiteName         => "noveldex.io";
     public string Description      => "English web novels · Korean & Japanese";
-    public string IconGlyph        => "\uE02E"; // book (Material Symbols)
-    public bool   RequiresCfBypass => true;     // JS-rendered — needs WebView
+    public string IconGlyph        => "\uE894"; // language (globe) — matching other sources
+    public bool   RequiresCfBypass => false;
 
     private const string AllTypes = "type=Light+Novel%2CWeb+Novel%2CPublished+Novel%2COriginal+Fiction%2COne+Shot%2CFanfiction%2CNovel";
 

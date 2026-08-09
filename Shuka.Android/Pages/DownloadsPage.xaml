@@ -456,6 +456,30 @@
                             </Border.GestureRecognizers>
                         </Border>
 
+                        <!-- Copy Log Option -->
+                        <Border x:Name="OptionsSheetCopyLogBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Copy Log"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetCopyLogTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Move to Top Option -->
                         <Border x:Name="OptionsSheetMoveToTopBtn"
                                 BackgroundColor="{DynamicResource BgInput}"

@@ -17,7 +17,7 @@ namespace Shuka.Core.Adapters;
 public class NoveldexAdapter : ISiteAdapter
 {
     public string SiteName => "noveldex.io";
-    public bool RequiresCfBypass => true;   // JS-rendered — needs WebView
+    public bool RequiresCfBypass => false;
 
     public bool Matches(string url) =>
         url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);

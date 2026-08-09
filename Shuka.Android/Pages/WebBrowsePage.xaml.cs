@@ -36,11 +36,11 @@ public partial class WebBrowsePage : ContentPage
     {
         // quanben.io: /n/{bookId}/  or  /n/{bookId}/list.html
         ["quanben.io"] = url => System.Text.RegularExpressions.Regex.IsMatch(
-            url, @"quanben\.io/n/[^/?#]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+            url, @"quanben\.io/n/[a-zA-Z0-9_\-]+/?", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
 
         // czbooks.net: /n/{bookId}  (not /new/, /hot/, /search, etc.)
         ["czbooks.net"] = url => System.Text.RegularExpressions.Regex.IsMatch(
-            url, @"czbooks\.net/n/[^/?#]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+            url, @"czbooks\.net/n/[a-zA-Z0-9_\-]+/?", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
 
         // 69shuba.com: /book/{numericId}/ or /book/{numericId}.htm
         ["69shuba.com"] = url => System.Text.RegularExpressions.Regex.IsMatch(
@@ -62,10 +62,11 @@ public partial class WebBrowsePage : ContentPage
         ["yamibo.com"] = url => System.Text.RegularExpressions.Regex.IsMatch(
             url, @"yamibo\.com/novel/\d+/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
 
-        // noveldex.io: /series/{category}/{slug} (not /series?..., not /chapter/)
+        // noveldex.io: /series/{slug} or /series/novel/{slug} (not /series?..., not /chapter/)
         ["noveldex.io"] = url => System.Text.RegularExpressions.Regex.IsMatch(
-            url, @"noveldex\.io/series/(?!chapter/)[^/]+/[^/?#]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
-            !url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase),
+            url, @"noveldex\.io/series/(?:[^/]+/)*[a-zA-Z0-9_\-]+/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+            !url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase) &&
+            !System.Text.RegularExpressions.Regex.IsMatch(url, @"noveldex\.io/series/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
     };
 
     /// <summary>Returns true if the URL is a valid novel index page for its site.</summary>
@@ -2125,6 +2126,9 @@ public partial class WebBrowsePage : ContentPage
                     TabCountLabel.Text = tabCount.ToString();
                     
                     // Update FAB visibility (batched)
+                    bool isEnglishSource = url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
+                    FabTranslate.IsVisible = !isEnglishSource;
+
                     if (isTranslateActive)
                     {
                         FabDownload.IsVisible = false;

@@ -464,6 +464,24 @@ public partial class DownloadsPage : ContentPage
         DownloadManager.Instance.Cancel(item);
     }
 
+    private async void OnOptionsSheetCopyLogTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        string logText = _activeOptionsItem.LogText;
+        await HideOptionsSheetAsync();
+        if (!string.IsNullOrWhiteSpace(logText))
+        {
+            try
+            {
+                await Clipboard.Default.SetTextAsync(logText);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Copy log error: {ex.Message}");
+            }
+        }
+    }
+
     private async void OnOptionsSheetPauseTapped(object sender, TappedEventArgs e)
     {
         if (_activeOptionsItem == null) return;
