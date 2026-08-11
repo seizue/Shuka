@@ -24,6 +24,7 @@ internal static class Tui
                     .AddChoices(
                         "Download single novel",
                         "Batch download (multiple novels)",
+                        "EPUB from checkpoint",
                         "Fix Cloudflare (--solve-cf)",
                         "View supported sites",
                         "About Shuka",
@@ -36,6 +37,9 @@ internal static class Tui
                     break;
                 case "Batch download (multiple novels)":
                     await RunBatchAsync(downloader, defaultTranslate);
+                    break;
+                case "EPUB from checkpoint":
+                    await RunSampleAsync(downloader, defaultTranslate);
                     break;
                 case "Fix Cloudflare (--solve-cf)":
                     await RunSolveCfAsync();
@@ -256,6 +260,99 @@ internal static class Tui
         // "Back to menu" — just return, RunAsync loop will redraw the menu
     }
 
+    // ── EPUB from checkpoint ───────────────────────────────────────────────────
+
+    private static async Task RunSampleAsync(Downloader downloader, bool defaultTranslate = true)
+    {
+        AnsiConsole.Clear();
+        RenderHeader();
+        AnsiConsole.MarkupLine("[bold yellow]  EPUB from Checkpoint[/]\n");
+
+        string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+        var checkpoints = CheckpointService.ListAllCheckpoints(cacheDir);
+
+        if (checkpoints.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[grey]No saved checkpoints found.[/]\n");
+            AnsiConsole.MarkupLine("[dim]Checkpoints are created automatically while downloading. Start a download and pause or interrupt it — it will appear here.[/]");
+            AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+            Console.ReadKey(intercept: true);
+            return;
+        }
+
+        // Build display labels: "Novel URL  (N chapters)"
+        // Truncate long URLs for display
+        var labels = checkpoints.Select(cp =>
+        {
+            string display = cp.Url.Length > 70
+                ? "..." + cp.Url[^67..]
+                : cp.Url;
+            return $"{Markup.Escape(display)}  [dim]({cp.Count} ch)[/]";
+        }).ToList();
+        labels.Add("[grey]Back to menu[/]");
+
+        string picked = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[grey]Select a checkpoint:[/]")
+                .HighlightStyle(new Style(Color.IndianRed1))
+                .PageSize(12)
+                .AddChoices(labels));
+
+        if (picked == "[grey]Back to menu[/]") return;
+
+        // Find the selected checkpoint
+        int idx = labels.IndexOf(picked);
+        if (idx < 0 || idx >= checkpoints.Count) return;
+        var (filePath, url, count) = checkpoints[idx];
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]URL    [/]  [dim]{Markup.Escape(url)}[/]");
+        AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]Saved  [/]  [bold white]{count}[/] chapter(s)");
+        AnsiConsole.WriteLine();
+
+        var action = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[grey]What would you like to do?[/]")
+                .HighlightStyle(new Style(Color.IndianRed1))
+                .AddChoices(
+                    "Export EPUB from checkpoint",
+                    "Delete checkpoint",
+                    "Back to menu"));
+
+        if (action == "Back to menu") return;
+
+        if (action == "Delete checkpoint")
+        {
+            CheckpointService.Delete(filePath);
+            AnsiConsole.MarkupLine("\n[green]✓ Checkpoint deleted.[/]");
+            AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+            Console.ReadKey(intercept: true);
+            return;
+        }
+
+        // Export EPUB
+        bool translate = defaultTranslate;
+        if (url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase))
+            translate = false;
+
+        AnsiConsole.MarkupLine("\n[grey]Generating EPUB...[/]");
+        try
+        {
+            string? result = await downloader.GenerateSampleEpubAsync(url, null, translate);
+            if (result != null)
+                AnsiConsole.MarkupLine($"\n[bold green]✓ EPUB created![/] [cyan]{Markup.Escape(result)}[/]");
+            else
+                AnsiConsole.MarkupLine("\n[red]No chapter data found in checkpoint.[/]");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"\n[bold red]Error:[/] {Markup.Escape(ex.Message)}");
+        }
+
+        AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+        Console.ReadKey(intercept: true);
+    }
+
     // ── Solve CF ──────────────────────────────────────────────────────────────
 
     private static async Task RunSolveCfAsync()
@@ -329,38 +426,178 @@ internal static class Tui
             return;
         }
 
-        // Phase 2: download + translate with progress bar
-        await AnsiConsole.Progress()
-            .AutoClear(false)
-            .HideCompleted(false)
-            .Columns(
-                new TaskDescriptionColumn(),
-                new ProgressBarColumn().FinishedStyle(Style.Parse("green")),
-                new PercentageColumn(),
-                new SpinnerColumn(Spinner.Known.Dots) { Style = Style.Parse("indianred1") })
-            .StartAsync(async ctx =>
-            {
-                var task = ctx.AddTask(
-                    $"[cyan]{Markup.Escape(book.TitleEn ?? book.Title)}[/]",
-                    maxValue: book.Total);
+        // Phase 2: download loop — supports pause (P) and export (E) via keypress
+        await RunDownloadLoopAsync(downloader, book, translate);
+    }
 
+    /// <summary>
+    /// Inner download loop with pause/resume/export support.
+    /// Runs AnsiConsole.Progress in a task, while a background key-reader
+    /// watches for P (pause) and E (export EPUB). On pause the loop exits cleanly
+    /// (checkpoint data is intact) and the user is prompted to Resume, Export, or Quit.
+    /// </summary>
+    private static async Task RunDownloadLoopAsync(Downloader downloader, BookInfo book, bool translate)
+    {
+        // Track how far we got so we can show a meaningful "paused at ch X" message.
+        int lastProgress = 0;
+
+        while (true)
+        {
+            // A fresh CTS for each download run (or resume)
+            using var pauseCts  = new CancellationTokenSource();
+            bool pauseRequested = false;
+
+            AnsiConsole.MarkupLine("  [dim]P = Pause   E = Export EPUB from checkpoint[/]");
+            AnsiConsole.WriteLine();
+
+            // Background key reader — polls while Spectre.Console owns the terminal
+            var keyTask = Task.Run(async () =>
+            {
+                while (!pauseCts.Token.IsCancellationRequested)
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        var k = Console.ReadKey(intercept: true);
+                        if (k.Key == ConsoleKey.P || k.Key == ConsoleKey.E)
+                        {
+                            pauseRequested = true;
+                            pauseCts.Cancel();
+                            break;
+                        }
+                    }
+                    await Task.Delay(80);
+                }
+            });
+
+            bool downloadComplete = false;
+            Exception? downloadError = null;
+
+            try
+            {
+                await AnsiConsole.Progress()
+                    .AutoClear(false)
+                    .HideCompleted(false)
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn().FinishedStyle(Style.Parse("green")),
+                        new PercentageColumn(),
+                        new SpinnerColumn(Spinner.Known.Dots) { Style = Style.Parse("indianred1") })
+                    .StartAsync(async ctx =>
+                    {
+                        var task = ctx.AddTask(
+                            $"[cyan]{Markup.Escape(book.TitleEn ?? book.Title)}[/]",
+                            maxValue: book.Total);
+
+                        await downloader.ProcessBookAsync(book, null,
+                            onProgress: (current, total, msg) =>
+                            {
+                                lastProgress     = current;
+                                task.Value       = current;
+                                task.Description = $"[cyan]{Markup.Escape(book.TitleEn ?? book.Title)}[/] [dim]{Markup.Escape(msg)}[/]";
+                            },
+                            translate,
+                            pauseCts.Token);
+
+                        task.Value       = book.Total;
+                        task.Description = $"[green]✓ {Markup.Escape(book.TitleEn ?? book.Title)}[/]";
+                        downloadComplete = true;
+                    });
+            }
+            catch (OperationCanceledException) when (pauseRequested)
+            {
+                // Paused by the user — not an error
+            }
+            catch (Exception ex)
+            {
+                downloadError = ex;
+            }
+
+            // Stop the key reader (if not already stopped)
+            if (!pauseCts.IsCancellationRequested)
+                pauseCts.Cancel();
+            await keyTask.ConfigureAwait(false);
+
+            // ── Download finished normally ─────────────────────────────────────
+            if (downloadComplete)
+            {
+                AnsiConsole.MarkupLine($"\n[green]✓ Done! EPUB saved to your Downloads folder.[/]");
+                return;
+            }
+
+            // ── Error (not a pause) ────────────────────────────────────────────
+            if (downloadError != null)
+            {
+                AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                return;
+            }
+
+            // ── Paused ────────────────────────────────────────────────────────
+            int savedCount = CheckpointService.CountSaved(
+                CheckpointService.GetCheckpointPath(
+                    Path.Combine(Path.GetTempPath(), "ShukaCache"), book.IndexUrl));
+
+            int pct = book.Total > 0 ? (int)Math.Round(lastProgress * 100.0 / book.Total) : 0;
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"  [yellow]⏸  Paused[/] at chapter [bold]{lastProgress}[/] of [bold]{book.Total}[/] ([dim]{pct}%[/])");
+            AnsiConsole.MarkupLine($"  [dim]{savedCount} chapter(s) saved to checkpoint.[/]");
+            AnsiConsole.WriteLine();
+
+            // Paused prompt
+            var pausedChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[grey]What would you like to do?[/]")
+                    .HighlightStyle(new Style(Color.IndianRed1))
+                    .AddChoices(
+                        "Resume download",
+                        $"Create EPUB from {savedCount} downloaded chapter(s)",
+                        "Quit"));
+
+            if (pausedChoice == "Resume download")
+            {
+                // Loop back — a fresh CTS will be created at the top of the while(true)
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
+            if (pausedChoice.StartsWith("Create EPUB"))
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"  [grey]Generating EPUB from {savedCount} chapter(s)...[/]");
                 try
                 {
-                    await downloader.ProcessBookAsync(book, null,
-                        onProgress: (current, total, msg) =>
-                        {
-                            task.Value       = current;
-                            task.Description = $"[cyan]{Markup.Escape(book.TitleEn ?? book.Title)}[/] [dim]{Markup.Escape(msg)}[/]";
-                        }, translate);
+                    string? epubPath = await downloader.GenerateSampleEpubAsync(
+                        book.IndexUrl, null, translate);
 
-                    task.Value       = book.Total;
-                    task.Description = $"[green]✓ {Markup.Escape(book.TitleEn ?? book.Title)}[/]";
+                    if (epubPath != null)
+                        AnsiConsole.MarkupLine($"\n  [bold green]✓ EPUB created![/] [cyan]{Markup.Escape(epubPath)}[/]");
+                    else
+                        AnsiConsole.MarkupLine("\n  [red]No checkpoint data found — cannot export.[/]");
                 }
                 catch (Exception ex)
                 {
-                    task.Description = $"[red]✗ {Markup.Escape(ex.Message)}[/]";
+                    AnsiConsole.MarkupLine($"\n  [bold red]✗ Export failed:[/] {Markup.Escape(ex.Message)}");
                 }
-            });
+
+                AnsiConsole.WriteLine();
+
+                // After exporting, offer to resume or quit
+                var afterExport = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[grey]Continue?[/]")
+                        .HighlightStyle(new Style(Color.IndianRed1))
+                        .AddChoices("Resume download", "Quit"));
+
+                if (afterExport == "Resume download")
+                {
+                    AnsiConsole.WriteLine();
+                    continue;
+                }
+            }
+
+            // Quit
+            AnsiConsole.MarkupLine("\n[grey]Goodbye![/]");
+            Environment.Exit(0);
+        }
     }
 
     // ── View supported sites ──────────────────────────────────────────────────

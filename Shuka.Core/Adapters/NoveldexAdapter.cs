@@ -100,12 +100,27 @@ public class NoveldexAdapter : ISiteAdapter
                 totalChapters = jsonCount;
             }
 
+            // globalLastChapter is a reliable field that contains the true total even
+            // when the chapter list is paginated (the page only renders 100 at a time).
+            var globalLastM = Regex.Match(json, @"""globalLastChapter""\s*:\s*(\d+)");
+            if (globalLastM.Success && int.TryParse(globalLastM.Groups[1].Value, out int globalLast) && globalLast > totalChapters)
+                totalChapters = globalLast;
+
             // Also check for highest chapter number in JSON
             foreach (Match m in Regex.Matches(json, @"""(?:number|chapter_number|chapterNum)""\s*:\s*(\d+)"))
             {
                 if (int.TryParse(m.Groups[1].Value, out int c) && c > totalChapters)
                     totalChapters = c;
             }
+        }
+
+        // Strategy 1b: globalLastChapter in full HTML (React Flight / RSC payload).
+        // This field is injected by noveldex.io even when __NEXT_DATA__ is absent.
+        // It always reflects the real total chapter count regardless of pagination.
+        {
+            var globalM = Regex.Match(html, @"globalLastChapter[^:]{0,10}:\s*(\d+)");
+            if (globalM.Success && int.TryParse(globalM.Groups[1].Value, out int globalLast) && globalLast > totalChapters)
+                totalChapters = globalLast;
         }
 
         // Strategy 2: Find max chapter number from any /chapter/(\d+) links in HTML
@@ -230,6 +245,20 @@ public class NoveldexAdapter : ISiteAdapter
     {
         var result = new List<string>();
 
+        // ── Paywall / locked-chapter detection ─────────────────────────────────
+        // noveldex.io locked chapters show "Unlock to continue reading — N coins"
+        // instead of actual content. Return empty so the caller skips this chapter
+        // rather than saving coin-paywall boilerplate as chapter text.
+        bool isPaywalled =
+            html.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
+            html.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
+            html.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+            (html.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
+             html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase) &&
+             html.Contains("permanent access", StringComparison.OrdinalIgnoreCase));
+
+        if (isPaywalled) return result; // empty — chapter is paywalled
+
         // ── Strategy 1: Paragraph (<p>) tags from rendered DOM ─────────────────
         foreach (Match pm in Regex.Matches(html, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
         {
@@ -237,7 +266,10 @@ public class NoveldexAdapter : ISiteAdapter
             if (raw.Contains("<img", StringComparison.OrdinalIgnoreCase)) continue;
             string text = Regex.Replace(raw, @"<[^>]+>", "").Trim();
             text = System.Net.WebUtility.HtmlDecode(text);
-            if (text.Length >= 10 && !Regex.IsMatch(text, @"^(?:JavaScript|Cookies|Privacy|Terms|Copyright)", RegexOptions.IgnoreCase))
+            if (text.Length >= 10 &&
+                !Regex.IsMatch(text, @"^(?:JavaScript|Cookies|Privacy|Terms|Copyright|Unlock|Sign in|Please enable)", RegexOptions.IgnoreCase) &&
+                !text.Contains("permanent access", StringComparison.OrdinalIgnoreCase) &&
+                !text.Contains("Unlocking grants",  StringComparison.OrdinalIgnoreCase))
                 result.Add(text);
         }
         if (result.Count > 0) return result;

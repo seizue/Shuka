@@ -7,13 +7,18 @@ Console.OutputEncoding = Encoding.UTF8;
 
 
 
-// Parse translation flags
+// Parse translation flags & sample flag
 bool translate = true;
+bool sampleOnly = false;
 var argsList = args.ToList();
 if (argsList.RemoveAll(arg => arg.Equals("--no-translate", StringComparison.OrdinalIgnoreCase) ||
                              arg.Equals("--original", StringComparison.OrdinalIgnoreCase)) > 0)
 {
     translate = false;
+}
+if (argsList.RemoveAll(arg => arg.Equals("--sample", StringComparison.OrdinalIgnoreCase)) > 0)
+{
+    sampleOnly = true;
 }
 args = argsList.ToArray();
 
@@ -112,6 +117,17 @@ httpClient.DefaultRequestHeaders.Add("User-Agent",
 await using var fetcher    = new PlaywrightFetcher(siteClient);
 var             translator = new Translator(httpClient);
 var             downloader = new Downloader(fetcher, translator, httpClient);
+
+// ── --sample mode ─────────────────────────────────────────────────────────────
+if (sampleOnly)
+{
+    if (args.Length == 0) { Console.WriteLine("Error: --sample requires a novel URL."); return; }
+    string sampleUrl = args[0];
+    string? outFile = args.Length > 1 && !string.IsNullOrWhiteSpace(args[1]) ? args[1] : null;
+    Console.WriteLine("=== Generating Sample EPUB from checkpoint ===");
+    await downloader.GenerateSampleEpubAsync(sampleUrl, outFile, translate);
+    return;
+}
 
 // ── --batch mode ──────────────────────────────────────────────────────────────
 if (args[0].Equals("--batch", StringComparison.OrdinalIgnoreCase))

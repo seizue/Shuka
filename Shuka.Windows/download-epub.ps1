@@ -129,19 +129,43 @@ function Download-Batch {
     Write-Host "Batch complete! Check your Downloads folder." -ForegroundColor Green
 }
 
+function Download-Sample {
+    Show-Header
+    Write-Host "  [ Export Sample EPUB from Checkpoint ]" -ForegroundColor Yellow
+    Write-Host ""
+
+    $url = Read-Host "Novel URL"
+    if ([string]::IsNullOrWhiteSpace($url)) { Write-Host "No URL entered." -ForegroundColor Red; return }
+
+    Write-Host ""
+    Write-Host "Generating Sample EPUB..." -ForegroundColor Green
+    Write-Host ""
+
+    Invoke-Shuka @("--sample", $url)
+
+    Write-Host ""
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Done! Check your Downloads folder." -ForegroundColor Green
+    } else {
+        Write-Host "Something went wrong or no checkpoint was found." -ForegroundColor Red
+    }
+}
+
 # ── Main loop ──────────────────────────────────────────────────────────────────
 while ($true) {
     Show-Header
     Write-Host "  1. Download single novel" -ForegroundColor White
     Write-Host "  2. Batch download (multiple novels)" -ForegroundColor White
-    Write-Host "  3. Exit" -ForegroundColor White
+    Write-Host "  3. Export sample EPUB from partial download" -ForegroundColor White
+    Write-Host "  4. Exit" -ForegroundColor White
     Write-Host ""
-    $choice = Read-Host "Choose (1, 2 or 3)"
+    $choice = Read-Host "Choose (1, 2, 3 or 4)"
 
     switch ($choice) {
         "1" { Download-Single }
         "2" { Download-Batch }
-        "3" { Write-Host ""; Write-Host "Goodbye!" -ForegroundColor DarkGray; Start-Sleep -Seconds 1; exit }
+        "3" { Download-Sample }
+        "4" { Write-Host ""; Write-Host "Goodbye!" -ForegroundColor DarkGray; Start-Sleep -Seconds 1; exit }
         default { Write-Host "Invalid choice." -ForegroundColor Red }
     }
 

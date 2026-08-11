@@ -421,6 +421,117 @@ public class DownloadManager
         });
     }
 
+    /// <summary>
+    /// Generates a sample EPUB from chapters downloaded so far for a download item.
+    /// If the item is currently running, it pauses first.
+    /// </summary>
+    public async Task<string?> GenerateSampleEpubAsync(DownloadItem item)
+    {
+        if (item == null) return null;
+
+        // If running, pause first
+        if (item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming)
+        {
+            Pause(item);
+            await Task.Delay(600); // Allow active worker loop to observe cancellation & stop cleanly
+        }
+
+        string cacheDir = GetCacheDirectory();
+        string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
+        int savedCount = CheckpointService.CountSaved(checkpointPath);
+
+        if (savedCount == 0)
+        {
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+                if (mainPage != null)
+                {
+                    await mainPage.DisplayAlert("Sample EPUB",
+                        "No chapters downloaded yet to generate sample EPUB.", "OK");
+                }
+            });
+            return null;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[DownloadManager] Generating sample EPUB for '{item.Title}' ({savedCount} chapters)...");
+
+        try
+        {
+            var savedChapters = await CheckpointService.LoadAllSavedChaptersAsync(checkpointPath);
+            if (savedChapters.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[DownloadManager] Sample EPUB: Checkpoint contains no valid chapter data.");
+                return null;
+            }
+
+            string tempSamplePath = Path.Combine(cacheDir, $"_shuka_sample_{item.Id:N}.epub");
+            if (File.Exists(tempSamplePath)) File.Delete(tempSamplePath);
+
+            byte[]? coverBytes = null;
+            string coverMime = "image/jpeg";
+            if (!string.IsNullOrWhiteSpace(item.CoverUrl))
+            {
+                try
+                {
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                    coverBytes = await http.GetByteArrayAsync(item.CoverUrl);
+                    if (coverBytes != null && coverBytes.Length >= 4)
+                    {
+                        if (coverBytes[0] == 0x89 && coverBytes[1] == 0x50) coverMime = "image/png";
+                        else if (coverBytes[0] == 0xFF && coverBytes[1] == 0xD8) coverMime = "image/jpeg";
+                        else if (coverBytes[0] == 0x47 && coverBytes[1] == 0x49) coverMime = "image/gif";
+                    }
+                }
+                catch { }
+            }
+
+            EpubBuilder.Build(
+                tempSamplePath,
+                item.OriginalTitle ?? item.Title,
+                item.Title,
+                item.OriginalAuthor ?? item.Author,
+                item.Author,
+                savedChapters,
+                coverBytes,
+                coverMime,
+                item.Translate);
+
+            string rawTitle = item.Title;
+            string finalName = SanitizeFileName(rawTitle) + $"_sample_ch1-{savedChapters.Count}";
+
+            string finalPath = await CopyToOutputAsync(tempSamplePath, finalName, CancellationToken.None);
+
+            System.Diagnostics.Debug.WriteLine($"[DownloadManager] Saved sample EPUB ({savedChapters.Count} chapters): {finalPath}");
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+                if (mainPage != null)
+                {
+                    await mainPage.DisplayAlert("Sample EPUB Generated",
+                        $"Exported {savedChapters.Count} downloaded chapter(s) as EPUB:\n\n{finalPath}", "OK");
+                }
+            });
+
+            return finalPath;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadManager] Failed to generate sample EPUB: {ex.Message}");
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+                if (mainPage != null)
+                {
+                    await mainPage.DisplayAlert("Error",
+                        $"Could not generate sample EPUB: {ex.Message}", "OK");
+                }
+            });
+            return null;
+        }
+    }
+
     public void MoveUp(DownloadItem item)
     {
         MainThread.BeginInvokeOnMainThread(() =>

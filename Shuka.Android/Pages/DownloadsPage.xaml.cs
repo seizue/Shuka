@@ -368,6 +368,7 @@ public partial class DownloadsPage : ContentPage
         OptionsSheetCancelBtn.IsVisible = item.Status != DownloadStatus.Completed;
         OptionsSheetPauseBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming;
         OptionsSheetResumeBtn.IsVisible = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
+        OptionsSheetSampleEpubBtn.IsVisible = item.Status != DownloadStatus.Completed;
 
         OptionsSheetCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalTitle);
         OptionsSheetCopyAuthorBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalAuthor);
@@ -496,6 +497,14 @@ public partial class DownloadsPage : ContentPage
         var item = _activeOptionsItem;
         await HideOptionsSheetAsync();
         DownloadManager.Instance.Resume(item);
+    }
+
+    private async void OnOptionsSheetSampleEpubTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        await DownloadManager.Instance.GenerateSampleEpubAsync(item);
     }
 
     private async void OnOptionsSheetMoveToTopTapped(object sender, TappedEventArgs e)

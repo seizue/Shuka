@@ -306,6 +306,29 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
 
         if (isChapterPage)
         {
+            // ── Paywall / locked chapter fast-path ────────────────────────────
+            // Check for coin-lock UI before waiting 40 seconds for hydration.
+            // If the page body says "Unlock to continue reading" or "Sign in to Unlock"
+            // we return a minimal HTML with those markers so ExtractChapterText
+            // can detect it as paywalled and return empty (skip the chapter).
+            try
+            {
+                string bodyText = await page.EvaluateAsync<string>(
+                    "() => document.body ? document.body.innerText : ''");
+                bool locked =
+                    bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
+                    bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+                    (bodyText.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
+                     bodyText.Contains("permanent access", StringComparison.OrdinalIgnoreCase));
+
+                if (locked)
+                {
+                    Console.Write("[locked]");
+                    return "<html><body><p>Unlock to continue reading</p><p>coinsSign in to Unlock</p></body></html>";
+                }
+            }
+            catch { /* ignore — fall through to normal hydration wait */ }
+
             // Wait until real paragraph content is in the DOM.
             // Chapter paragraphs appear inside the main content area, not in nav/footer.
             // We check for at least 8 paragraphs with 80+ chars — footer only has ~2 short paragraphs.
@@ -325,6 +348,23 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             }
             catch (TimeoutException)
             {
+                // One last paywall check after the timeout — the page may have
+                // finished loading a locked state during the wait period.
+                try
+                {
+                    string bodyText = await page.EvaluateAsync<string>(
+                        "() => document.body ? document.body.innerText : ''");
+                    bool locked =
+                        bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
+                        bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase);
+                    if (locked)
+                    {
+                        Console.Write("[locked]");
+                        return "<html><body><p>Unlock to continue reading</p><p>coinsSign in to Unlock</p></body></html>";
+                    }
+                }
+                catch { }
+
                 Console.Write("[hydration-timeout]");
                 return string.Empty;
             }
