@@ -670,6 +670,14 @@ internal static class Tui
             "[cyan]zhenhunxiaoshuo.com[/]",
             "[dim]https://www.zhenhunxiaoshuo.com/tadeshantadehai/[/]",
             "");
+        table.AddRow(
+            "[cyan]noveldex.io[/]",
+            "[dim]https://noveldex.io/novel/some-novel[/]",
+            "[yellow]WebView (JS)[/]");
+        table.AddRow(
+            "[cyan]shubaow.net[/]",
+            "[dim]https://www.shubaow.net/book/1669.html[/]",
+            "");
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();

@@ -42,6 +42,10 @@ public partial class SourceBrowsePage : ContentPage
     // Cache for translated titles (original title -> translated title)
     private readonly Dictionary<string, string> _translatedTitles = new(StringComparer.OrdinalIgnoreCase);
 
+    // Custom filter pills state
+    private SourceFilter? _activeFilter;
+    private readonly List<(Border Pill, SourceFilter Filter)> _customFilterPills = new();
+
     public SourceBrowsePage(IBrowsableAdapter source, string? initialQuery = null)
     {
         InitializeComponent();
@@ -56,8 +60,25 @@ public partial class SourceBrowsePage : ContentPage
         bool isEnglishSource = source.SiteName.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
         TranslateToggleBtn.IsVisible = !isEnglishSource;
 
-        // Show Top 500 pill only for ShukuBrowse (52shuku.net)
-        PillTop500.IsVisible = source is ShukuBrowse;
+        // Custom filter pills if supported by the source
+        if (source.Filters != null && source.Filters.Count > 0)
+        {
+            FilterPillsStack.Children.Clear();
+            _customFilterPills.Clear();
+            _activeFilter = source.Filters[0];
+
+            foreach (var filter in source.Filters)
+            {
+                var pill = BuildFilterPill(filter);
+                _customFilterPills.Add((pill, filter));
+                FilterPillsStack.Children.Add(pill);
+            }
+        }
+        else
+        {
+            // Show Top 500 pill only for ShukuBrowse (52shuku.net)
+            PillTop500.IsVisible = source is ShukuBrowse;
+        }
 
         if (!string.IsNullOrWhiteSpace(initialQuery))
         {
@@ -291,12 +312,55 @@ public partial class SourceBrowsePage : ContentPage
         await LoadPageAsync(reset: true);
     }
 
+    private Border BuildFilterPill(SourceFilter filter)
+    {
+        var label = new Label
+        {
+            Text = filter.Name,
+            FontSize = 12,
+            FontAttributes = FontAttributes.Bold
+        };
+        var pill = new Border
+        {
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 20 },
+            Padding = new Thickness(14, 6),
+            Content = label
+        };
+
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += async (_, _) =>
+        {
+            if (_activeFilter == filter && _mode != BrowseMode.Search) return;
+            _activeFilter = filter;
+            _mode = BrowseMode.Recent;
+            _query = "";
+            SearchEntry.Text = "";
+            RefreshPills();
+            await LoadPageAsync(reset: true);
+        };
+
+        label.GestureRecognizers.Add(tap);
+        pill.GestureRecognizers.Add(tap);
+        return pill;
+    }
+
     private void RefreshPills()
     {
-        SetPillActive(PillRecent,  _mode == BrowseMode.Recent);
-        SetPillActive(PillPopular, _mode == BrowseMode.Popular);
-        if (PillTop500 != null)
-            SetPillActive(PillTop500, _mode == BrowseMode.Top500);
+        if (_source.Filters != null && _source.Filters.Count > 0)
+        {
+            foreach (var (pill, filter) in _customFilterPills)
+            {
+                SetPillActive(pill, filter == _activeFilter && _mode != BrowseMode.Search);
+            }
+        }
+        else
+        {
+            SetPillActive(PillRecent,  _mode == BrowseMode.Recent);
+            SetPillActive(PillPopular, _mode == BrowseMode.Popular);
+            if (PillTop500 != null)
+                SetPillActive(PillTop500, _mode == BrowseMode.Top500);
+        }
     }
 
     private void SetPillActive(Border pill, bool active)
@@ -335,6 +399,8 @@ public partial class SourceBrowsePage : ContentPage
         _query = "";
         SearchClearBtn.IsVisible = false;
         _mode = BrowseMode.Recent;
+        if (_source.Filters != null && _source.Filters.Count > 0)
+            _activeFilter = _source.Filters[0];
         RefreshPills();
         await LoadPageAsync(reset: true);
     }
@@ -369,7 +435,9 @@ public partial class SourceBrowsePage : ContentPage
                 BrowseMode.Popular => await _service.GetPopularAsync(_source, _page),
                 BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
                 BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page),
-                _                  => await _service.GetRecentAsync(_source, _page),
+                _                  => _activeFilter != null
+                                        ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page))
+                                        : await _service.GetRecentAsync(_source, _page),
             };
 
             _hasMore = result.HasNextPage;

@@ -64,7 +64,21 @@ public interface IBrowsableAdapter
     /// charset is the encoding name for the Content-Type header (e.g. "gb2312").
     /// </summary>
     (string postBody, string charset)? GetSearchPostBody(string query, int page = 1) => null;
+
+    /// <summary>
+    /// Optional list of category/ranking filters supported by this source.
+    /// If null or empty, standard Recent/Popular pills are used.
+    /// </summary>
+    IReadOnlyList<SourceFilter>? Filters => null;
 }
+
+/// <summary>
+/// A category or ranking filter option for a browsable novel source.
+/// </summary>
+public record SourceFilter(
+    string Name,
+    Func<int, string> UrlGenerator
+);
 
 /// <summary>
 /// A per-source global search result including status information.

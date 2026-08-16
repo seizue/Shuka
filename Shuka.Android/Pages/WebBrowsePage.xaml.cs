@@ -67,6 +67,10 @@ public partial class WebBrowsePage : ContentPage
             url, @"noveldex\.io/series/(?:[^/]+/)*[a-zA-Z0-9_\-]+/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
             !url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase) &&
             !System.Text.RegularExpressions.Regex.IsMatch(url, @"noveldex\.io/series/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+
+        // shubaow.net: /book/{numericId}.html or /{category}/{numericId}/
+        ["shubaow.net"] = url => System.Text.RegularExpressions.Regex.IsMatch(
+            url, @"shubaow\.net/(?:book/\d+\.html|\d+/\d+/?)(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
     };
 
     /// <summary>Returns true if the URL is a valid novel index page for its site.</summary>

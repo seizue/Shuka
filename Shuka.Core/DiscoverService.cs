@@ -20,6 +20,7 @@ public class DiscoverService
         new SituuBrowse(),
         new YamiboBrowse(),
         new NoveldexBrowse(),  // English web novels — JS-rendered, uses WebView
+        new ShubaowBrowse(),
     ];
 
     public DiscoverService(ICloudflareBypass? cfBypass = null)

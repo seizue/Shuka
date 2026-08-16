@@ -74,27 +74,29 @@
         <Border Grid.Row="1"
                 BackgroundColor="{DynamicResource BgCard}"
                 StrokeThickness="0"
-                Padding="16,0,16,12">
-            <HorizontalStackLayout Spacing="8">
-                <Border x:Name="PillRecent"  StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6">
-                    <Label Text="Recent"  FontSize="12" FontAttributes="Bold">
-                        <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnRecentTapped"/></Label.GestureRecognizers>
-                    </Label>
-                    <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnRecentTapped"/></Border.GestureRecognizers>
-                </Border>
-                <Border x:Name="PillPopular" StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6">
-                    <Label Text="Popular" FontSize="12" FontAttributes="Bold">
-                        <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Label.GestureRecognizers>
-                    </Label>
-                    <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Border.GestureRecognizers>
-                </Border>
-                <Border x:Name="PillTop500" StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6" IsVisible="False">
-                    <Label Text="Top 500" FontSize="12" FontAttributes="Bold">
-                        <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Label.GestureRecognizers>
-                    </Label>
-                    <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Border.GestureRecognizers>
-                </Border>
-            </HorizontalStackLayout>
+                Padding="0,0,0,12">
+            <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never" Padding="16,0">
+                <HorizontalStackLayout x:Name="FilterPillsStack" Spacing="8">
+                    <Border x:Name="PillRecent"  StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6">
+                        <Label Text="Recent"  FontSize="12" FontAttributes="Bold">
+                            <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnRecentTapped"/></Label.GestureRecognizers>
+                        </Label>
+                        <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnRecentTapped"/></Border.GestureRecognizers>
+                    </Border>
+                    <Border x:Name="PillPopular" StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6">
+                        <Label Text="Popular" FontSize="12" FontAttributes="Bold">
+                            <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Label.GestureRecognizers>
+                        </Label>
+                        <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnPopularTapped"/></Border.GestureRecognizers>
+                    </Border>
+                    <Border x:Name="PillTop500" StrokeThickness="1" StrokeShape="RoundRectangle 20" Padding="14,6" IsVisible="False">
+                        <Label Text="Top 500" FontSize="12" FontAttributes="Bold">
+                            <Label.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Label.GestureRecognizers>
+                        </Label>
+                        <Border.GestureRecognizers><TapGestureRecognizer Tapped="OnTop500Tapped"/></Border.GestureRecognizers>
+                    </Border>
+                </HorizontalStackLayout>
+            </ScrollView>
         </Border>
 
         <!-- ── Search bar ────────────────────────────────────── -->

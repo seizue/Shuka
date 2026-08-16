@@ -67,6 +67,10 @@ public partial class ShukaQuestPage : ContentPage
         ["noveldex.io"] = url => System.Text.RegularExpressions.Regex.IsMatch(
             url, @"noveldex\.io/series/(?!chapter/)[^/]+/[^/?#]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
             !url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase),
+
+        // shubaow.net: /book/{numericId}.html or /{category}/{numericId}/
+        ["shubaow.net"] = url => System.Text.RegularExpressions.Regex.IsMatch(
+            url, @"shubaow\.net/(?:book/\d+\.html|\d+/\d+/?)(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
     };
 
     /// <summary>Returns true if the URL is a valid novel index page for its site.</summary>

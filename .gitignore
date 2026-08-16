@@ -1,6 +1,7 @@
 # Build outputs
 bin/
 obj/
+scratch/
 
 # Visual Studio / Rider
 .vs/

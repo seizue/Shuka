@@ -447,7 +447,7 @@ public class DownloadManager
                 var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (mainPage != null)
                 {
-                    await mainPage.DisplayAlert("Sample EPUB",
+                    await mainPage.DisplayAlertAsync("Sample EPUB",
                         "No chapters downloaded yet to generate sample EPUB.", "OK");
                 }
             });
@@ -509,7 +509,7 @@ public class DownloadManager
                 var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (mainPage != null)
                 {
-                    await mainPage.DisplayAlert("Sample EPUB Generated",
+                    await mainPage.DisplayAlertAsync("Sample EPUB Generated",
                         $"Exported {savedChapters.Count} downloaded chapter(s) as EPUB:\n\n{finalPath}", "OK");
                 }
             });
@@ -524,7 +524,7 @@ public class DownloadManager
                 var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (mainPage != null)
                 {
-                    await mainPage.DisplayAlert("Error",
+                    await mainPage.DisplayAlertAsync("Error",
                         $"Could not generate sample EPUB: {ex.Message}", "OK");
                 }
             });
