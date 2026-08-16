@@ -2,6 +2,7 @@ using Shuka.Core;
 using Shuka.Core.Adapters;
 using Shuka.Android.Platform;
 using System.Text.RegularExpressions;
+using System.IO;
 
 namespace Shuka.Android.Pages;
 
@@ -41,6 +42,10 @@ public partial class SourceBrowsePage : ContentPage
 
     // Cache for translated titles (original title -> translated title)
     private readonly Dictionary<string, string> _translatedTitles = new(StringComparer.OrdinalIgnoreCase);
+
+    // Cache for remote cover images (URL -> ImageSource)
+    private static readonly Dictionary<string, ImageSource> _coverImageCache = new();
+    private static readonly object _coverImageLock = new();
 
     // Custom filter pills state
     private SourceFilter? _activeFilter;
@@ -192,6 +197,39 @@ public partial class SourceBrowsePage : ContentPage
         {
             // Rebuild grid with original titles
             RebuildNovelGrid();
+        }
+    }
+
+    /// <summary>
+    /// Returns a cached ImageSource for the remote cover URL, or null if not cached.
+    /// This enables lazy loading - images are loaded asynchronously and cached.
+    /// </summary>
+    private static ImageSource? GetCachedCoverImage(string? coverUrl)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl))
+            return null;
+
+        lock (_coverImageLock)
+        {
+            if (_coverImageCache.TryGetValue(coverUrl, out var source))
+                return source;
+
+            // Not cached yet - will be loaded asynchronously
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Caches an ImageSource for a remote cover URL.
+    /// </summary>
+    private static void CacheCoverImage(string coverUrl, ImageSource source)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl))
+            return;
+
+        lock (_coverImageLock)
+        {
+            _coverImageCache[coverUrl] = source;
         }
     }
 
@@ -634,9 +672,11 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
+            // Check cache first - if cached, use it directly
+            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
             var coverImg = new Image
             {
-                Source  = ImageSource.FromUri(coverUri),
+                Source  = cachedSource ?? ImageSource.FromUri(coverUri), // Use cached or load directly
                 Aspect  = Aspect.AspectFill,
                 HeightRequest     = cardH,
                 HorizontalOptions = LayoutOptions.Fill,
@@ -651,6 +691,29 @@ public partial class SourceBrowsePage : ContentPage
             coverGrid.SetDynamicResource(Grid.BackgroundColorProperty, "BgInput");
             coverGrid.Add(coverImg);
             coverContent = coverGrid;
+
+            // Cache the image if not already cached (for future use)
+            if (cachedSource == null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Download image data
+                        using var http = new HttpClient();
+                        http.Timeout = TimeSpan.FromSeconds(10);
+                        var imageData = await http.GetByteArrayAsync(coverUri);
+
+                        // Create ImageSource from downloaded data and cache it
+                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
+                        CacheCoverImage(novel.CoverUrl, imageSource);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache cover: {ex.Message}");
+                    }
+                });
+            }
         }
         else
         {
@@ -759,9 +822,11 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
+            // Check cache first - if cached, use it directly
+            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
             var img = new Image
             {
-                Source            = ImageSource.FromUri(coverUri),
+                Source            = cachedSource ?? ImageSource.FromUri(coverUri), // Use cached or load directly
                 Aspect            = Aspect.AspectFill,
                 WidthRequest      = 64,
                 HeightRequest     = 92,
@@ -779,6 +844,29 @@ public partial class SourceBrowsePage : ContentPage
             coverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
             coverView = coverBorder;
             AttachCoverImageLongPress(coverBorder, novel.CoverUrl.Trim());
+
+            // Cache the image if not already cached (for future use)
+            if (cachedSource == null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Download image data
+                        using var http = new HttpClient();
+                        http.Timeout = TimeSpan.FromSeconds(10);
+                        var imageData = await http.GetByteArrayAsync(coverUri);
+
+                        // Create ImageSource from downloaded data and cache it
+                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
+                        CacheCoverImage(novel.CoverUrl, imageSource);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache cover: {ex.Message}");
+                    }
+                });
+            }
         }
         else
         {
@@ -1329,9 +1417,34 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
-            DetailCoverImage.Source    = ImageSource.FromUri(coverUri);
+            // Check cache first - if cached, use it directly
+            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
+            DetailCoverImage.Source = cachedSource ?? ImageSource.FromUri(coverUri); // Use cached or load directly
             DetailCoverBorder.IsVisible  = true;
             DetailCoverFallback.IsVisible = false;
+
+            // Cache the image if not already cached (for future use)
+            if (cachedSource == null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Download image data
+                        using var http = new HttpClient();
+                        http.Timeout = TimeSpan.FromSeconds(10);
+                        var imageData = await http.GetByteArrayAsync(coverUri);
+
+                        // Create ImageSource from downloaded data and cache it
+                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
+                        CacheCoverImage(novel.CoverUrl, imageSource);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache detail cover: {ex.Message}");
+                    }
+                });
+            }
         }
         else
         {
