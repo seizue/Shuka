@@ -209,26 +209,46 @@ internal sealed class Downloader
 
         var chapters = new List<(int Idx, string Title, string Text)>(book.Total);
 
-        var fetchSem = new SemaphoreSlim(1);
         var t0 = DateTime.Now;
-
-        // Pre-build fetch tasks (respects ct so in-flight fetches abort on pause)
-        var fetchTasks = book.ChapterUrls.Take(book.Total).Select(async (ch, i) =>
-        {
-            if (saved[i] != null) return (i, title: ch.Title, html: "");
-            await fetchSem.WaitAsync(ct);
-            try { return (i, title: ch.Title, html: await _fetcher.FetchAsync(ch.Url)); }
-            finally { fetchSem.Release(); }
-        }).ToArray();
+        int consecutiveLockedCount = 0;
+        int firstLockedChapterNumber = 0;
 
         for (int i = 0; i < book.Total; i++)
         {
             // Check pause/cancel between every chapter — checkpoint is already saved
             ct.ThrowIfCancellationRequested();
+            var ch = book.ChapterUrls[i];
 
             if (saved[i] != null)
             {
-                chapters.Add((i + 1, saved[i]!.Value.title, saved[i]!.Value.text));
+                string savedTitle = saved[i]!.Value.title;
+                string savedText  = saved[i]!.Value.text;
+
+                if (string.IsNullOrWhiteSpace(savedText))
+                {
+                    consecutiveLockedCount++;
+                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+                }
+                else
+                {
+                    consecutiveLockedCount = 0;
+                }
+
+                if (consecutiveLockedCount >= 3)
+                {
+                    int lastUnlocked = firstLockedChapterNumber - 1;
+                    int removeCount = consecutiveLockedCount - 1;
+                    if (chapters.Count >= removeCount)
+                    {
+                        chapters.RemoveRange(chapters.Count - removeCount, removeCount);
+                    }
+                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                    Console.WriteLine($"\n  [Notice] {statusMsg}");
+                    onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
+                    break;
+                }
+
+                chapters.Add((i + 1, savedTitle, savedText));
                 onProgress?.Invoke(i + 1, book.Total, translate ? $"Chapter {i + 1} of {book.Total}" : $"Downloaded ch {i + 1} of {book.Total}");
                 continue;
             }
@@ -243,16 +263,40 @@ internal sealed class Downloader
                 Console.Write($"\r  [{i + 1}/{book.Total}] {phaseText}... {eta}      ");
             }
 
-            var (_, chTitle, html) = await fetchTasks[i];
+            string html = await _fetcher.FetchAsync(ch.Url);
             var paras = book.Adapter.ExtractChapterText(html);
 
-            // Empty paragraphs = chapter is paywalled / locked — record as placeholder
+            // Empty paragraphs = chapter is paywalled / locked
             bool isLocked = paras.Count == 0;
+
+            if (isLocked)
+            {
+                consecutiveLockedCount++;
+                if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+            }
+            else
+            {
+                consecutiveLockedCount = 0;
+            }
+
+            if (consecutiveLockedCount >= 3)
+            {
+                int lastUnlocked = firstLockedChapterNumber - 1;
+                int removeCount = consecutiveLockedCount - 1;
+                if (chapters.Count >= removeCount)
+                {
+                    chapters.RemoveRange(chapters.Count - removeCount, removeCount);
+                }
+                string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                Console.WriteLine($"\n  [Notice] {statusMsg}");
+                onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
+                break;
+            }
 
             string content;
             if (isLocked)
             {
-                content = string.Empty; // will be skipped in EPUB if desired, or shown as locked
+                content = string.Empty;
                 onProgress?.Invoke(i + 1, book.Total, $"[locked] ch {i + 1} of {book.Total}");
             }
             else if (translate)
@@ -264,9 +308,9 @@ internal sealed class Downloader
                 content = string.Join("\n", paras);
             }
 
-            chapters.Add((i + 1, chTitle, content));
+            chapters.Add((i + 1, ch.Title, content));
 
-            await CheckpointService.SaveChapterAsync(checkpointPath, book.IndexUrl, i, chTitle, content, writeLock);
+            await CheckpointService.SaveChapterAsync(checkpointPath, book.IndexUrl, i, ch.Title, content, writeLock);
 
             if (!isLocked)
                 onProgress?.Invoke(i + 1, book.Total, translate ? $"Chapter {i + 1} of {book.Total}" : $"Downloaded ch {i + 1} of {book.Total}");

@@ -87,10 +87,33 @@ internal static class Tui
                 .AllowEmpty());
         string? cover = string.IsNullOrWhiteSpace(coverInput) ? null : coverInput.Trim();
 
-        int chapters = AnsiConsole.Prompt(
-            new TextPrompt<int>("[grey]Chapters[/] [dim](0 = all)[/]:")
-                .DefaultValue(0)
-                .ValidationErrorMessage("[red]Enter a number[/]"));
+        string chapterInput = AnsiConsole.Prompt(
+            new TextPrompt<string>("[grey]Chapters[/] [dim](0 = all, e.g. 50 or 243-244)[/]:")
+                .DefaultValue("0")
+                .AllowEmpty());
+
+        int chapterLimit = 0;
+        int chapterFrom = 0;
+        if (!string.IsNullOrWhiteSpace(chapterInput))
+        {
+            string chapArg = chapterInput.Trim();
+            if (chapArg.Contains('-'))
+            {
+                var parts = chapArg.Split('-');
+                if (parts.Length == 2 &&
+                    int.TryParse(parts[0], out int from) &&
+                    int.TryParse(parts[1], out int to) &&
+                    from >= 1 && to >= from)
+                {
+                    chapterFrom = from;
+                    chapterLimit = to - from + 1;
+                }
+            }
+            else
+            {
+                int.TryParse(chapArg, out chapterLimit);
+            }
+        }
 
         // Skip translation prompt for English-only sources (noveldex.io)
         bool isEnglishSource = url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
@@ -115,7 +138,7 @@ internal static class Tui
 
         AnsiConsole.WriteLine();
 
-        await RunDownloadAsync(downloader, url, chapters, cover, translate);
+        await RunDownloadAsync(downloader, url, chapterLimit, cover, translate, chapterFrom);
 
         var after = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -381,7 +404,7 @@ internal static class Tui
     // ── Download pipeline with live progress ──────────────────────────────────
 
     private static async Task RunDownloadAsync(
-        Downloader downloader, string url, int chapters, string? cover, bool translate)
+        Downloader downloader, string url, int chapters, string? cover, bool translate, int chapterFrom = 0)
     {
         BookInfo? book = null;
 
@@ -393,7 +416,7 @@ internal static class Tui
             {
                 try
                 {
-                    book = await downloader.GatherBookInfoAsync(url, chapters, cover);
+                    book = await downloader.GatherBookInfoAsync(url, chapters, cover, chapterFrom);
                     ctx.Status("[green]✓ Book info gathered.[/]");
                 }
                 catch (Exception ex)

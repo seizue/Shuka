@@ -178,6 +178,9 @@ public class BookService
         // Semaphore to serialize checkpoint writes
         var writeLock = new SemaphoreSlim(1, 1);
 
+        int consecutiveLockedCount = 0;
+        int firstLockedChapterNumber = 0;
+
         for (int i = 0; i < total; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -185,7 +188,34 @@ public class BookService
             // Skip chapters already in the checkpoint
             if (saved[i] != null)
             {
-                results.Add((i + 1, saved[i]!.Value.title, saved[i]!.Value.text));
+                string savedTitle = saved[i]!.Value.title;
+                string savedText  = saved[i]!.Value.text;
+
+                if (string.IsNullOrWhiteSpace(savedText))
+                {
+                    consecutiveLockedCount++;
+                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+                }
+                else
+                {
+                    consecutiveLockedCount = 0;
+                }
+
+                if (consecutiveLockedCount >= 3)
+                {
+                    int lastUnlocked = firstLockedChapterNumber - 1;
+                    int removeCount = consecutiveLockedCount - 1;
+                    if (results.Count >= removeCount)
+                    {
+                        results.RemoveRange(results.Count - removeCount, removeCount);
+                    }
+                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                    log?.Invoke(statusMsg);
+                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                    break;
+                }
+
+                results.Add((i + 1, savedTitle, savedText));
                 progress?.Report(new ProgressEventArgs
                 {
                     Current = i + 1,
@@ -223,9 +253,33 @@ public class BookService
                 }
             }
 
-            // Translate with per-chapter retry — more attempts + longer backoff
-            // for large novels where Google rate-limits more aggressively
             var paras = book.Adapter.ExtractChapterText(html);
+            bool isLocked = paras.Count == 0;
+
+            if (isLocked)
+            {
+                consecutiveLockedCount++;
+                if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+            }
+            else
+            {
+                consecutiveLockedCount = 0;
+            }
+
+            if (consecutiveLockedCount >= 3)
+            {
+                int lastUnlocked = firstLockedChapterNumber - 1;
+                int removeCount = consecutiveLockedCount - 1;
+                if (results.Count >= removeCount)
+                {
+                    results.RemoveRange(results.Count - removeCount, removeCount);
+                }
+                string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                log?.Invoke(statusMsg);
+                progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                break;
+            }
+
             string text = "";
             if (paras.Count > 0)
             {
@@ -248,7 +302,6 @@ public class BookService
                             }
                             else
                             {
-                                // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
                                 int delaySec = Math.Min((int)Math.Pow(2, transAttempt), 30);
                                 log?.Invoke($"[translate retry {transAttempt}/6 ch{i + 1}] waiting {delaySec}s...");
                                 await Task.Delay(delaySec * 1000, ct);
@@ -269,12 +322,24 @@ public class BookService
                 await CheckpointService.SaveChapterAsync(
                     checkpointPath, book.IndexUrl, i, ch.Title, text, writeLock);
 
-            progress?.Report(new ProgressEventArgs
+            if (isLocked)
             {
-                Current = i + 1,
-                Total = total,
-                Message = translate ? $"Translated chapter {i + 1} of {total}..." : $"Downloaded chapter {i + 1} of {total}..."
-            });
+                progress?.Report(new ProgressEventArgs
+                {
+                    Current = i + 1,
+                    Total = total,
+                    Message = $"[locked] Chapter {i + 1} of {total} is locked"
+                });
+            }
+            else
+            {
+                progress?.Report(new ProgressEventArgs
+                {
+                    Current = i + 1,
+                    Total = total,
+                    Message = translate ? $"Translated chapter {i + 1} of {total}..." : $"Downloaded chapter {i + 1} of {total}..."
+                });
+            }
         }
 
         return results;

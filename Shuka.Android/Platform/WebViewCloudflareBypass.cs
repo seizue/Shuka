@@ -158,6 +158,22 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             await Task.Delay(pollMs, ct);
             waited += pollMs;
 
+            // Check if the page is locked / paywalled — return immediately if found
+            string? lockedJs = await webView.EvaluateJavaScriptAsync(
+                "(function(){ " +
+                "  var t = (document.body ? document.body.innerText : ''); " +
+                "  return (t.indexOf('Unlock to continue reading') !== -1 || " +
+                "          t.indexOf('Sign in to Unlock') !== -1 || " +
+                "          t.indexOf('Unlock Chapter') !== -1 || " +
+                "          t.indexOf('Unlock this chapter') !== -1 || " +
+                "          (t.indexOf('coins') !== -1 && t.indexOf('Unlock') !== -1)) ? '1' : '0'; " +
+                "})()");
+
+            if (lockedJs?.Trim('"') == "1")
+            {
+                return; // Locked chapter — exit poll immediately
+            }
+
             // Check if any paragraph content has appeared (chapter text)
             string? js = await webView.EvaluateJavaScriptAsync(
                 "(function(){ var ps = document.querySelectorAll('p'); var len = 0; " +

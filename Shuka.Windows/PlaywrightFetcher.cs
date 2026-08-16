@@ -137,8 +137,18 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         {
             // Try headless first (reuses main context)
             string html = await FetchWithNoveldexStrategy(url, _context!, ct, useHeadless: true);
-            // If headless failed to get real content, try visible context as fallback
-            if (IsNoveldexChapterUrl(url) && html.Length < 1000)
+
+            bool isLockedHtml =
+                html.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
+                (html.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
+                 html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
+
+            // If headless failed to get real content AND it's not a paywalled/locked chapter, try visible context as fallback
+            if (IsNoveldexChapterUrl(url) && html.Length < 1000 && !isLockedHtml)
             {
                 Console.Write("[noveldex] Headless failed, trying visible...");
                 html = await FetchWithNoveldexStrategy(url, await EnsureNoveldexContextAsync(), ct, useHeadless: false);
@@ -318,8 +328,10 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 bool locked =
                     bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
                     bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+                    bodyText.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
+                    bodyText.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
                     (bodyText.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-                     bodyText.Contains("permanent access", StringComparison.OrdinalIgnoreCase));
+                     bodyText.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
 
                 if (locked)
                 {
@@ -356,7 +368,11 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                         "() => document.body ? document.body.innerText : ''");
                     bool locked =
                         bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
-                        bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase);
+                        bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+                        bodyText.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
+                        bodyText.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
+                        (bodyText.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
+                         bodyText.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
                     if (locked)
                     {
                         Console.Write("[locked]");

@@ -17,12 +17,13 @@ function Invoke-Shuka {
     $exe = Join-Path $scriptDir "Shuka.exe"
     if (Test-Path $exe) {
         & $exe @arguments
-    } else {
+    }
+    else {
         dotnet run --project "$scriptDir" -c Release -- @arguments
     }
 }
 
-function Ask-Novel {
+function Get-Novel {
     param([int]$index = 0, [bool]$askPages = $true)
 
     if ($index -gt 0) {
@@ -36,23 +37,23 @@ function Ask-Novel {
     Write-Host "Cover URL (leave blank to auto-detect or generate)" -ForegroundColor DarkGray
     $cover = Read-Host "Cover URL"
 
-    $pages = 0
+    $pages = "0"
     if ($askPages) {
         Write-Host ""
-        Write-Host "How many pages? (0 or blank = ALL, enter 3 to test first)" -ForegroundColor DarkGray
-        $pagesInput = Read-Host "Pages"
-        if (![string]::IsNullOrWhiteSpace($pagesInput)) { $pages = [int]$pagesInput }
+        Write-Host "Chapters to download (0 or blank = ALL, enter 3 to test, or range 243-244)" -ForegroundColor DarkGray
+        $pagesInput = Read-Host "Chapters"
+        if (![string]::IsNullOrWhiteSpace($pagesInput)) { $pages = $pagesInput.Trim() }
     }
 
     return [PSCustomObject]@{ Url = $url; Cover = $cover; Pages = $pages }
 }
 
-function Download-Single {
+function Invoke-SingleDownload {
     Show-Header
     Write-Host "  [ Single Novel ]" -ForegroundColor Yellow
     Write-Host ""
 
-    $novel = Ask-Novel -askPages $true
+    $novel = Get-Novel -askPages $true
     if ($null -eq $novel) { Write-Host "No URL entered." -ForegroundColor Red; return }
 
     Write-Host ""
@@ -61,19 +62,21 @@ function Download-Single {
 
     if ([string]::IsNullOrWhiteSpace($novel.Cover)) {
         Invoke-Shuka @($novel.Url, "$($novel.Pages)")
-    } else {
+    }
+    else {
         Invoke-Shuka @($novel.Url, "$($novel.Pages)", "", $novel.Cover)
     }
 
     Write-Host ""
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Done! Check your Downloads folder." -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "Something went wrong. Check the output above." -ForegroundColor Red
     }
 }
 
-function Download-Batch {
+function Invoke-BatchDownload {
     Show-Header
     Write-Host "  [ Batch Download ]" -ForegroundColor Yellow
     Write-Host ""
@@ -83,12 +86,13 @@ function Download-Batch {
     $queue = [System.Collections.Generic.List[object]]::new()
 
     while ($true) {
-        $novel = Ask-Novel -index ($queue.Count + 1) -askPages $false
+        $novel = Get-Novel -index ($queue.Count + 1) -askPages $false
         if ($null -ne $novel) {
             $queue.Add($novel)
             Write-Host ""
             Write-Host "Novel #$($queue.Count) added." -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "Skipped." -ForegroundColor DarkGray
         }
 
@@ -120,7 +124,8 @@ function Download-Batch {
 
         if ([string]::IsNullOrWhiteSpace($novel.Cover)) {
             Invoke-Shuka @($novel.Url, "0")
-        } else {
+        }
+        else {
             Invoke-Shuka @($novel.Url, "0", "", $novel.Cover)
         }
     }
@@ -129,7 +134,7 @@ function Download-Batch {
     Write-Host "Batch complete! Check your Downloads folder." -ForegroundColor Green
 }
 
-function Download-Sample {
+function Invoke-SampleDownload {
     Show-Header
     Write-Host "  [ Export Sample EPUB from Checkpoint ]" -ForegroundColor Yellow
     Write-Host ""
@@ -146,7 +151,8 @@ function Download-Sample {
     Write-Host ""
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Done! Check your Downloads folder." -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "Something went wrong or no checkpoint was found." -ForegroundColor Red
     }
 }
@@ -162,9 +168,9 @@ while ($true) {
     $choice = Read-Host "Choose (1, 2, 3 or 4)"
 
     switch ($choice) {
-        "1" { Download-Single }
-        "2" { Download-Batch }
-        "3" { Download-Sample }
+        "1" { Invoke-SingleDownload }
+        "2" { Invoke-BatchDownload }
+        "3" { Invoke-SampleDownload }
         "4" { Write-Host ""; Write-Host "Goodbye!" -ForegroundColor DarkGray; Start-Sleep -Seconds 1; exit }
         default { Write-Host "Invalid choice." -ForegroundColor Red }
     }

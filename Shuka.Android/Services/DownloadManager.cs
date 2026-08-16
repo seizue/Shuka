@@ -884,7 +884,9 @@ public class DownloadManager
                 item.Author     = book.AuthorEn ?? book.Author;
                 item.EpubPath   = finalPath;
                 item.Progress   = 1.0;
-                item.StatusText = "Done";
+                item.StatusText = (item.StatusText != null && item.StatusText.Contains("is locked"))
+                    ? item.StatusText
+                    : "Done";
                 item.Status     = DownloadStatus.Completed;
             });
 

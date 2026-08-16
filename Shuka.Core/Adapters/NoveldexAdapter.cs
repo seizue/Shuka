@@ -253,9 +253,10 @@ public class NoveldexAdapter : ISiteAdapter
             html.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
             html.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
             html.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+            html.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
+            html.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
             (html.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-             html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase) &&
-             html.Contains("permanent access", StringComparison.OrdinalIgnoreCase));
+             html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
 
         if (isPaywalled) return result; // empty — chapter is paywalled
 
