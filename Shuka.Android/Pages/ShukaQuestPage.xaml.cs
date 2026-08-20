@@ -51,9 +51,12 @@ public partial class ShukaQuestPage : ContentPage
         ["dmxs.org"] = url => System.Text.RegularExpressions.Regex.IsMatch(
             url, @"dmxs\.org/[a-zA-Z]+/\d+\.html", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
 
-        // 52shuku.net: /{category}/{folder}/bk{id}.html
-        ["52shuku.net"] = url => System.Text.RegularExpressions.Regex.IsMatch(
-            url, @"52shuku\.net/[^/]+/[^/]+/bk[^/]+\.html", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        // 52shuku.net: /{category}/{folder}/bk{id}.html (exclude recommendations & year recommendation links)
+        ["52shuku.net"] = url => !url.Contains("/tuijian/", System.StringComparison.OrdinalIgnoreCase)
+            && !url.Contains("_top", System.StringComparison.OrdinalIgnoreCase)
+            && !System.Text.RegularExpressions.Regex.IsMatch(url, @"\d{4}年", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && System.Text.RegularExpressions.Regex.IsMatch(
+                url, @"52shuku\.net/[^/]+/[^/]+/bk[^/]+\.html", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
 
         // situu.cc: /85_85861/
         ["situu.cc"] = url => System.Text.RegularExpressions.Regex.IsMatch(

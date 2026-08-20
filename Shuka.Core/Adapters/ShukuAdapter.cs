@@ -9,7 +9,10 @@ public class ShukuAdapter : ISiteAdapter
     public string SiteName => "52shuku.net";
 
     public bool Matches(string url) =>
-        url.Contains("52shuku.net", StringComparison.OrdinalIgnoreCase);
+        url.Contains("52shuku.net", StringComparison.OrdinalIgnoreCase) &&
+        !url.Contains("/tuijian/", StringComparison.OrdinalIgnoreCase) &&
+        !url.Contains("_top", StringComparison.OrdinalIgnoreCase) &&
+        !Regex.IsMatch(url, @"\d{4}年", RegexOptions.IgnoreCase);
 
     public string NormalizeUrl(string url)
     {

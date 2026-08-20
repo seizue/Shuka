@@ -39,6 +39,16 @@ public class ShukuBrowse : IBrowsableAdapter
             ? "https://www.52shuku.net/tuijian/gl_top.html"
             : $"https://www.52shuku.net/tuijian/gl_top_{page}.html";
 
+    public IReadOnlyList<SourceFilter>? Filters => new SourceFilter[]
+    {
+        new("Modern Danmei",        page => page == 1 ? "https://www.52shuku.net/xiandaidushi/" : $"https://www.52shuku.net/xiandaidushi/index_{page}.html"),
+        new("Transmigration Danmei", page => page == 1 ? "https://www.52shuku.net/chuanyue/"     : $"https://www.52shuku.net/chuanyue/index_{page}.html"),
+        new("Ancient Danmei",       page => page == 1 ? "https://www.52shuku.net/jiakong/"      : $"https://www.52shuku.net/jiakong/index_{page}.html"),
+        new("GL / Baihe",           page => page == 1 ? "https://www.52shuku.net/gl/"           : $"https://www.52shuku.net/gl/index_{page}.html"),
+        new("Anime Fanfic",         page => page == 1 ? "https://www.52shuku.net/zongman/"      : $"https://www.52shuku.net/zongman/index_{page}.html"),
+        new("Top 500",              page => page == 1 ? "https://www.52shuku.net/tuijian/gl_top.html" : $"https://www.52shuku.net/tuijian/gl_top_{page}.html"),
+    };
+
     // Search is disabled on the site — fall back to recent listing but include query for local filtering
     public string GetSearchUrl(string query, int page = 1) =>
         GetRecentUrl(page) + "?q=" + Uri.EscapeDataString(query);
@@ -83,15 +93,19 @@ public class ShukuBrowse : IBrowsableAdapter
 
             string url = lm.Groups[1].Value.Trim();
 
-            // Ignore non-novel aggregation / category / top list links
-            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/") || url.EndsWith("/shuoming.html"))
+            // Ignore non-novel aggregation / category / top list links and year recommendations (e.g. 2026年...小说推荐)
+            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/") || url.EndsWith("/shuoming.html") || Regex.IsMatch(url, @"\d{4}年"))
                 continue;
-
-            if (!seen.Add(url)) continue;
 
             // Heading text: "Title_Author【status】"
             string headingText = System.Net.WebUtility.HtmlDecode(
                 Regex.Replace(lm.Groups[2].Value, @"<[^>]+>", "").Trim());
+
+            // Skip year recommendation titles (e.g. "2026年综漫同人小说推荐", "2026年...")
+            if (Regex.IsMatch(headingText, @"\d{4}年") || headingText.Contains("小说推荐"))
+                continue;
+
+            if (!seen.Add(url)) continue;
 
             // Strip status suffix like 【完结】【完结+番外】
             string cleanHeading = Regex.Replace(headingText, @"[【\[][^】\]]*[】\]]", "").Trim();
@@ -108,7 +122,7 @@ public class ShukuBrowse : IBrowsableAdapter
                 if (string.IsNullOrWhiteSpace(author)) author = null;
             }
 
-            if (string.IsNullOrWhiteSpace(title) || title.Length < 2) continue;
+            if (string.IsNullOrWhiteSpace(title) || title.Length < 2 || Regex.IsMatch(title, @"\d{4}年")) continue;
 
             // Extract synopsis from <span class="note">
             // The note looks like: "　　[GL] 《Title》作者：Author【status】　　简介：　　actual synopsis..."
@@ -148,11 +162,13 @@ public class ShukuBrowse : IBrowsableAdapter
         foreach (Match hm in h3Pattern.Matches(html))
         {
             string url = hm.Groups[1].Value.Trim();
-            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/")) continue;
-            if (!seen.Add(url)) continue;
+            if (url.Contains("/tuijian/") || url.Contains("_top") || url.Contains("/Top/") || Regex.IsMatch(url, @"\d{4}年")) continue;
 
             string headingText = System.Net.WebUtility.HtmlDecode(
                 Regex.Replace(hm.Groups[2].Value, @"<[^>]+>", "").Trim());
+
+            if (Regex.IsMatch(headingText, @"\d{4}年") || headingText.Contains("小说推荐")) continue;
+            if (!seen.Add(url)) continue;
 
             string cleanHeading = Regex.Replace(headingText, @"[【\[][^】\]]*[】\]]", "").Trim();
             cleanHeading = cleanHeading.TrimEnd('_').Trim();
@@ -167,7 +183,7 @@ public class ShukuBrowse : IBrowsableAdapter
                 if (string.IsNullOrWhiteSpace(author)) author = null;
             }
 
-            if (string.IsNullOrWhiteSpace(title) || title.Length < 2) continue;
+            if (string.IsNullOrWhiteSpace(title) || title.Length < 2 || Regex.IsMatch(title, @"\d{4}年")) continue;
 
             string? desc = null;
             int blockStart = hm.Index + hm.Length;
@@ -196,10 +212,11 @@ public class ShukuBrowse : IBrowsableAdapter
             foreach (Match m in linkFallback.Matches(html))
             {
                 string url = m.Groups[1].Value;
+                if (url.Contains("/tuijian/") || Regex.IsMatch(url, @"\d{4}年")) continue;
                 if (!seen.Add(url)) continue;
                 string rawTitle = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value.Trim());
                 string title = Regex.Replace(rawTitle, @"[【\[][^】\]]*[】\]]", "").Trim();
-                if (title.Length < 2) continue;
+                if (title.Length < 2 || Regex.IsMatch(title, @"\d{4}年") || title.Contains("小说推荐")) continue;
                 novels.Add(new NovelEntry(title, null, url, null, null, null));
             }
         }
