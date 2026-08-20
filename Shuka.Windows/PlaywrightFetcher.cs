@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Shuka.Core;
+using Shuka.Core.Adapters;
 
 namespace Shuka;
 
@@ -138,14 +139,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             // Try headless first (reuses main context)
             string html = await FetchWithNoveldexStrategy(url, _context!, ct, useHeadless: true);
 
-            bool isLockedHtml =
-                html.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
-                html.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
-                html.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
-                html.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
-                html.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
-                (html.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-                 html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
+            bool isLockedHtml = NoveldexAdapter.IsNoveldexPaywalled(html);
 
             // If headless failed to get real content AND it's not a paywalled/locked chapter, try visible context as fallback
             if (IsNoveldexChapterUrl(url) && html.Length < 1000 && !isLockedHtml)
@@ -325,13 +319,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             {
                 string bodyText = await page.EvaluateAsync<string>(
                     "() => document.body ? document.body.innerText : ''");
-                bool locked =
-                    bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
-                    bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
-                    bodyText.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
-                    bodyText.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
-                    (bodyText.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-                     bodyText.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
+                bool locked = NoveldexAdapter.IsNoveldexPaywalled(bodyText);
 
                 if (locked)
                 {
@@ -366,13 +354,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 {
                     string bodyText = await page.EvaluateAsync<string>(
                         "() => document.body ? document.body.innerText : ''");
-                    bool locked =
-                        bodyText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
-                        bodyText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
-                        bodyText.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
-                        bodyText.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
-                        (bodyText.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-                         bodyText.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
+                    bool locked = NoveldexAdapter.IsNoveldexPaywalled(bodyText);
                     if (locked)
                     {
                         Console.Write("[locked]");

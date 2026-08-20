@@ -162,11 +162,13 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             string? lockedJs = await webView.EvaluateJavaScriptAsync(
                 "(function(){ " +
                 "  var t = (document.body ? document.body.innerText : ''); " +
+                "  if (!t) return '0'; " +
                 "  return (t.indexOf('Unlock to continue reading') !== -1 || " +
                 "          t.indexOf('Sign in to Unlock') !== -1 || " +
                 "          t.indexOf('Unlock Chapter') !== -1 || " +
                 "          t.indexOf('Unlock this chapter') !== -1 || " +
-                "          (t.indexOf('coins') !== -1 && t.indexOf('Unlock') !== -1)) ? '1' : '0'; " +
+                "          /\\bunlock\\b.{1,40}\\bcoins?\\b/i.test(t) || " +
+                "          /\\bcoins?\\b.{1,40}\\bunlock\\b/i.test(t)) ? '1' : '0'; " +
                 "})()");
 
             if (lockedJs?.Trim('"') == "1")

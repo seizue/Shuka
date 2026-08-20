@@ -241,6 +241,32 @@ public class NoveldexAdapter : ISiteAdapter
         return new IndexInfo(title, author, chapters, cover);
     }
 
+    /// <summary>
+    /// Checks if the page HTML or visible body text indicates a paywalled/locked chapter on noveldex.io.
+    /// </summary>
+    public static bool IsNoveldexPaywalled(string htmlOrText)
+    {
+        if (string.IsNullOrWhiteSpace(htmlOrText)) return false;
+
+        if (htmlOrText.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
+            htmlOrText.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
+            htmlOrText.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
+            htmlOrText.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
+            htmlOrText.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Proximity check: "unlock" and "coins" within 40 chars of each other
+        if (Regex.IsMatch(htmlOrText, @"\bunlock\b.{1,40}\bcoins?\b", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(htmlOrText, @"\bcoins?\b.{1,40}\bunlock\b", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     public List<string> ExtractChapterText(string html)
     {
         var result = new List<string>();
@@ -249,16 +275,7 @@ public class NoveldexAdapter : ISiteAdapter
         // noveldex.io locked chapters show "Unlock to continue reading — N coins"
         // instead of actual content. Return empty so the caller skips this chapter
         // rather than saving coin-paywall boilerplate as chapter text.
-        bool isPaywalled =
-            html.Contains("Unlock to continue reading", StringComparison.OrdinalIgnoreCase) ||
-            html.Contains("coinsSign in to Unlock",     StringComparison.OrdinalIgnoreCase) ||
-            html.Contains("Sign in to Unlock",          StringComparison.OrdinalIgnoreCase) ||
-            html.Contains("Unlock Chapter",             StringComparison.OrdinalIgnoreCase) ||
-            html.Contains("Unlock this chapter",        StringComparison.OrdinalIgnoreCase) ||
-            (html.Contains("coins",            StringComparison.OrdinalIgnoreCase) &&
-             html.Contains("Unlock",           StringComparison.OrdinalIgnoreCase));
-
-        if (isPaywalled) return result; // empty — chapter is paywalled
+        if (IsNoveldexPaywalled(html)) return result; // empty — chapter is paywalled
 
         // ── Strategy 1: Paragraph (<p>) tags from rendered DOM ─────────────────
         foreach (Match pm in Regex.Matches(html, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
