@@ -45,7 +45,7 @@ public class ShukuBrowse : IBrowsableAdapter
         new("Transmigration Danmei", page => page == 1 ? "https://www.52shuku.net/chuanyue/"     : $"https://www.52shuku.net/chuanyue/index_{page}.html"),
         new("Ancient Danmei",       page => page == 1 ? "https://www.52shuku.net/jiakong/"      : $"https://www.52shuku.net/jiakong/index_{page}.html"),
         new("GL / Baihe",           page => page == 1 ? "https://www.52shuku.net/gl/"           : $"https://www.52shuku.net/gl/index_{page}.html"),
-        new("Anime Fanfic",         page => page == 1 ? "https://www.52shuku.net/zongman/"      : $"https://www.52shuku.net/zongman/index_{page}.html"),
+        new("BL / Fanfic",          page => page == 1 ? "https://www.52shuku.net/bl/"           : $"https://www.52shuku.net/bl/index_{page}.html"),
         new("Top 500",              page => page == 1 ? "https://www.52shuku.net/tuijian/gl_top.html" : $"https://www.52shuku.net/tuijian/gl_top_{page}.html"),
     };
 
