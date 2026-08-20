@@ -19,10 +19,10 @@ public class ShubaBrowse : IBrowsableAdapter
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => true;
 
-    public string GetRecentUrl(int page = 1)  =>
-        // /last.html is a single-page recent list; ignore page param beyond 1
-        page == 1 ? "https://www.69shuba.com/last.html"
-                  : $"https://www.69shuba.com/novels/newhot_0_0_{page}.htm";
+    public string HomeUrl => "https://www.69shuba.com/novels/monthvisit_0_0_1.htm";
+
+    public string GetRecentUrl(int page = 1) =>
+        $"https://www.69shuba.com/novels/monthvisit_0_0_{page}.htm";
 
     public string GetPopularUrl(int page = 1) =>
         $"https://www.69shuba.com/novels/monthvisit_0_0_{page}.htm";
@@ -30,18 +30,29 @@ public class ShubaBrowse : IBrowsableAdapter
     public string GetSearchUrl(string query, int page = 1) =>
         $"https://www.69shuba.com/search.htm?searchkey={Uri.EscapeDataString(query)}&page={page}";
 
+    public IReadOnlyList<SourceFilter>? Filters => new SourceFilter[]
+    {
+        new("Monthly Rankings",     page => $"https://www.69shuba.com/novels/monthvisit_0_0_{page}.htm"),
+        new("Romance",              page => $"https://www.69shuba.com/novels/monthvisit_3_0_{page}.htm"),
+        new("Cultivation & Wuxia",  page => $"https://www.69shuba.com/novels/monthvisit_2_0_{page}.htm"),
+        new("Fantasy",              page => $"https://www.69shuba.com/novels/monthvisit_1_0_{page}.htm"),
+        new("Urban",                page => $"https://www.69shuba.com/novels/monthvisit_4_0_{page}.htm"),
+        new("Sci-Fi",               page => $"https://www.69shuba.com/novels/monthvisit_7_0_{page}.htm"),
+        new("History & Military",   page => $"https://www.69shuba.com/novels/monthvisit_5_0_{page}.htm"),
+        new("Gaming & Sports",      page => $"https://www.69shuba.com/novels/monthvisit_6_0_{page}.htm"),
+        new("Mystery & Horror",     page => $"https://www.69shuba.com/novels/monthvisit_8_0_{page}.htm"),
+        new("Fanfiction",           page => $"https://www.69shuba.com/novels/monthvisit_9_0_{page}.htm"),
+    };
+
     public ListingPage ParseListing(string html, string pageUrl)
     {
         var novels = new List<NovelEntry>();
         var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Book links: /book/{id}.htm  (the site changed from /book/{id}/ to /book/{id}.htm)
-        // The popular/ranking pages wrap each entry in an <li> with rank number + title + author
-        // The recent page (/last.html) has simple <a href="/book/{id}.htm">Title</a> links
-
-        // Pattern 1: structured ranking blocks — <li> containing /book/{id}.htm
+        // Book links: /book/{id}.htm or /txt/{id}.htm or /book/{id}/
+        // The popular/ranking pages wrap each entry in an <li> or <div> block
         var blockPattern = new Regex(
-            @"<li[^>]*>([\s\S]*?)</li>",
+            @"<(?:li|div)[^>]*>([\s\S]*?)</(?:li|div)>",
             RegexOptions.IgnoreCase);
 
         foreach (Match block in blockPattern.Matches(html))
@@ -49,7 +60,7 @@ public class ShubaBrowse : IBrowsableAdapter
             string content = block.Groups[1].Value;
 
             var urlM = Regex.Match(content,
-                @"href=[""'](?:https?://(?:www\.)?69shuba\.com)?/book/(\d+)\.htm[""']",
+                @"href=[""'](?:https?://(?:www\.)?69shuba\.[a-z]+)?/(?:book|txt)/?(\d+)(?:\.html?|/)?[""']",
                 RegexOptions.IgnoreCase);
             if (!urlM.Success) continue;
 
@@ -58,7 +69,7 @@ public class ShubaBrowse : IBrowsableAdapter
 
             string url = $"https://www.69shuba.com/book/{bookId}.htm";
 
-            // Title: prefer <h3> or <h4>, fall back to link text
+            // Title: prefer <h3> or <h4> or <a> title attribute, fall back to link text
             string title = "";
             var titleM = Regex.Match(content,
                 @"<h[34][^>]*>([^<]+)</h[34]>",
@@ -67,7 +78,7 @@ public class ShubaBrowse : IBrowsableAdapter
             if (string.IsNullOrWhiteSpace(title))
             {
                 var aM = Regex.Match(content,
-                    @"href=[""'][^""']*/book/" + Regex.Escape(bookId) + @"\.htm[""'][^>]*>\s*([^<]{2,80})\s*</a>",
+                    @"href=[""'][^""']*/(?:book|txt)/?" + Regex.Escape(bookId) + @"(?:\.html?|/)?[""'][^>]*>\s*([^<]{2,80})\s*</a>",
                     RegexOptions.IgnoreCase);
                 if (aM.Success) title = System.Net.WebUtility.HtmlDecode(aM.Groups[1].Value.Trim());
             }
@@ -100,11 +111,11 @@ public class ShubaBrowse : IBrowsableAdapter
             novels.Add(new NovelEntry(title, author, url, cover, desc, null, chMeta.count, chMeta.text));
         }
 
-        // Fallback: direct /book/{id}.htm link scan (works for /last.html and search results)
+        // Fallback: direct /book/{id}.htm or /txt/{id}.htm link scan
         if (novels.Count == 0)
         {
             var linkPattern = new Regex(
-                @"href=[""'](?:https?://(?:www\.)?69shuba\.com)?/book/(\d+)\.htm[""'][^>]*>\s*([^<]{2,80})\s*</a>",
+                @"href=[""'](?:https?://(?:www\.)?69shuba\.[a-z]+)?/(?:book|txt)/?(\d+)(?:\.html?|/)?[""'][^>]*>\s*([^<]{2,80})\s*</a>",
                 RegexOptions.IgnoreCase);
             foreach (Match m in linkPattern.Matches(html))
             {
@@ -120,9 +131,9 @@ public class ShubaBrowse : IBrowsableAdapter
             }
         }
 
-        // Pagination: ranking pages use /novels/monthvisit_0_0_{page}.htm pattern
+        // Pagination: ranking pages use /novels/monthvisit_{cat}_0_{page}.htm pattern
         bool hasNext = html.Contains("下一页") ||
-                       Regex.IsMatch(html, @"monthvisit_0_0_\d+\.htm", RegexOptions.IgnoreCase);
+                       Regex.IsMatch(html, @"monthvisit_\d+_\d+_\d+\.htm", RegexOptions.IgnoreCase);
         int currentPage = 1;
         var pageM = Regex.Match(pageUrl, @"_(\d+)\.htm$");
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
