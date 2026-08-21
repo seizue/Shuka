@@ -43,9 +43,21 @@ public partial class SourceBrowsePage : ContentPage
     // Cache for translated titles (original title -> translated title)
     private readonly Dictionary<string, string> _translatedTitles = new(StringComparer.OrdinalIgnoreCase);
 
-    // Cache for remote cover images (URL -> ImageSource)
-    private static readonly Dictionary<string, ImageSource> _coverImageCache = new();
+    // Cache for remote cover image bytes (URL -> byte[])
+    private static readonly Dictionary<string, byte[]> _coverBytesCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _coverImageLock = new();
+    private static readonly HttpClient _coverHttp = new(new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+        DefaultRequestHeaders =
+        {
+            { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+            { "Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" }
+        }
+    };
 
     // Custom filter pills state
     private SourceFilter? _activeFilter;
@@ -202,7 +214,7 @@ public partial class SourceBrowsePage : ContentPage
 
     /// <summary>
     /// Returns a cached ImageSource for the remote cover URL, or null if not cached.
-    /// This enables lazy loading - images are loaded asynchronously and cached.
+    /// Creates a new ImageSource from cached bytes to safely bind to controls.
     /// </summary>
     private static ImageSource? GetCachedCoverImage(string? coverUrl)
     {
@@ -211,8 +223,8 @@ public partial class SourceBrowsePage : ContentPage
 
         lock (_coverImageLock)
         {
-            if (_coverImageCache.TryGetValue(coverUrl, out var source))
-                return source;
+            if (_coverBytesCache.TryGetValue(coverUrl, out var bytes))
+                return ImageSource.FromStream(() => new MemoryStream(bytes));
 
             // Not cached yet - will be loaded asynchronously
             return null;
@@ -220,17 +232,78 @@ public partial class SourceBrowsePage : ContentPage
     }
 
     /// <summary>
-    /// Caches an ImageSource for a remote cover URL.
+    /// Caches image bytes for a remote cover URL.
     /// </summary>
-    private static void CacheCoverImage(string coverUrl, ImageSource source)
+    private static void CacheCoverBytes(string coverUrl, byte[] bytes)
     {
-        if (string.IsNullOrWhiteSpace(coverUrl))
+        if (string.IsNullOrWhiteSpace(coverUrl) || bytes == null || bytes.Length == 0)
             return;
 
         lock (_coverImageLock)
         {
-            _coverImageCache[coverUrl] = source;
+            _coverBytesCache[coverUrl] = bytes;
         }
+    }
+
+    /// <summary>
+    /// Asynchronously loads a cover image using HttpClient with browser headers,
+    /// caches the downloaded bytes in memory, and updates the Image control smoothly.
+    /// Avoids MAUI UriImageSource layout glitches and hotlink failures.
+    /// </summary>
+    private void LoadCoverImageAsync(Image targetImg, string? coverUrl, View? placeholderView = null)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl) || !Uri.TryCreate(coverUrl, UriKind.Absolute, out var coverUri))
+        {
+            targetImg.IsVisible = false;
+            if (placeholderView != null) placeholderView.IsVisible = true;
+            return;
+        }
+
+        // Check cache first
+        var cached = GetCachedCoverImage(coverUrl);
+        if (cached != null)
+        {
+            targetImg.Source = cached;
+            targetImg.IsVisible = true;
+            if (placeholderView != null) placeholderView.IsVisible = false;
+            return;
+        }
+
+        // Show placeholder while downloading
+        targetImg.IsVisible = false;
+        if (placeholderView != null) placeholderView.IsVisible = true;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, coverUri);
+                if (!string.IsNullOrWhiteSpace(_source?.HomeUrl))
+                {
+                    try { req.Headers.Referrer = new Uri(_source.HomeUrl); } catch { }
+                }
+
+                using var resp = await _coverHttp.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var data = await resp.Content.ReadAsByteArrayAsync();
+                    if (data != null && data.Length > 0)
+                    {
+                        CacheCoverBytes(coverUrl, data);
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            targetImg.Source = ImageSource.FromStream(() => new MemoryStream(data));
+                            targetImg.IsVisible = true;
+                            if (placeholderView != null) placeholderView.IsVisible = false;
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to load cover: {ex.Message}");
+            }
+        });
     }
 
     private async Task TranslateAllTitlesAsync()
@@ -672,16 +745,25 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
-            // Check cache first - if cached, use it directly
-            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
+            var placeholderLily = new Image
+            {
+                Source            = ImageSource.FromFile("lily.png"),
+                Aspect            = Aspect.AspectFit,
+                WidthRequest      = 28,
+                HeightRequest     = 28,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions   = LayoutOptions.Center,
+                Opacity           = 0.35,
+            };
+
             var coverImg = new Image
             {
-                Source  = cachedSource ?? ImageSource.FromUri(coverUri), // Use cached or load directly
-                Aspect  = Aspect.AspectFill,
+                Aspect            = Aspect.AspectFill,
                 HeightRequest     = cardH,
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions   = LayoutOptions.Fill,
             };
+
             var coverGrid = new Grid
             {
                 HeightRequest     = cardH,
@@ -689,31 +771,11 @@ public partial class SourceBrowsePage : ContentPage
                 VerticalOptions   = LayoutOptions.Fill,
             };
             coverGrid.SetDynamicResource(Grid.BackgroundColorProperty, "BgInput");
+            coverGrid.Add(placeholderLily);
             coverGrid.Add(coverImg);
             coverContent = coverGrid;
 
-            // Cache the image if not already cached (for future use)
-            if (cachedSource == null)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Download image data
-                        using var http = new HttpClient();
-                        http.Timeout = TimeSpan.FromSeconds(10);
-                        var imageData = await http.GetByteArrayAsync(coverUri);
-
-                        // Create ImageSource from downloaded data and cache it
-                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
-                        CacheCoverImage(novel.CoverUrl, imageSource);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache cover: {ex.Message}");
-                    }
-                });
-            }
+            LoadCoverImageAsync(coverImg, novel.CoverUrl, placeholderLily);
         }
         else
         {
@@ -822,51 +884,49 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
-            // Check cache first - if cached, use it directly
-            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
+            var placeholderLily = new Image
+            {
+                Source            = ImageSource.FromFile("lily.png"),
+                Aspect            = Aspect.AspectFit,
+                WidthRequest      = 22,
+                HeightRequest     = 22,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions   = LayoutOptions.Center,
+                Opacity           = 0.35,
+            };
+
             var img = new Image
             {
-                Source            = cachedSource ?? ImageSource.FromUri(coverUri), // Use cached or load directly
                 Aspect            = Aspect.AspectFill,
                 WidthRequest      = 64,
                 HeightRequest     = 92,
                 HorizontalOptions = LayoutOptions.Center,
                 VerticalOptions   = LayoutOptions.Center,
             };
+
+            var coverGrid = new Grid
+            {
+                WidthRequest      = 64,
+                HeightRequest     = 92,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions   = LayoutOptions.Center,
+            };
+            coverGrid.Add(placeholderLily);
+            coverGrid.Add(img);
+
             var coverBorder = new Border
             {
                 StrokeThickness = 0,
                 StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
                 WidthRequest    = 64,
                 HeightRequest   = 92,
-                Content         = img,
+                Content         = coverGrid,
             };
             coverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
             coverView = coverBorder;
             AttachCoverImageLongPress(coverBorder, novel.CoverUrl.Trim());
 
-            // Cache the image if not already cached (for future use)
-            if (cachedSource == null)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Download image data
-                        using var http = new HttpClient();
-                        http.Timeout = TimeSpan.FromSeconds(10);
-                        var imageData = await http.GetByteArrayAsync(coverUri);
-
-                        // Create ImageSource from downloaded data and cache it
-                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
-                        CacheCoverImage(novel.CoverUrl, imageSource);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache cover: {ex.Message}");
-                    }
-                });
-            }
+            LoadCoverImageAsync(img, novel.CoverUrl, placeholderLily);
         }
         else
         {
@@ -1417,34 +1477,9 @@ public partial class SourceBrowsePage : ContentPage
         if (!string.IsNullOrWhiteSpace(novel.CoverUrl) &&
             Uri.TryCreate(novel.CoverUrl, UriKind.Absolute, out var coverUri))
         {
-            // Check cache first - if cached, use it directly
-            var cachedSource = GetCachedCoverImage(novel.CoverUrl);
-            DetailCoverImage.Source = cachedSource ?? ImageSource.FromUri(coverUri); // Use cached or load directly
-            DetailCoverBorder.IsVisible  = true;
+            DetailCoverBorder.IsVisible   = true;
             DetailCoverFallback.IsVisible = false;
-
-            // Cache the image if not already cached (for future use)
-            if (cachedSource == null)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Download image data
-                        using var http = new HttpClient();
-                        http.Timeout = TimeSpan.FromSeconds(10);
-                        var imageData = await http.GetByteArrayAsync(coverUri);
-
-                        // Create ImageSource from downloaded data and cache it
-                        var imageSource = ImageSource.FromStream(() => new MemoryStream(imageData));
-                        CacheCoverImage(novel.CoverUrl, imageSource);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to cache detail cover: {ex.Message}");
-                    }
-                });
-            }
+            LoadCoverImageAsync(DetailCoverImage, novel.CoverUrl);
         }
         else
         {
