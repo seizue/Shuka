@@ -178,9 +178,6 @@ public class BookService
         // Semaphore to serialize checkpoint writes
         var writeLock = new SemaphoreSlim(1, 1);
 
-        int consecutiveLockedCount = 0;
-        int firstLockedChapterNumber = 0;
-
         for (int i = 0; i < total; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -191,27 +188,12 @@ public class BookService
                 string savedTitle = saved[i]!.Value.title;
                 string savedText  = saved[i]!.Value.text;
 
-                if (string.IsNullOrWhiteSpace(savedText))
+                // If adapter signals stop-on-first-locked and this checkpoint entry is empty, stop now
+                if (book.Adapter.StopOnFirstLockedChapter && string.IsNullOrWhiteSpace(savedText))
                 {
-                    consecutiveLockedCount++;
-                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
-                }
-                else
-                {
-                    consecutiveLockedCount = 0;
-                }
-
-                if (consecutiveLockedCount >= 3)
-                {
-                    int lastUnlocked = firstLockedChapterNumber - 1;
-                    int removeCount = consecutiveLockedCount - 1;
-                    if (results.Count >= removeCount)
-                    {
-                        results.RemoveRange(results.Count - removeCount, removeCount);
-                    }
-                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                    string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
                     log?.Invoke(statusMsg);
-                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                    progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
                     break;
                 }
 
@@ -254,33 +236,14 @@ public class BookService
             }
 
             var paras = book.Adapter.ExtractChapterText(html);
-            bool isLocked = paras.Count == 0 && book.Adapter.SiteName == "noveldex.io";
 
-            if (book.Adapter.SiteName == "noveldex.io")
+            // If this chapter is empty and the adapter says stop on first locked, end download now
+            if (paras.Count == 0 && book.Adapter.StopOnFirstLockedChapter)
             {
-                if (isLocked)
-                {
-                    consecutiveLockedCount++;
-                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
-                }
-                else
-                {
-                    consecutiveLockedCount = 0;
-                }
-
-                if (consecutiveLockedCount >= 3)
-                {
-                    int lastUnlocked = firstLockedChapterNumber - 1;
-                    int removeCount = consecutiveLockedCount - 1;
-                    if (results.Count >= removeCount)
-                    {
-                        results.RemoveRange(results.Count - removeCount, removeCount);
-                    }
-                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in Noveldex. Finished download at chapter {lastUnlocked}.";
-                    log?.Invoke(statusMsg);
-                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
-                    break;
-                }
+                string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
+                log?.Invoke(statusMsg);
+                progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
+                break;
             }
 
             string text = "";
@@ -325,24 +288,12 @@ public class BookService
                 await CheckpointService.SaveChapterAsync(
                     checkpointPath, book.IndexUrl, i, ch.Title, text, writeLock);
 
-            if (isLocked)
+            progress?.Report(new ProgressEventArgs
             {
-                progress?.Report(new ProgressEventArgs
-                {
-                    Current = i + 1,
-                    Total = total,
-                    Message = $"[locked] Chapter {i + 1} of {total} is locked"
-                });
-            }
-            else
-            {
-                progress?.Report(new ProgressEventArgs
-                {
-                    Current = i + 1,
-                    Total = total,
-                    Message = translate ? $"Translated chapter {i + 1} of {total}..." : $"Downloaded chapter {i + 1} of {total}..."
-                });
-            }
+                Current = i + 1,
+                Total = total,
+                Message = translate ? $"Translated chapter {i + 1} of {total}..." : $"Downloaded chapter {i + 1} of {total}..."
+            });
         }
 
         return results;

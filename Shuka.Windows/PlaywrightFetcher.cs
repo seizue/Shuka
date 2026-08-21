@@ -28,6 +28,26 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         _site = siteClient;
     }
 
+    // ── ICloudflareBypass explicit implementation — GetCookies ────────────────
+
+    /// <inheritdoc/>
+    public string? GetCookies(string host)
+    {
+        // On Windows, Playwright maintains cookies in its browser profile directory.
+        // We read them from the active context so HttpFetcher can inject them.
+        var ctx = _noveldexContext ?? _context;
+        if (ctx == null) return null;
+
+        try
+        {
+            var cookies = ctx.CookiesAsync(new[] { $"https://{host}" })
+                             .GetAwaiter().GetResult();
+            if (cookies == null || cookies.Count == 0) return null;
+            return string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
+        }
+        catch { return null; }
+    }
+
     // ── Public fetch entry point ──────────────────────────────────────────────
 
     /// <summary>

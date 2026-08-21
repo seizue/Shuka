@@ -19,17 +19,164 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     // the next fetch starts. Multiple concurrent WebViews cause CF to re-challenge.
     private static readonly SemaphoreSlim _sem = new(1, 1);
 
+    // Persistent WebView reused for Noveldex chapter fetches.
+    // Navigating one long-lived WebView avoids WebKit DOM accumulation that
+    // causes Android to freeze after 15+ separate WebView instances.
+    private static WebView?   _persistentWebView;
+    private static Grid?      _persistentOverlay;
+    private static Layout?    _persistentHost;
+
+    /// <summary>
+    /// Returns cookies stored by Android's WebKit CookieManager for a given host.
+    /// After a successful WebView bypass for noveldex.io, the CF clearance cookie
+    /// is stored here and reused by HttpFetcher for all subsequent direct requests,
+    /// eliminating the need to spin up a WebView for every chapter fetch.
+    /// </summary>
+    public string? GetCookies(string host)
+    {
+#if ANDROID
+        try
+        {
+            var cm = global::Android.Webkit.CookieManager.Instance;
+            if (cm == null) return null;
+
+            // CookieManager.GetCookie takes a URL string, not just a hostname
+            string? cookies = cm.GetCookie($"https://{host}");
+            if (string.IsNullOrWhiteSpace(cookies)) return null;
+            return cookies;
+        }
+        catch { return null; }
+#else
+        return null;
+#endif
+    }
+
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
         await _sem.WaitAsync(ct);
         try
         {
+            // Noveldex chapter pages: reuse a persistent WebView to avoid memory accumulation
+            bool isNoveldexChapter = Regex.IsMatch(url,
+                @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase);
+
+            if (isNoveldexChapter)
+                return await FetchWithPersistentWebViewAsync(url, ct);
+
             return await FetchInternalAsync(url, ct);
         }
         finally
         {
             _sem.Release();
         }
+    }
+
+    /// <summary>
+    /// Navigates the persistent singleton WebView to a new URL and waits for content.
+    /// The same WebView instance is reused across all Noveldex chapter fetches, so
+    /// WebKit never accumulates stale DOM trees from hundreds of separate instances.
+    /// </summary>
+    private Task<string> FetchWithPersistentWebViewAsync(string url, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                // Create and attach the persistent WebView once
+                if (_persistentWebView == null)
+                {
+                    _persistentWebView = new WebView
+                    {
+                        IsVisible        = true,
+                        Opacity          = 0.01,
+                        InputTransparent = true,
+                        WidthRequest     = 1,
+                        HeightRequest    = 1,
+                    };
+
+#if ANDROID
+                    _persistentWebView.HandlerChanged += (s, e) =>
+                    {
+                        if (_persistentWebView?.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+                        {
+                            try
+                            {
+                                awv.Settings.JavaScriptEnabled  = true;
+                                awv.Settings.DomStorageEnabled  = true;
+                                awv.Settings.DatabaseEnabled    = true;
+                                awv.Settings.SetSupportMultipleWindows(false);
+                                awv.Settings.JavaScriptCanOpenWindowsAutomatically = false;
+                                awv.Settings.UserAgentString    = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+                                awv.OnResume();
+                                awv.ResumeTimers();
+                            }
+                            catch { }
+                        }
+                    };
+#endif
+
+                    (_persistentHost, _persistentOverlay) = AttachWebView(_persistentWebView);
+                }
+
+                // Navigate to the new chapter URL
+                _persistentWebView.Source = new UrlWebViewSource { Url = url };
+
+                using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
+
+                // Brief settle delay then poll
+                await Task.Delay(1200, ct);
+
+                string? html = null;
+                int waited = 0;
+
+                while (waited < MaxWaitMs)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    await Task.Delay(PollMs, ct);
+                    waited += PollMs;
+
+#if ANDROID
+                    if (_persistentWebView.Handler?.PlatformView is global::Android.Webkit.WebView awv2)
+                    {
+                        try { awv2.OnResume(); awv2.ResumeTimers(); } catch { }
+                    }
+#endif
+
+                    html = await GetPageHtmlAsync(_persistentWebView);
+                    ct.ThrowIfCancellationRequested();
+                    if (html == null || html.Length < 300) continue;
+
+                    bool isChallenge =
+                        html.Contains("cf-chl-opt") ||
+                        html.Contains("cf-browser-verification") ||
+                        html.Contains("jschl-answer") ||
+                        html.Contains("challenge-form") ||
+                        (html.Contains("cloudflare") && html.Contains("checking"));
+
+                    if (!isChallenge) break;
+                }
+
+                // Wait for Next.js chapter content to hydrate
+                await WaitForNoveldexChapterAsync(_persistentWebView, ct);
+                ct.ThrowIfCancellationRequested();
+                html = await GetPageHtmlAsync(_persistentWebView);
+
+                tcs.TrySetResult(html ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                tcs.TrySetCanceled(ct);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+            // NOTE: intentionally NOT cleaning up _persistentWebView here — it stays alive
+        });
+
+        return tcs.Task;
     }
 
     private Task<string> FetchInternalAsync(string url, CancellationToken ct)

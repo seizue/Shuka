@@ -17,7 +17,8 @@ namespace Shuka.Core.Adapters;
 public class NoveldexAdapter : ISiteAdapter
 {
     public string SiteName => "noveldex.io";
-    public bool RequiresCfBypass => true;   // JS-rendered Next.js SPA — needs WebView
+    public bool RequiresCfBypass => true;   // Next.js SPA — chapter content requires JS execution; WebView is needed.
+    public bool StopOnFirstLockedChapter => true;  // Noveldex paywall is contiguous — once locked, all following are locked too.
 
     public bool Matches(string url) =>
         url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);

@@ -52,6 +52,14 @@ public class HttpFetcher : IDisposable
                 var uri = new Uri(url);
                 req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
 
+                // Inject any cookies from a previous WebView/CF bypass session for this host.
+                // This allows bot-checked sites (e.g. noveldex.io) to be fetched via fast
+                // HttpClient after the first WebView challenge establishes the session.
+                string? bypassCookies = _cfBypass?.GetCookies(uri.Host);
+                if (!string.IsNullOrEmpty(bypassCookies))
+                    req.Headers.TryAddWithoutValidation("Cookie", bypassCookies);
+
+
                 // 10s per attempt — fast enough to detect dead connections,
                 // long enough for slow servers. Retries handle transient failures.
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -259,4 +267,11 @@ public class HttpFetcher : IDisposable
 public interface ICloudflareBypass
 {
     Task<string> FetchAsync(string url, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the current cookies stored for the given host (e.g. "noveldex.io")
+    /// as a single Cookie header value string, e.g. "cf_clearance=abc; __cf_bm=xyz".
+    /// Returns null if no cookies are available.
+    /// </summary>
+    string? GetCookies(string host);
 }

@@ -9,6 +9,11 @@ public interface ISiteAdapter
     IndexInfo ParseIndex(string html, string indexUrl);
     List<string> ExtractChapterText(string html);
     bool RequiresCfBypass => false;
+    /// <summary>
+    /// When true, the download stops at the very first locked/empty chapter
+    /// instead of waiting for 3 consecutive locked chapters.
+    /// </summary>
+    bool StopOnFirstLockedChapter => false;
 }
 
 // Parsed index result from an adapter
