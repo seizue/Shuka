@@ -17,6 +17,11 @@ public class DownloadForegroundService : Service
     private const string DoneChannelId    = "shuka_done_channel";
     private const int    NotificationId   = 1001;
 
+    // Track active notification state for live updates
+    private static int    _currentTotal   = 0;
+    private static int    _currentChapter = 0;
+    private static string _currentTitle   = "Downloading novel\u2026";
+
     public static void Start()
     {
         var ctx = global::Android.App.Application.Context;
@@ -33,6 +38,66 @@ public class DownloadForegroundService : Service
     {
         var ctx = global::Android.App.Application.Context;
         ctx.StopService(new Intent(ctx, typeof(DownloadForegroundService)));
+        _currentTotal   = 0;
+        _currentChapter = 0;
+        _currentTitle   = "Downloading novel\u2026";
+    }
+
+    /// <summary>
+    /// Updates the ongoing download notification with live chapter progress.
+    /// Call this from the download progress callback. Throttled by the OS (max ~1/s).
+    /// </summary>
+    public static void UpdateProgress(string title, int current, int total)
+    {
+        _currentTitle   = title;
+        _currentChapter = current;
+        _currentTotal   = total;
+
+        var ctx = global::Android.App.Application.Context;
+        EnsureProgressChannel(ctx);
+
+        var launchIntent = ctx.PackageManager
+            ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
+            ?.SetFlags(ActivityFlags.SingleTop)
+            ?? new Intent(ctx, typeof(DownloadForegroundService));
+        launchIntent.PutExtra("navigate_to", "DownloadsPage");
+
+#pragma warning disable CA1416
+        var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
+            ? PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable
+            : PendingIntentFlags.UpdateCurrent;
+#pragma warning restore CA1416
+
+        var pendingIntent = PendingIntent.GetActivity(ctx, 0, launchIntent, pendingFlags);
+
+        string contentText = total > 0
+            ? $"Chapter {current} of {total}"
+            : "Preparing\u2026";
+
+        var builder = new NotificationCompat.Builder(ctx, ChannelId)
+            .SetContentTitle(title)
+            .SetContentText(contentText)
+            .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownload)
+            .SetOngoing(true)
+            .SetOnlyAlertOnce(true)
+            .SetContentIntent(pendingIntent)
+            .SetPriority(NotificationCompat.PriorityLow);
+
+        if (total > 0)
+        {
+            builder.SetProgress(total, current, false);
+        }
+        else
+        {
+            builder.SetProgress(0, 0, true); // indeterminate
+        }
+
+        try
+        {
+            var mgr = NotificationManagerCompat.From(ctx);
+            mgr?.Notify(NotificationId, builder.Build()!);
+        }
+        catch { }
     }
 
     /// <summary>
@@ -168,21 +233,35 @@ public class DownloadForegroundService : Service
 
         var pendingIntent = PendingIntent.GetActivity(ctx, 0, launchIntent, pendingFlags);
 
-        return new NotificationCompat.Builder(ctx, ChannelId)
-            .SetContentTitle("Shuka")
-            .SetContentText("Downloading novel…")
+        string contentText = _currentTotal > 0
+            ? $"Chapter {_currentChapter} of {_currentTotal}"
+            : "Preparing\u2026";
+
+        var builder = new NotificationCompat.Builder(ctx, ChannelId)
+            .SetContentTitle(_currentTitle)
+            .SetContentText(contentText)
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownload)
             .SetOngoing(true)
+            .SetOnlyAlertOnce(true)
             .SetContentIntent(pendingIntent)
-            .Build()!;
+            .SetPriority(NotificationCompat.PriorityLow);
+
+        if (_currentTotal > 0)
+            builder.SetProgress(_currentTotal, _currentChapter, false);
+        else
+            builder.SetProgress(0, 0, true);
+
+        return builder.Build()!;
     }
 
-    private void CreateNotificationChannel()
+    private void CreateNotificationChannel() => EnsureProgressChannel(this);
+
+    private static void EnsureProgressChannel(global::Android.Content.Context ctx)
     {
         if (Build.VERSION.SdkInt < BuildVersionCodes.O) return;
 
 #pragma warning disable CA1416
-        var mgr = (NotificationManager?)GetSystemService(NotificationService);
+        var mgr = (NotificationManager?)ctx.GetSystemService(NotificationService);
         if (mgr?.GetNotificationChannel(ChannelId) != null) return;
 
         var channel = new NotificationChannel(

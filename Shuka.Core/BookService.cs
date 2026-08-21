@@ -254,30 +254,33 @@ public class BookService
             }
 
             var paras = book.Adapter.ExtractChapterText(html);
-            bool isLocked = paras.Count == 0;
+            bool isLocked = paras.Count == 0 && book.Adapter.SiteName == "noveldex.io";
 
-            if (isLocked)
+            if (book.Adapter.SiteName == "noveldex.io")
             {
-                consecutiveLockedCount++;
-                if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
-            }
-            else
-            {
-                consecutiveLockedCount = 0;
-            }
-
-            if (consecutiveLockedCount >= 3)
-            {
-                int lastUnlocked = firstLockedChapterNumber - 1;
-                int removeCount = consecutiveLockedCount - 1;
-                if (results.Count >= removeCount)
+                if (isLocked)
                 {
-                    results.RemoveRange(results.Count - removeCount, removeCount);
+                    consecutiveLockedCount++;
+                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
                 }
-                string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
-                log?.Invoke(statusMsg);
-                progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
-                break;
+                else
+                {
+                    consecutiveLockedCount = 0;
+                }
+
+                if (consecutiveLockedCount >= 3)
+                {
+                    int lastUnlocked = firstLockedChapterNumber - 1;
+                    int removeCount = consecutiveLockedCount - 1;
+                    if (results.Count >= removeCount)
+                    {
+                        results.RemoveRange(results.Count - removeCount, removeCount);
+                    }
+                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in Noveldex. Finished download at chapter {lastUnlocked}.";
+                    log?.Invoke(statusMsg);
+                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                    break;
+                }
             }
 
             string text = "";
