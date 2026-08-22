@@ -27,7 +27,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.100" />
-    <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="10.0.90" />
+    <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="10.0.100" />
   </ItemGroup>
 
   <!-- App icons, splash screen, fonts -->
