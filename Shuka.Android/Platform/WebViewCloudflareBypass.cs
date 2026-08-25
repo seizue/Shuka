@@ -5,31 +5,178 @@ namespace Shuka.Android.Platform;
 
 /// <summary>
 /// Android implementation of ICloudflareBypass.
-/// Uses a hidden MAUI WebView to load the page and extract rendered HTML
-/// after Cloudflare's JS challenge completes.
+/// Uses a hidden MAUI WebView to load pages and extract rendered HTML
+/// after Cloudflare's JS challenge completes or Next.js SPA hydrates.
 /// Handles Shell navigation, tab pages, and direct ContentPages.
 /// </summary>
 public class WebViewCloudflareBypass : ICloudflareBypass
 {
     // Max time to wait for CF challenge + real page to load
     private const int MaxWaitMs   = 35000;
-    private const int PollMs      = 1500;
+    private const int PollMs      = 1000;
 
     // Serialize all WebView fetches — CF cookie must be established before
     // the next fetch starts. Multiple concurrent WebViews cause CF to re-challenge.
     private static readonly SemaphoreSlim _sem = new(1, 1);
+
+    // Persistent WebView reused for Noveldex chapter fetches.
+    // Navigating one long-lived WebView avoids WebKit DOM accumulation that
+    // causes Android to freeze after 15+ separate WebView instances.
+    private static WebView?   _persistentWebView;
+    private static Grid?      _persistentOverlay;
+    private static Layout?    _persistentHost;
+
+    /// <summary>
+    /// Returns cookies stored by Android's WebKit CookieManager for a given host.
+    /// After a successful WebView bypass for noveldex.io, the CF clearance cookie
+    /// is stored here and reused by HttpFetcher for all subsequent direct requests,
+    /// eliminating the need to spin up a WebView for every chapter fetch.
+    /// </summary>
+    public string? GetCookies(string host)
+    {
+#if ANDROID
+        try
+        {
+            var cm = global::Android.Webkit.CookieManager.Instance;
+            if (cm == null) return null;
+
+            // CookieManager.GetCookie takes a URL string, not just a hostname
+            string? cookies = cm.GetCookie($"https://{host}");
+            if (string.IsNullOrWhiteSpace(cookies)) return null;
+            return cookies;
+        }
+        catch { return null; }
+#else
+        return null;
+#endif
+    }
 
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
         await _sem.WaitAsync(ct);
         try
         {
+            // Noveldex chapter pages: reuse a persistent WebView to avoid memory accumulation
+            bool isNoveldexChapter = Regex.IsMatch(url,
+                @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase);
+
+            if (isNoveldexChapter)
+                return await FetchWithPersistentWebViewAsync(url, ct);
+
             return await FetchInternalAsync(url, ct);
         }
         finally
         {
             _sem.Release();
         }
+    }
+
+    /// <summary>
+    /// Navigates the persistent singleton WebView to a new URL and waits for content.
+    /// The same WebView instance is reused across all Noveldex chapter fetches, so
+    /// WebKit never accumulates stale DOM trees from hundreds of separate instances.
+    /// </summary>
+    private Task<string> FetchWithPersistentWebViewAsync(string url, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                // Create and attach the persistent WebView once
+                if (_persistentWebView == null)
+                {
+                    _persistentWebView = new WebView
+                    {
+                        IsVisible        = true,
+                        Opacity          = 0.01,
+                        InputTransparent = true,
+                        WidthRequest     = 1,
+                        HeightRequest    = 1,
+                    };
+
+#if ANDROID
+                    _persistentWebView.HandlerChanged += (s, e) =>
+                    {
+                        if (_persistentWebView?.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+                        {
+                            try
+                            {
+                                awv.Settings.JavaScriptEnabled  = true;
+                                awv.Settings.DomStorageEnabled  = true;
+                                awv.Settings.DatabaseEnabled    = true;
+                                awv.Settings.SetSupportMultipleWindows(false);
+                                awv.Settings.JavaScriptCanOpenWindowsAutomatically = false;
+                                awv.Settings.UserAgentString    = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+                                awv.OnResume();
+                                awv.ResumeTimers();
+                            }
+                            catch { }
+                        }
+                    };
+#endif
+
+                    (_persistentHost, _persistentOverlay) = AttachWebView(_persistentWebView);
+                }
+
+                // Navigate to the new chapter URL
+                _persistentWebView.Source = new UrlWebViewSource { Url = url };
+
+                using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
+
+                // Brief settle delay then poll
+                await Task.Delay(1200, ct);
+
+                string? html = null;
+                int waited = 0;
+
+                while (waited < MaxWaitMs)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    await Task.Delay(PollMs, ct);
+                    waited += PollMs;
+
+#if ANDROID
+                    if (_persistentWebView.Handler?.PlatformView is global::Android.Webkit.WebView awv2)
+                    {
+                        try { awv2.OnResume(); awv2.ResumeTimers(); } catch { }
+                    }
+#endif
+
+                    html = await GetPageHtmlAsync(_persistentWebView);
+                    ct.ThrowIfCancellationRequested();
+                    if (html == null || html.Length < 300) continue;
+
+                    bool isChallenge =
+                        html.Contains("cf-chl-opt") ||
+                        html.Contains("cf-browser-verification") ||
+                        html.Contains("jschl-answer") ||
+                        html.Contains("challenge-form") ||
+                        (html.Contains("cloudflare") && html.Contains("checking"));
+
+                    if (!isChallenge) break;
+                }
+
+                // Wait for Next.js chapter content to hydrate
+                await WaitForNoveldexChapterAsync(_persistentWebView, ct);
+                ct.ThrowIfCancellationRequested();
+                html = await GetPageHtmlAsync(_persistentWebView);
+
+                tcs.TrySetResult(html ?? "");
+            }
+            catch (OperationCanceledException)
+            {
+                tcs.TrySetCanceled(ct);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+            // NOTE: intentionally NOT cleaning up _persistentWebView here — it stays alive
+        });
+
+        return tcs.Task;
     }
 
     private Task<string> FetchInternalAsync(string url, CancellationToken ct)
@@ -40,15 +187,35 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         {
             var webView = new WebView
             {
-                // Keep visible in the render tree so Android doesn't throttle JS execution.
-                // Opacity near-zero makes it invisible to the user while staying active.
-                IsVisible      = true,
-                Opacity        = 0.01,
+                IsVisible        = true,
+                Opacity          = 0.01,
                 InputTransparent = true,
-                WidthRequest   = 1,
-                HeightRequest  = 1,
-                Source         = new UrlWebViewSource { Url = url }
+                WidthRequest     = 1,
+                HeightRequest    = 1,
+                Source           = new UrlWebViewSource { Url = url }
             };
+
+#if ANDROID
+            webView.HandlerChanged += (s, e) =>
+            {
+                if (webView.Handler?.PlatformView is global::Android.Webkit.WebView androidWebView)
+                {
+                    try
+                    {
+                        var settings = androidWebView.Settings;
+                        settings.JavaScriptEnabled = true;
+                        settings.DomStorageEnabled = true;
+                        settings.DatabaseEnabled = true;
+                        settings.SetSupportMultipleWindows(false);
+                        settings.JavaScriptCanOpenWindowsAutomatically = false;
+                        settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+                        androidWebView.OnResume();
+                        androidWebView.ResumeTimers();
+                    }
+                    catch { }
+                }
+            };
+#endif
 
             var (hostLayout, overlay) = AttachWebView(webView);
 
@@ -64,7 +231,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             try
             {
                 // Give the WebView time to start loading before we poll
-                await Task.Delay(2000, ct);
+                await Task.Delay(1500, ct);
 
                 string? html = null;
                 int waited = 0;
@@ -76,9 +243,21 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     await Task.Delay(PollMs, ct);
                     waited += PollMs;
 
+#if ANDROID
+                    if (webView.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+                    {
+                        try
+                        {
+                            awv.OnResume();
+                            awv.ResumeTimers();
+                        }
+                        catch { }
+                    }
+#endif
+
                     html = await GetPageHtmlAsync(webView);
                     ct.ThrowIfCancellationRequested();
-                    if (html == null || html.Length < 500) continue;
+                    if (html == null || html.Length < 300) continue;
 
                     // Still on a CF challenge page — keep waiting
                     bool isChallenge =
@@ -90,14 +269,21 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                     if (!isChallenge) break;
 
-                    // If we've exhausted the wait time, flag it
                     if (waited >= MaxWaitMs) timedOut = true;
                 }
 
-                // For noveldex.io chapter pages, wait for paragraph content to appear (Next.js hydration)
+                // For noveldex.io chapter pages, wait for paragraph/prose content to appear (Next.js hydration)
                 if (!timedOut && Regex.IsMatch(url, @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase))
                 {
                     await WaitForNoveldexChapterAsync(webView, ct);
+                    ct.ThrowIfCancellationRequested();
+                    html = await GetPageHtmlAsync(webView);
+                }
+
+                // For noveldex.io series index pages, wait for series title and chapter list to hydrate
+                if (!timedOut && url.Contains("noveldex.io/series/") && !url.Contains("/chapter/"))
+                {
+                    await WaitForNoveldexIndexAsync(webView, ct);
                     ct.ThrowIfCancellationRequested();
                     html = await GetPageHtmlAsync(webView);
                 }
@@ -111,14 +297,22 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     html = await GetPageHtmlAsync(webView);
                 }
 
-                // If we timed out still on a challenge page, the cookie has expired
-                if (timedOut || (html != null && (
+                // ONLY throw CloudflareExpiredException if real Cloudflare challenge markers are present
+                bool hasCfChallenge = html != null && (
                     html.Contains("cf-chl-opt") ||
                     html.Contains("cf-browser-verification") ||
-                    (html.Contains("cloudflare") && html.Contains("checking")))))
+                    (html.Contains("cloudflare") && html.Contains("checking")));
+
+                if (hasCfChallenge)
                 {
                     tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
                         new Uri(url).Host));
+                    return;
+                }
+
+                if (timedOut)
+                {
+                    tcs.TrySetException(new TimeoutException($"Page load timed out for {url}"));
                     return;
                 }
 
@@ -142,13 +336,62 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     }
 
     /// <summary>
-    /// For noveldex.io chapter pages (Next.js SPA), polls until paragraph content
+    /// For noveldex.io series index pages (Next.js SPA), polls until the title
+    /// and chapter list / total count hydrate in the DOM — up to 25s.
+    /// </summary>
+    private static async Task WaitForNoveldexIndexAsync(WebView webView, CancellationToken ct)
+    {
+        const int pollMs  = 600;
+        const int maxWait = 25000;
+        int waited = 0;
+
+        while (waited < maxWait)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(pollMs, ct);
+            waited += pollMs;
+
+#if ANDROID
+            if (webView.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                try
+                {
+                    awv.OnResume();
+                    awv.ResumeTimers();
+                }
+                catch { }
+            }
+#endif
+
+            // Check if loader is gone and real title/chapters have appeared
+            string? js = await webView.EvaluateJavaScriptAsync(
+                "(function(){ " +
+                "  var loader = document.querySelector('.glitch-loader'); " +
+                "  if (loader) return '0'; " +
+                "  var h1 = document.querySelector('h1'); " +
+                "  var links = document.querySelectorAll('a[href*=\"/chapter/\"]'); " +
+                "  if (h1 && (links.length > 0 || (document.body && document.body.innerText.indexOf('Chapters') !== -1))) return '1'; " +
+                "  var nextData = document.getElementById('__NEXT_DATA__'); " +
+                "  if (nextData && nextData.innerText.length > 500) return '1'; " +
+                "  return (document.body && document.body.innerText.length > 800) ? '1' : '0'; " +
+                "})()");
+
+            if (js?.Trim('"') == "1")
+            {
+                await Task.Delay(400, ct);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// For noveldex.io chapter pages (Next.js SPA), polls until paragraph/prose content
     /// appears in the DOM — up to 30s. This prevents the download from stalling
     /// on chapters that take longer to hydrate.
     /// </summary>
     private static async Task WaitForNoveldexChapterAsync(WebView webView, CancellationToken ct)
     {
-        const int pollMs  = 1200;
+        const int pollMs  = 800;
         const int maxWait = 30000;
         int waited = 0;
 
@@ -157,6 +400,18 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             ct.ThrowIfCancellationRequested();
             await Task.Delay(pollMs, ct);
             waited += pollMs;
+
+#if ANDROID
+            if (webView.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                try
+                {
+                    awv.OnResume();
+                    awv.ResumeTimers();
+                }
+                catch { }
+            }
+#endif
 
             // Check if the page is locked / paywalled — return immediately if found
             string? lockedJs = await webView.EvaluateJavaScriptAsync(
@@ -176,14 +431,22 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 return; // Locked chapter — exit poll immediately
             }
 
-            // Check if any paragraph content has appeared (chapter text)
+            // Check if Next.js hydration completed (glitch-loader gone and story text present)
             string? js = await webView.EvaluateJavaScriptAsync(
-                "(function(){ var ps = document.querySelectorAll('p'); var len = 0; " +
-                "for(var i=0;i<ps.length;i++){ len += ps[i].innerText.length; } return len.toString(); })()");
+                "(function(){ " +
+                "  var loader = document.querySelector('.glitch-loader'); " +
+                "  if (loader) return '0'; " +
+                "  var ps = document.querySelectorAll('p, .prose, article, [class*=\"chapter\"]'); " +
+                "  var len = 0; " +
+                "  for (var i = 0; i < ps.length; i++) { len += (ps[i].innerText || '').length; } " +
+                "  var bodyText = (document.body ? document.body.innerText : ''); " +
+                "  if (bodyText.indexOf('LOADING') !== -1 && len < 200) return '0'; " +
+                "  return Math.max(len, bodyText.length).toString(); " +
+                "})()");
 
             if (int.TryParse(js?.Trim('"'), out int textLen) && textLen > 200)
             {
-                await Task.Delay(800, ct);
+                await Task.Delay(400, ct);
                 return;
             }
         }
@@ -205,6 +468,18 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             await Task.Delay(pollMs, ct);
             waited += pollMs;
 
+#if ANDROID
+            if (webView.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                try
+                {
+                    awv.OnResume();
+                    awv.ResumeTimers();
+                }
+                catch { }
+            }
+#endif
+
             string? js = await webView.EvaluateJavaScriptAsync(
                 "document.querySelectorAll('a[href*=\"/n/\"]').length.toString()");
 
@@ -224,23 +499,33 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     /// </summary>
     private static async Task<string?> GetPageHtmlAsync(WebView webView)
     {
-        // Step 1: store the base64 in a JS global and get the total length
+        // Step 1: store the base64 in a JS global and get the total length safely
         const string initJs = @"
             (function() {
                 try {
-                    var html = document.documentElement.outerHTML;
-                    var bytes = new TextEncoder().encode(html);
-                    // Use Uint8Array + apply trick for fast binary string
-                    var chunkSize = 8192;
-                    var binary = '';
-                    for (var i = 0; i < bytes.length; i += chunkSize) {
-                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                    var html = document.documentElement ? document.documentElement.outerHTML : '';
+                    if (!html) return '0';
+                    var enc = new TextEncoder();
+                    var u8 = enc.encode(html);
+                    var bin = '';
+                    var chunkSize = 1024;
+                    for (var i = 0; i < u8.length; i += chunkSize) {
+                        var chunk = u8.subarray(i, Math.min(i + chunkSize, u8.length));
+                        for (var j = 0; j < chunk.length; j++) {
+                            bin += String.fromCharCode(chunk[j]);
+                        }
                     }
-                    window.__shukaB64 = btoa(binary);
+                    window.__shukaB64 = btoa(bin);
                     return window.__shukaB64.length.toString();
                 } catch(e) {
-                    window.__shukaB64 = '';
-                    return '0';
+                    try {
+                        var html2 = document.documentElement ? document.documentElement.outerHTML : '';
+                        window.__shukaB64 = btoa(unescape(encodeURIComponent(html2)));
+                        return window.__shukaB64.length.toString();
+                    } catch(e2) {
+                        window.__shukaB64 = '';
+                        return '0';
+                    }
                 }
             })()";
 
@@ -283,29 +568,37 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
     /// <summary>
     /// Attaches a hidden WebView to the current visible page's layout.
-    /// Returns the host layout and the overlay Grid that was added.
+    /// Spans all rows/columns anchored in the bottom-right corner with 1x1 size,
+    /// ensuring it never alters or shifts the host page's layout or causes UI jumping.
     /// </summary>
     private static (Layout? hostLayout, Grid? overlay) AttachWebView(WebView webView)
     {
         var overlay = new Grid
         {
-            // Keep overlay visible so Android allocates a rendering surface for the WebView.
-            // Near-zero opacity keeps it completely invisible to the user.
-            IsVisible        = true,
-            Opacity          = 0.01,
-            InputTransparent = true,
-            WidthRequest     = 1,
-            HeightRequest    = 1
+            IsVisible         = true,
+            Opacity           = 0.01,
+            InputTransparent  = true,
+            WidthRequest      = 1,
+            HeightRequest     = 1,
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions   = LayoutOptions.End,
+            ZIndex            = -9999
         };
         overlay.Add(webView);
 
-        // Walk the page hierarchy to find a Layout we can attach to
         var page = GetCurrentPage();
         if (page == null) return (null, null);
 
         Layout? host = FindAttachableLayout(page);
         if (host != null)
         {
+            if (host is Grid)
+            {
+                Grid.SetRow(overlay, 0);
+                Grid.SetColumn(overlay, 0);
+                Grid.SetRowSpan(overlay, 99);
+                Grid.SetColumnSpan(overlay, 99);
+            }
             host.Add(overlay);
             return (host, overlay);
         }
@@ -326,8 +619,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     if (webView.Handler?.PlatformView is global::Android.Webkit.WebView androidWebView)
                     {
                         androidWebView.StopLoading();
-                        androidWebView.ClearHistory();
-                        androidWebView.Destroy();
+                        androidWebView.LoadUrl("about:blank");
                     }
 #endif
                     webView.Handler?.DisconnectHandler();
@@ -374,11 +666,9 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     {
         if (page is ContentPage cp)
         {
-            // Prefer a Grid or AbsoluteLayout at the root so overlay doesn't affect layout
             if (cp.Content is Grid g)    return g;
             if (cp.Content is Layout l)  return l;
 
-            // Wrap the existing content in a Grid if needed
             var wrapper = new Grid();
             var existing = cp.Content;
             cp.Content = wrapper;

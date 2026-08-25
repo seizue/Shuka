@@ -437,6 +437,19 @@ public class DownloadManager
         }
 
         string cacheDir = GetCacheDirectory();
+
+#if ANDROID
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+            if (mainPage != null)
+            {
+                await mainPage.DisplayAlertAsync("Sample EPUB",
+                    "Sample EPUB generation is disabled on Android to maximize download performance.", "OK");
+            }
+        });
+        return null;
+#else
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
         int savedCount = CheckpointService.CountSaved(checkpointPath);
 
@@ -530,6 +543,7 @@ public class DownloadManager
             });
             return null;
         }
+#endif
     }
 
     public void MoveUp(DownloadItem item)
@@ -717,10 +731,11 @@ public class DownloadManager
 
             if (!item.ForceRebuild)
             {
-                // ── Wait for history to finish loading (avoids the race on startup) ──
-                // We give it 3 s max; if it takes longer we proceed with whatever is loaded.
-                await HistoryService.Instance.LoadedTask.WaitAsync(TimeSpan.FromSeconds(3))
-                    .ContinueWith(_ => { }, TaskContinuationOptions.None); // swallow timeout
+                if (!HistoryService.Instance.LoadedTask.IsCompleted)
+                {
+                    await HistoryService.Instance.LoadedTask.WaitAsync(TimeSpan.FromMilliseconds(300))
+                        .ContinueWith(_ => { }, TaskContinuationOptions.None);
+                }
 
                 // ── Check history by URL first ──────────────────────────────────
                 var existing = HistoryService.Instance.Entries.FirstOrDefault(e =>
@@ -836,18 +851,29 @@ public class DownloadManager
                     item.Progress    = (double)p.Current / p.Total;
                     item.StatusText  = p.Message;
                 });
+#if ANDROID
+                DownloadForegroundService.UpdateProgress(
+                    !string.IsNullOrWhiteSpace(item.Title) && item.Title != "Loading..." ? item.Title : "Shuka",
+                    p.Current,
+                    p.Total);
+#endif
             });
 
             // Always write the EPUB to app-private cache first — avoids
             // UnauthorizedAccessException on scoped storage (Android 10+).
             // We copy/move to the user's chosen folder afterwards via SAF.
-            string cacheDir        = GetCacheDirectory();
-            tempPath               = Path.Combine(cacheDir, $"_shuka_{item.Id:N}.epub");
-            string checkpointPath  = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
+            string cacheDir = GetCacheDirectory();
+            tempPath        = Path.Combine(cacheDir, $"_shuka_{item.Id:N}.epub");
 
+#if ANDROID
+            // Checkpoint Service disabled on Android to eliminate mobile disk I/O bottlenecks and maximize download speed
+            string? checkpointPath = null;
+#else
+            string? checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
             int savedCount = CheckpointService.CountSaved(checkpointPath);
             if (savedCount > 0)
                 Log($"Resuming: {savedCount} chapters already done, continuing from ch{savedCount + 1}...");
+#endif
 
             string epubPath = "";
             try

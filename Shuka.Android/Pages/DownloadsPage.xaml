@@ -432,30 +432,7 @@
                             </Border.GestureRecognizers>
                         </Border>
 
-                        <!-- Sample EPUB Option -->
-                        <Border x:Name="OptionsSheetSampleEpubBtn"
-                                BackgroundColor="{DynamicResource BgInput}"
-                                Stroke="{DynamicResource Stroke}"
-                                StrokeShape="RoundRectangle 14"
-                                Padding="14,12"
-                                IsVisible="False">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                <Label Text="&#xE2C4;"
-                                       FontFamily="{DynamicResource IconFont}"
-                                       FontSize="18"
-                                       TextColor="{DynamicResource AccentLight}"
-                                       VerticalOptions="Center" />
-                                <Label Grid.Column="1"
-                                       Text="Export Sample EPUB"
-                                       FontSize="13"
-                                       FontAttributes="Bold"
-                                       TextColor="{DynamicResource AccentLight}"
-                                       VerticalOptions="Center" />
-                            </Grid>
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Tapped="OnOptionsSheetSampleEpubTapped" />
-                            </Border.GestureRecognizers>
-                        </Border>
+
 
                         <!-- Cancel Download Option -->
                         <Border x:Name="OptionsSheetCancelBtn"
