@@ -3,8 +3,18 @@ using Shuka.Core;
 namespace Shuka.Android.Services;
 
 /// <summary>
-/// Pings every Discover source once at app start and caches whether it is reachable.
+/// Pings every Discover source and caches whether it is reachable.
 /// A HEAD request with a short timeout is used so the check is fast and non-blocking.
+///
+/// Status lifecycle:
+///   - Pending  : no result yet (HasResult = false)
+///   - Online   : IsUp = true
+///   - Down     : IsDown = true
+///
+/// The initial check runs once at app start (deferred after first frame).
+/// Call <see cref="RefreshChecks"/> to force a re-check — it is rate-limited to
+/// at most once every <see cref="RefreshCooldown"/> so it is safe to call on every
+/// tab-appear event.
 /// </summary>
 public sealed class SourceStatusService
 {
@@ -13,10 +23,16 @@ public sealed class SourceStatusService
     public static readonly SourceStatusService Instance = new();
     private SourceStatusService() { }
 
+    // ── Config ────────────────────────────────────────────────────────────────
+
+    /// <summary>Minimum time between full re-check runs.</summary>
+    private static readonly TimeSpan RefreshCooldown = TimeSpan.FromSeconds(30);
+
     // ── State ─────────────────────────────────────────────────────────────────
 
     private readonly Dictionary<string, bool> _statusCache = new(StringComparer.OrdinalIgnoreCase);
-    private bool _checkStarted;
+    private bool _checkRunning;
+    private DateTime _lastCheckStarted = DateTime.MinValue;
     private readonly object _lock = new();
 
     /// <summary>
@@ -27,22 +43,16 @@ public sealed class SourceStatusService
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns true when the source is known to be down.
-    /// Returns false when up or when the check has not completed yet.
-    /// </summary>
+    /// <summary>Returns true when the source is confirmed down.</summary>
     public bool IsDown(string siteName)
     {
         lock (_lock)
         {
-            // Only report down when we have a definitive failure result
             return _statusCache.TryGetValue(siteName, out bool up) && !up;
         }
     }
 
-    /// <summary>
-    /// Returns true only when the status for this site has been resolved.
-    /// </summary>
+    /// <summary>Returns true only when the status for this site has been resolved.</summary>
     public bool HasResult(string siteName)
     {
         lock (_lock)
@@ -52,41 +62,58 @@ public sealed class SourceStatusService
     }
 
     /// <summary>
-    /// Starts the background ping for all sources.
-    /// Safe to call multiple times — only runs once per app session.
+    /// Starts the background ping for all sources if no check is currently running
+    /// and the cooldown has elapsed. Safe to call on every tab-appear event.
     /// </summary>
-    public void StartChecksIfNeeded()
+    public void RefreshChecks()
     {
         lock (_lock)
         {
-            if (_checkStarted) return;
-            _checkStarted = true;
+            if (_checkRunning) return;
+            if (DateTime.UtcNow - _lastCheckStarted < RefreshCooldown) return;
+            _checkRunning = true;
+            _lastCheckStarted = DateTime.UtcNow;
         }
 
         _ = Task.Run(RunChecksAsync);
     }
 
+    /// <summary>
+    /// Alias kept for compatibility — behaves like <see cref="RefreshChecks"/>.
+    /// </summary>
+    public void StartChecksIfNeeded() => RefreshChecks();
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private async Task RunChecksAsync()
     {
-        using var http = new HttpClient(new HttpClientHandler
+        try
         {
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 3,
-            AutomaticDecompression = System.Net.DecompressionMethods.None,
-        })
+            using var http = new HttpClient(new HttpClientHandler
+            {
+                AllowAutoRedirect = true,
+                MaxAutomaticRedirections = 3,
+                AutomaticDecompression = System.Net.DecompressionMethods.None,
+            })
+            {
+                Timeout = TimeSpan.FromSeconds(8),
+            };
+
+            http.DefaultRequestHeaders.TryAddWithoutValidation(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+
+            // Check all sources in parallel
+            var tasks = DiscoverService.Sources.Select(source => CheckSourceAsync(http, source));
+            await Task.WhenAll(tasks);
+        }
+        finally
         {
-            Timeout = TimeSpan.FromSeconds(8),
-        };
-
-        http.DefaultRequestHeaders.TryAddWithoutValidation(
-            "User-Agent",
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
-
-        // Check all sources in parallel
-        var tasks = DiscoverService.Sources.Select(source => CheckSourceAsync(http, source));
-        await Task.WhenAll(tasks);
+            lock (_lock)
+            {
+                _checkRunning = false;
+            }
+        }
     }
 
     private async Task CheckSourceAsync(HttpClient http, IBrowsableAdapter source)
@@ -111,7 +138,7 @@ public sealed class SourceStatusService
                 response = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
             }
 
-            // 2xx / 3xx = reachable; anything else is treated as down
+            // 2xx / 3xx = reachable; 5xx = server error = down
             isUp = (int)response.StatusCode < 500;
         }
         catch

@@ -866,14 +866,16 @@ public class DownloadManager
             tempPath        = Path.Combine(cacheDir, $"_shuka_{item.Id:N}.epub");
 
 #if ANDROID
-            // Checkpoint Service disabled on Android to eliminate mobile disk I/O bottlenecks and maximize download speed
-            string? checkpointPath = null;
+            // Use checkpoints on Android so paused/cancelled downloads resume from where they left off
+            // rather than restarting from chapter 1. The per-chapter JSON write is small (~1KB each)
+            // and the I/O cost is negligible compared to the network fetch + translation work.
+            string? checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
 #else
             string? checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
+#endif
             int savedCount = CheckpointService.CountSaved(checkpointPath);
             if (savedCount > 0)
                 Log($"Resuming: {savedCount} chapters already done, continuing from ch{savedCount + 1}...");
-#endif
 
             string epubPath = "";
             try

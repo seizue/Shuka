@@ -147,11 +147,11 @@ public partial class MainPage : ContentPage
         // Kick off source availability pings only after the first frame has rendered.
         // Doing this in the constructor caused a ~1s freeze because HttpClient
         // initialisation and 9 parallel HEAD requests competed with the layout pass.
-        // StartChecksIfNeeded is idempotent — safe to call on every OnAppearing.
+        // RefreshChecks is rate-limited (30s cooldown) — safe to call on every OnAppearing.
         _ = Task.Run(async () =>
         {
             await Task.Delay(300); // give the main thread one more frame to breathe
-            SourceStatusService.Instance.StartChecksIfNeeded();
+            SourceStatusService.Instance.RefreshChecks();
         });
     }
 
@@ -178,11 +178,10 @@ public partial class MainPage : ContentPage
     private void OnTabDiscoverTapped(object sender, TappedEventArgs e)
     {
         SetActiveTab(download: false);
-        if (!_discoverBuilt)
-        {
-            BuildDiscoverSources();
-            _discoverBuilt = true;
-        }
+        // Always rebuild so the DOWN badge reflects the latest cached status,
+        // whether the ping just finished or the user navigated away and back.
+        BuildDiscoverSources();
+        _discoverBuilt = true;
     }
 
     private async void OnAllBookmarksTapped(object sender, TappedEventArgs e)
