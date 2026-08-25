@@ -6,11 +6,16 @@ namespace Shuka.Core.Adapters;
 /// Adapter for quanben.io (全本小说网) — Simplified Chinese novel site.
 ///
 /// Index URL formats accepted:
-///   https://www.quanben.io/n/{bookId}/list.html   (chapter list page)
+///   https://www.quanben.io/n/{bookId}/list.html   (chapter list page — redirected to AMP)
+///   https://www.quanben.io/amp/n/{bookId}/list.html (AMP chapter list — fetched directly)
 ///   https://www.quanben.io/n/{bookId}/            (book info page)
-///   https://www.quanben.io/n/{bookId}/{num}.html  (chapter page — redirected to list)
+///   https://www.quanben.io/n/{bookId}/{num}.html  (chapter page — redirected to AMP list)
 ///
-/// Chapter URL format:
+/// The AMP list page is used for index fetching because the regular list page collapses
+/// the full chapter list behind JavaScript (only showing ~24 at the start and end).
+/// The AMP version contains all chapters in static HTML.
+///
+/// Chapter URL format (non-AMP, used for actual chapter downloads):
 ///   https://www.quanben.io/n/{bookId}/{chapterNum}.html
 ///
 /// The site uses UTF-8 encoding. No Cloudflare protection.
@@ -26,29 +31,33 @@ public class QuanbenAdapter : ISiteAdapter
     {
         if (!url.StartsWith("http")) url = "https://" + url;
 
-        // If user pastes a chapter URL, redirect to the list page
+        // If user pastes a chapter URL (regular or AMP), redirect to the AMP list page
         var chapterM = Regex.Match(url,
-            @"https?://(?:www\.)?quanben\.io/n/([^/?#]+)/(\d+)\.html",
+            @"https?://(?:www\.)?quanben\.io/(?:amp/)?n/([^/?#]+)/(\d+)\.html",
             RegexOptions.IgnoreCase);
         if (chapterM.Success)
-            return $"https://www.quanben.io/n/{chapterM.Groups[1].Value}/list.html";
+            return $"https://www.quanben.io/amp/n/{chapterM.Groups[1].Value}/list.html";
 
-        // Normalise bare book URL → list page
+        // Normalise bare book URL → AMP list page
         var bookM = Regex.Match(url,
-            @"https?://(?:www\.)?quanben\.io/n/([^/?#]+)/?$",
+            @"https?://(?:www\.)?quanben\.io/(?:amp/)?n/([^/?#]+)/?$",
             RegexOptions.IgnoreCase);
         if (bookM.Success)
-            return $"https://www.quanben.io/n/{bookM.Groups[1].Value}/list.html";
+            return $"https://www.quanben.io/amp/n/{bookM.Groups[1].Value}/list.html";
 
-        // Already a list page — strip query/fragment
+        // Already a list page (regular or AMP) — normalize to AMP version
         var listM = Regex.Match(url,
-            @"(https?://(?:www\.)?quanben\.io/n/[^/?#]+/list\.html)",
+            @"https?://(?:www\.)?quanben\.io/(?:amp/)?n/([^/?#]+)/list\.html",
             RegexOptions.IgnoreCase);
-        return listM.Success ? listM.Groups[1].Value : url;
+        if (listM.Success)
+            return $"https://www.quanben.io/amp/n/{listM.Groups[1].Value}/list.html";
+
+        return url;
     }
 
     public IndexInfo ParseIndex(string html, string indexUrl)
     {
+        // Support both regular and AMP list URL formats
         string bookId = Regex.Match(indexUrl,
             @"/n/([^/?#]+)/list\.html", RegexOptions.IgnoreCase).Groups[1].Value;
 
@@ -94,11 +103,12 @@ public class QuanbenAdapter : ISiteAdapter
         if (am.Success) author = am.Groups[1].Value.Trim();
 
         // ── Chapter list ──────────────────────────────────────────────────────
-        // Links: href="/n/{bookId}/{num}.html" with title in <span itemprop="name">
-        // e.g. <a href="/n/aoshidanshen/1.html" itemprop="url"><span itemprop="name">第1章 地狱灵芝</span></a>
-        // Also handles absolute URLs: href="https://www.quanben.io/n/{bookId}/{num}.html"
+        // AMP list page links: href="https://www.quanben.io/amp/n/{bookId}/{num}.html"
+        // Regular list page links: href="/n/{bookId}/{num}.html"
+        // We fetch the AMP list page (which has all chapters), so match both AMP and
+        // non-AMP href styles. Chapter download URLs always use the non-AMP path.
         var chapterMatches = Regex.Matches(html,
-            @"href=[""'](?:https?://(?:www\.)?quanben\.io)?/n/" + Regex.Escape(bookId) +
+            @"href=[""'](?:https?://(?:www\.)?quanben\.io)?/(?:amp/)?n/" + Regex.Escape(bookId) +
             @"/(\d+)\.html[""'][^>]*>(?:<span[^>]*>)?([^<]*)(?:</span>)?</a>",
             RegexOptions.IgnoreCase);
 
