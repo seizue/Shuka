@@ -126,13 +126,13 @@ public class BookService
         }
 
         ct.ThrowIfCancellationRequested();
-        var chapters = await DownloadChapters(book, progress, log, ct, checkpointPath, translate);
+        var (chapters, lockedFromChapter) = await DownloadChapters(book, progress, log, ct, checkpointPath, translate);
 
         ct.ThrowIfCancellationRequested();
         log?.Invoke("Building EPUB...");
         if (File.Exists(outputPath)) File.Delete(outputPath);
         EpubBuilder.Build(outputPath, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
-            chapters, coverBytes, coverMime, translate);
+            chapters, coverBytes, coverMime, translate, lockedFromChapter);
 
         // Delete checkpoint on success — no longer needed
         if (checkpointPath != null) CheckpointService.Delete(checkpointPath);
@@ -147,13 +147,14 @@ public class BookService
     /// Fetches and translates one chapter at a time — simple, reliable, no deadlocks.
     /// Progress is reported after each chapter completes.
     /// </summary>
-    private async Task<List<(int Idx, string Title, string Text)>> DownloadChapters(
+    private async Task<(List<(int Idx, string Title, string Text)> chapters, int? lockedFromChapter)> DownloadChapters(
         BookInfo book, IProgress<ProgressEventArgs>? progress, Action<string>? log,
         CancellationToken ct = default, string? checkpointPath = null, bool translate = true)
     {
         var chapterList = book.ChapterUrls.Take(book.Total).ToList();
         int total = chapterList.Count;
         var results = new List<(int Idx, string Title, string Text)>(total);
+        int? lockedFromChapter = null;
 
         // Load checkpoint — skip already-completed chapters
         var saved = checkpointPath != null
@@ -194,6 +195,7 @@ public class BookService
                     string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
                     log?.Invoke(statusMsg);
                     progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
+                    lockedFromChapter = i + 1;
                     break;
                 }
 
@@ -243,6 +245,7 @@ public class BookService
                 string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
                 log?.Invoke(statusMsg);
                 progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
+                lockedFromChapter = i + 1;
                 break;
             }
 
@@ -296,7 +299,7 @@ public class BookService
             });
         }
 
-        return results;
+        return (results, lockedFromChapter);
     }
 
     private async Task<(byte[]? bytes, string mime)> DownloadCover(

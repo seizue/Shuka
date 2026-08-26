@@ -7,7 +7,8 @@ namespace Shuka.Core;
 public static class EpubBuilder
 {
     public static void Build(string path, string titleZh, string titleEn, string authorZh, string authorEn,
-        List<(int Idx, string ChTitle, string Text)> chapters, byte[]? coverBytes, string coverMime, bool translate = true)
+        List<(int Idx, string ChTitle, string Text)> chapters, byte[]? coverBytes, string coverMime,
+        bool translate = true, int? lockedFromChapter = null)
     {
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
 
@@ -112,6 +113,28 @@ public static class EpubBuilder
                 "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}p{margin:0.5em 0}</style>" +
                 $"</head><body><h2>{Escape(chTitle)}</h2>" +
                 string.Join("", paras) + "</body></html>");
+        }
+
+        // If some chapters were locked/paywalled, append a notice page
+        if (lockedFromChapter.HasValue)
+        {
+            WriteEntry(zip, "OEBPS/locked.xhtml",
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">" +
+                "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>Locked Chapters</title>" +
+                "<style>" +
+                "body{font-family:Georgia,serif;text-align:center;margin:4em 2em;color:#333;}" +
+                ".lock-icon{font-size:3em;margin-bottom:0.5em;}" +
+                ".lock-title{font-size:1.6em;font-weight:bold;margin-bottom:0.5em;}" +
+                ".lock-sub{font-size:1em;color:#666;margin-bottom:1.5em;}" +
+                ".lock-note{font-size:0.85em;color:#999;line-height:1.6;max-width:28em;margin:0 auto;}" +
+                "</style></head><body>" +
+                "<div class=\"lock-icon\">&#128274;</div>" +
+                "<div class=\"lock-title\">Locked Chapters</div>" +
+                $"<div class=\"lock-sub\">Chapter {lockedFromChapter.Value} and beyond are locked.</div>" +
+                "<div class=\"lock-note\">The remaining chapters require a paid subscription or coins on the source website. Only the freely available chapters have been included in this EPUB.</div>" +
+                "</body></html>");
+            items.Add(("locked", "locked.xhtml", "Locked Chapters"));
         }
 
         string mainTitle = translate ? titleEn : titleZh;

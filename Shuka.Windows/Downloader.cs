@@ -81,13 +81,13 @@ internal sealed class Downloader
             coverMime = coverRes.mime;
         }
 
-        var chapters = await DownloadChaptersAsync(book, null, translate);
+        var (chapters, lockedFromChapter) = await DownloadChaptersAsync(book, null, translate);
 
         Console.WriteLine("\n  Building EPUB...");
         string path = BuildOutputPath(book, outFile);
         if (File.Exists(path)) File.Delete(path);
         EpubBuilder.Build(path, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
-            chapters, coverBytes, coverMime, translate);
+            chapters, coverBytes, coverMime, translate, lockedFromChapter);
         
         string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
@@ -124,13 +124,13 @@ internal sealed class Downloader
         }
 
         ct.ThrowIfCancellationRequested();
-        var chapters = await DownloadChaptersAsync(book, onProgress, translate, ct);
+        var (chapters, lockedFromChapter) = await DownloadChaptersAsync(book, onProgress, translate, ct);
 
         ct.ThrowIfCancellationRequested();
         string path = BuildOutputPath(book, outFile);
         if (File.Exists(path)) File.Delete(path);
         EpubBuilder.Build(path, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
-            chapters, coverBytes, coverMime, translate);
+            chapters, coverBytes, coverMime, translate, lockedFromChapter);
 
         string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
@@ -195,7 +195,7 @@ internal sealed class Downloader
 
     // ── Chapter download pipeline ─────────────────────────────────────────────
 
-    private async Task<List<(int Idx, string Title, string Text)>> DownloadChaptersAsync(
+    private async Task<(List<(int Idx, string Title, string Text)> chapters, int? lockedFromChapter)> DownloadChaptersAsync(
         BookInfo book, Action<int, int, string>? onProgress, bool translate = true,
         CancellationToken ct = default)
     {
@@ -208,6 +208,7 @@ internal sealed class Downloader
         int alreadyDone = saved.Count(r => r != null);
 
         var chapters = new List<(int Idx, string Title, string Text)>(book.Total);
+        int? lockedFromChapter = null;
 
         var t0 = DateTime.Now;
         int consecutiveLockedCount = 0;
@@ -242,6 +243,7 @@ internal sealed class Downloader
                     {
                         chapters.RemoveRange(chapters.Count - removeCount, removeCount);
                     }
+                    lockedFromChapter = firstLockedChapterNumber;
                     string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                     Console.WriteLine($"\n  [Notice] {statusMsg}");
                     onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
@@ -287,6 +289,7 @@ internal sealed class Downloader
                 {
                     chapters.RemoveRange(chapters.Count - removeCount, removeCount);
                 }
+                lockedFromChapter = firstLockedChapterNumber;
                 string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                 Console.WriteLine($"\n  [Notice] {statusMsg}");
                 onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
@@ -316,7 +319,7 @@ internal sealed class Downloader
                 onProgress?.Invoke(i + 1, book.Total, translate ? $"Chapter {i + 1} of {book.Total}" : $"Downloaded ch {i + 1} of {book.Total}");
         }
 
-        return chapters;
+        return (chapters, lockedFromChapter);
     }
 
     // ── Cover download ────────────────────────────────────────────────────────
