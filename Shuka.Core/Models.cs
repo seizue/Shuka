@@ -17,7 +17,8 @@ public interface ISiteAdapter
 }
 
 // Parsed index result from an adapter
-public record IndexInfo(string Title, string Author, List<ChapterRef> ChapterUrls, string? CoverUrl);
+public record IndexInfo(string Title, string Author, List<ChapterRef> ChapterUrls, string? CoverUrl,
+    string? CoverHintUrl = null);
 
 // A chapter reference (URL + optional display title)
 public record ChapterRef(string Url, string Title);

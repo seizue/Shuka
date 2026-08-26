@@ -80,6 +80,21 @@ public class BookService
         int total = rangedUrls.Count;
         string? coverUrl = forceCoverUrl ?? info.CoverUrl ?? TryExtractCover(html, indexUrl);
 
+        // If the adapter couldn't find a cover in the index page, try the hint URL
+        // (e.g. QuanbenAdapter points to the non-AMP book info page that has the cover img)
+        if (coverUrl == null && info.CoverHintUrl != null)
+        {
+            try
+            {
+                log?.Invoke($"Fetching cover hint page: {info.CoverHintUrl}");
+                string hintHtml = await _fetcher.Fetch(info.CoverHintUrl, log: log, ct: ct,
+                    forceBypass: adapter.RequiresCfBypass);
+                coverUrl = TryExtractCoverFromHint(hintHtml)
+                        ?? TryExtractCover(hintHtml, info.CoverHintUrl);
+            }
+            catch { /* cover is optional — silently ignore */ }
+        }
+
         var book = new BookInfo(indexUrl, info.Title, info.Author,
             rangedUrls, total, chapterLimit, coverUrl, adapter)
         {
@@ -383,6 +398,27 @@ public class BookService
             string src = img.Groups[1].Value.Trim();
             return src.StartsWith("http") ? src : new Uri(new Uri(baseUrl), src).ToString();
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Cover extractor for hint pages (e.g. quanben.io non-AMP book info page).
+    /// Looks for the CDN thumbnail img tag first, then falls back to any image URL.
+    /// </summary>
+    private static string? TryExtractCoverFromHint(string html)
+    {
+        // quanben.io CDN: img.c0m.io/quanben.io/upload/thumbnail/...
+        var cdnM = Regex.Match(html,
+            @"src=[""'](https?://img\.c0m\.io/[^""']+)[""']",
+            RegexOptions.IgnoreCase);
+        if (cdnM.Success) return cdnM.Groups[1].Value.Trim();
+
+        // Any absolute img src that looks like an image file
+        var imgM = Regex.Match(html,
+            @"<img[^>]+src=[""'](https?://[^""']+\.(?:jpg|jpeg|png|webp|gif))[""']",
+            RegexOptions.IgnoreCase);
+        if (imgM.Success) return imgM.Groups[1].Value.Trim();
+
         return null;
     }
 }

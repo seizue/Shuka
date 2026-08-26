@@ -127,7 +127,10 @@ public class QuanbenAdapter : ISiteAdapter
             .ToList();
 
         // ── Cover ─────────────────────────────────────────────────────────────
+        // The AMP list page rarely includes cover images. Try several strategies:
         string? cover = null;
+
+        // Strategy 1: og:image meta tag (present on some AMP pages)
         var ogM = Regex.Match(html,
             @"<meta[^>]+property=[""']og:image[""'][^>]+content=[""']([^""']+)[""']",
             RegexOptions.IgnoreCase);
@@ -137,16 +140,31 @@ public class QuanbenAdapter : ISiteAdapter
                 RegexOptions.IgnoreCase);
         if (ogM.Success) cover = ogM.Groups[1].Value.Trim();
 
+        // Strategy 2: quanben.io CDN thumbnail — img.c0m.io/quanben.io/upload/...
         if (cover == null)
         {
-            // Try any img tag that looks like a book cover
+            var cdnM = Regex.Match(html,
+                @"src=[""'](https?://img\.c0m\.io/quanben\.io/[^""']+)[""']",
+                RegexOptions.IgnoreCase);
+            if (cdnM.Success) cover = cdnM.Groups[1].Value.Trim();
+        }
+
+        // Strategy 3: Any img with cover/book/img in the URL
+        if (cover == null)
+        {
             var imgM = Regex.Match(html,
                 @"<img[^>]+src=[""'](https?://[^""']*(?:cover|book|img)[^""']*)[""']",
                 RegexOptions.IgnoreCase);
             if (imgM.Success) cover = imgM.Groups[1].Value.Trim();
         }
 
-        return new IndexInfo(title, author, chapters, cover);
+        // Strategy 4: If no cover found in the AMP page, signal BookService to fetch
+        // the non-AMP book info page (/n/{bookId}/) which contains the cover img.
+        string? coverHintUrl = null;
+        if (cover == null)
+            coverHintUrl = $"https://www.quanben.io/n/{bookId}/";
+
+        return new IndexInfo(title, author, chapters, cover, coverHintUrl);
     }
 
     public List<string> ExtractChapterText(string html)
