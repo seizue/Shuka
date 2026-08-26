@@ -435,12 +435,14 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 Console.Write("[index-timeout]");
             }
 
-            // Wait for cover images to load (they're loaded dynamically)
+            // Wait for cover images to load (they're loaded dynamically).
+            // noveldex.io uses Next.js <Image> which proxies through /_next/image,
+            // so the src attribute won't contain media.noveldex.io directly.
             try
             {
                 await page.WaitForFunctionAsync(
                     @"() => {
-                        const imgs = document.querySelectorAll('img[src*=""media.noveldex.io""], img[src*=""cover""]');
+                        const imgs = document.querySelectorAll('img[src*=""media.noveldex.io""], img[src*=""/_next/image""], img[src*=""cover""]');
                         return imgs.length > 0 && imgs[0].complete && imgs[0].naturalWidth > 0;
                     }",
                     null,
@@ -451,10 +453,53 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 // Cover image might not load, continue anyway
             }
 
+            // Extract the real cover CDN URL directly from the live DOM.
+            // Next.js encodes the true URL in the `src` query param (url=...) of
+            // the /_next/image proxy — evaluate JS to decode it before serialising.
+            string? coverCdnUrl = null;
+            try
+            {
+                coverCdnUrl = await page.EvaluateAsync<string?>(@"
+                    () => {
+                        // Priority 1: img whose src goes through /_next/image proxy
+                        const nextImgs = document.querySelectorAll('img[src*=""/_next/image""]');
+                        for (const img of nextImgs) {
+                            try {
+                                const urlParam = new URL(img.src, location.href).searchParams.get('url');
+                                if (urlParam && urlParam.includes('media.noveldex.io')) return urlParam;
+                            } catch (_) {}
+                        }
+                        // Priority 2: img whose src goes directly to CDN
+                        const cdnImgs = document.querySelectorAll('img[src*=""media.noveldex.io""]');
+                        if (cdnImgs.length > 0) return cdnImgs[0].src;
+                        // Priority 3: og:image meta tag
+                        const og = document.querySelector('meta[property=""og:image""]');
+                        if (og) return og.getAttribute('content');
+                        return null;
+                    }");
+            }
+            catch { /* ignore — fall through to HTML parsing */ }
+
             // Strip noscript blocks from the serialised DOM before returning
             string raw = await page.ContentAsync();
-            return Regex.Replace(raw, @"<noscript[\s\S]*?</noscript>", "",
+            string stripped = Regex.Replace(raw, @"<noscript[\s\S]*?</noscript>", "",
                 RegexOptions.IgnoreCase);
+
+            // Inject the cover URL as an og:image meta so the adapter's HTML
+            // parsing can reliably find it regardless of Next.js proxy encoding.
+            if (!string.IsNullOrWhiteSpace(coverCdnUrl))
+            {
+                string escaped = System.Security.SecurityElement.Escape(coverCdnUrl);
+                string injected = $"<meta property=\"og:image\" content=\"{escaped}\" data-shuka-injected=\"1\" />";
+                // Insert after <head> if present, otherwise prepend
+                int headIdx = stripped.IndexOf("<head", StringComparison.OrdinalIgnoreCase);
+                int gtIdx   = headIdx >= 0 ? stripped.IndexOf('>', headIdx) : -1;
+                stripped = gtIdx >= 0
+                    ? stripped.Insert(gtIdx + 1, injected)
+                    : injected + stripped;
+            }
+
+            return stripped;
         }
     }
 

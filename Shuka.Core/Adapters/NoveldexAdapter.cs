@@ -207,20 +207,31 @@ public class NoveldexAdapter : ISiteAdapter
             if (ogImg.Success) cover = ogImg.Groups[1].Value.Trim();
         }
 
-        // Priority 4: Next.js image component - decode the inner url parameter
+        // Priority 4: Next.js image component - decode the inner url parameter.
+        // The serialised DOM HTML-encodes '&' as '&amp;', so we must handle both
+        // raw '&' and '&amp;' as delimiters when extracting the url= query param.
         if (cover == null)
         {
+            // Match /_next/image src with either raw & or HTML-encoded &amp; separating params
             var nextImg = Regex.Match(html,
-                @"src=[""'](https://noveldex\.io/_next/image\?url=([^""'&]+)[^""']*)[""']",
+                @"src=[""']((?:https://noveldex\.io)?/_next/image\?url=([^""'&]+)[^""']*)[""']",
                 RegexOptions.IgnoreCase);
+            if (!nextImg.Success)
+                nextImg = Regex.Match(html,
+                    @"src=[""']((?:https://noveldex\.io)?/_next/image\?url=([^""']+?)(?:&amp;|&)[^""']*)[""']",
+                    RegexOptions.IgnoreCase);
             if (nextImg.Success)
             {
                 // Decode the inner url= value to get the real CDN URL
-                string decoded = Uri.UnescapeDataString(nextImg.Groups[2].Value);
+                string rawParam = nextImg.Groups[2].Value.Trim();
+                string decoded  = Uri.UnescapeDataString(rawParam);
                 // Strip any query parameters from the decoded URL to get original quality
                 if (decoded.Contains('?'))
                     decoded = decoded.Substring(0, decoded.IndexOf('?'));
-                cover = decoded.StartsWith("http") ? decoded : nextImg.Groups[1].Value;
+                if (decoded.StartsWith("http"))
+                    cover = decoded;
+                else if (nextImg.Groups[1].Value.StartsWith("http"))
+                    cover = nextImg.Groups[1].Value;
             }
         }
 
