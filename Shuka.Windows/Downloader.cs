@@ -243,7 +243,8 @@ internal sealed class Downloader
                     {
                         chapters.RemoveRange(chapters.Count - removeCount, removeCount);
                     }
-                    lockedFromChapter = firstLockedChapterNumber;
+                    if (book.Adapter.StopOnFirstLockedChapter)
+                        lockedFromChapter = firstLockedChapterNumber;
                     string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                     Console.WriteLine($"\n  [Notice] {statusMsg}");
                     onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
@@ -289,7 +290,8 @@ internal sealed class Downloader
                 {
                     chapters.RemoveRange(chapters.Count - removeCount, removeCount);
                 }
-                lockedFromChapter = firstLockedChapterNumber;
+                if (book.Adapter.StopOnFirstLockedChapter)
+                    lockedFromChapter = firstLockedChapterNumber;
                 string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                 Console.WriteLine($"\n  [Notice] {statusMsg}");
                 onProgress?.Invoke(lastUnlocked, book.Total, statusMsg);
