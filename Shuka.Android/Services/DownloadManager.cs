@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Shuka.Core;
+using Shuka.Core.Adapters;
 using Shuka.Android.Platform;
 #if ANDROID
 using Shuka.Android.Platforms.Android;
@@ -269,7 +270,8 @@ public class DownloadManager
     public DownloadItem Enqueue(string url, int chapters, string? coverUrl,
         int chapterFrom = 0, bool? translate = null, bool forceRebuild = false)
     {
-        bool shouldTranslate = translate ?? Preferences.Default.Get("translate_to_english_enabled", true);
+        bool shouldTranslate = BookService.ShouldTranslate(url,
+            translate ?? Preferences.Default.Get("translate_to_english_enabled", true));
 
 #if ANDROID
         if (!forceRebuild)
@@ -699,6 +701,9 @@ public class DownloadManager
 
     private async Task RunAsync(DownloadItem item)
     {
+        // noveldex.io is English-only — force translation off even for resumed/queued items
+        item.Translate = BookService.ShouldTranslate(item.Url, item.Translate);
+
         var ct = item.Cts.Token;
 
         void Log(string msg) =>

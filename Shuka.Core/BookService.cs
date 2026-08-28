@@ -16,6 +16,10 @@ public class BookService
     public static readonly ISiteAdapter[] Adapters =
         [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter()];
 
+    /// <summary>English-only sources (noveldex.io) should never be translated during download.</summary>
+    public static bool ShouldTranslate(string url, bool translate) =>
+        translate && !NoveldexAdapter.IsNoveldexUrl(url);
+
     /// <summary>
     /// Upgrades <c>http://</c> to <c>https://</c> when the URL matches a known reader site.
     /// Does not change paths: <see cref="ISiteAdapter.NormalizeUrl"/> is for the download pipeline and often
@@ -107,6 +111,7 @@ public class BookService
         IProgress<ProgressEventArgs>? progress = null, Action<string>? log = null,
         CancellationToken ct = default, string? checkpointPath = null, bool translate = true)
     {
+        translate = ShouldTranslate(book.IndexUrl, translate);
         ct.ThrowIfCancellationRequested();
         byte[]? coverBytes;
         string coverMime;

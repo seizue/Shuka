@@ -20,7 +20,11 @@ public class NoveldexAdapter : ISiteAdapter
     public bool RequiresCfBypass => true;   // Next.js SPA — chapter content requires JS execution; WebView is needed.
     public bool StopOnFirstLockedChapter => true;  // Noveldex paywall is contiguous — once locked, all following are locked too.
 
-    public bool Matches(string url) =>
+    public bool Matches(string url) => IsNoveldexUrl(url);
+
+    /// <summary>noveldex.io content is already in English — downloads should skip translation.</summary>
+    public static bool IsNoveldexUrl(string url) =>
+        !string.IsNullOrWhiteSpace(url) &&
         url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
 
     public string NormalizeUrl(string url)
