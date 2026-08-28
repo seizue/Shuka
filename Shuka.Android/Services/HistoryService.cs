@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using Shuka.Core.Adapters;
 
 namespace Shuka.Android.Services;
 
@@ -385,14 +386,24 @@ public class HistoryService
     {
         try
         {
-            string ext  = Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
+            string fetchUrl = NoveldexAdapter.NormalizeCoverUrl(url) ?? url;
+            string ext  = Path.GetExtension(new Uri(fetchUrl).AbsolutePath).ToLowerInvariant();
             if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".jpg";
             Directory.CreateDirectory(CoversDir);
             string path = Path.Combine(CoversDir, $"{id:N}{ext}");
 
             if (File.Exists(path)) return path;
 
-            byte[] bytes = await _http.GetByteArrayAsync(url);
+            using var req = new HttpRequestMessage(HttpMethod.Get, fetchUrl);
+            string? referer = NoveldexAdapter.GetCoverReferer(fetchUrl);
+            if (referer != null)
+            {
+                try { req.Headers.Referrer = new Uri(referer); } catch { }
+            }
+
+            using var resp = await _http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            byte[] bytes = await resp.Content.ReadAsByteArrayAsync();
             await File.WriteAllBytesAsync(path, bytes);
             return path;
         }

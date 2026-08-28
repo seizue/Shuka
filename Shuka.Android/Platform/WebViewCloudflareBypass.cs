@@ -286,6 +286,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     await WaitForNoveldexIndexAsync(webView, ct);
                     ct.ThrowIfCancellationRequested();
                     html = await GetPageHtmlAsync(webView);
+                    html = await InjectNoveldexCoverMetaAsync(webView, html);
                 }
 
                 // For czbooks index pages, also wait for chapter links to render
@@ -488,6 +489,83 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 await Task.Delay(500, ct);
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Extracts the real cover CDN URL from the live DOM and injects it as og:image
+    /// so NoveldexAdapter can reliably find it (mirrors PlaywrightFetcher on Windows).
+    /// </summary>
+    private static async Task<string?> InjectNoveldexCoverMetaAsync(WebView webView, string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return html;
+
+        try
+        {
+            string? coverUrl = await webView.EvaluateJavaScriptAsync(
+                """
+                (function() {
+                    function decodeImg(src) {
+                        if (!src) return null;
+                        if (src.indexOf('/_next/image') !== -1) {
+                            try {
+                                var p = new URL(src, location.href).searchParams.get('url');
+                                if (p) return p;
+                            } catch (e) {}
+                        }
+                        return src;
+                    }
+                    var sels = ['[class*="cover" i] img', 'img[alt*="cover" i]'];
+                    for (var s = 0; s < sels.length; s++) {
+                        var el = document.querySelector(sels[s]);
+                        if (el && el.src) {
+                            var u = decodeImg(el.src);
+                            if (u && u.indexOf('media.noveldex.io') !== -1) return u;
+                        }
+                    }
+                    var nextImgs = document.querySelectorAll('img[src*="/_next/image"]');
+                    for (var i = 0; i < nextImgs.length; i++) {
+                        try {
+                            var urlParam = new URL(nextImgs[i].src, location.href).searchParams.get('url');
+                            if (urlParam && urlParam.indexOf('cover') !== -1) return urlParam;
+                        } catch (e) {}
+                    }
+                    for (var j = 0; j < nextImgs.length; j++) {
+                        try {
+                            var p2 = new URL(nextImgs[j].src, location.href).searchParams.get('url');
+                            if (p2 && p2.indexOf('media.noveldex.io') !== -1) return p2;
+                        } catch (e) {}
+                    }
+                    var cdnImgs = document.querySelectorAll('img[src*="media.noveldex.io"]');
+                    for (var k = 0; k < cdnImgs.length; k++) {
+                        if (cdnImgs[k].src && cdnImgs[k].src.indexOf('cover') !== -1) return cdnImgs[k].src;
+                    }
+                    if (cdnImgs.length > 0) return cdnImgs[0].src;
+                    var og = document.querySelector('meta[property="og:image"]');
+                    if (og) {
+                        var c = og.getAttribute('content');
+                        if (c && c.indexOf('uploads/settings/ogImage') === -1) return c;
+                    }
+                    return null;
+                })()
+                """);
+
+            coverUrl = coverUrl?.Trim('"');
+            if (string.IsNullOrWhiteSpace(coverUrl) || coverUrl == "null")
+                return html;
+
+            string escaped = System.Security.SecurityElement.Escape(coverUrl);
+            string injected = $"<meta property=\"og:image\" content=\"{escaped}\" data-shuka-injected=\"1\" />";
+
+            int headIdx = html.IndexOf("<head", StringComparison.OrdinalIgnoreCase);
+            int gtIdx   = headIdx >= 0 ? html.IndexOf('>', headIdx) : -1;
+            return gtIdx >= 0
+                ? html.Insert(gtIdx + 1, injected)
+                : injected + html;
+        }
+        catch
+        {
+            return html;
         }
     }
 

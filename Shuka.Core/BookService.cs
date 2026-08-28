@@ -336,26 +336,17 @@ public class BookService
             cts.CancelAfter(TimeSpan.FromSeconds(30));
 
             // Strip Next.js image optimization parameters to get original quality
-            string cleanUrl = coverUrl;
-            if (coverUrl.Contains("/_next/image?url="))
-            {
-                var match = Regex.Match(coverUrl, @"url=([^&]+)");
-                if (match.Success)
-                {
-                    string decoded = Uri.UnescapeDataString(match.Groups[1].Value);
-                    if (decoded.Contains('?'))
-                        decoded = decoded.Substring(0, decoded.IndexOf('?'));
-                    cleanUrl = decoded.StartsWith("http") ? decoded : coverUrl;
-                }
-            }
+            string cleanUrl = NoveldexAdapter.NormalizeCoverUrl(coverUrl) ?? coverUrl;
 
             using var req = new HttpRequestMessage(HttpMethod.Get, cleanUrl);
             // Add a Referer derived from the cover URL's host so CDNs that check it
             // (e.g. jjwxc.net static servers) don't block or stall the request.
+            // media.noveldex.io requires Referer: https://noveldex.io/
             try
             {
-                var uri = new Uri(coverUrl);
-                req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
+                string referer = NoveldexAdapter.GetCoverReferer(cleanUrl)
+                    ?? $"{new Uri(cleanUrl).Scheme}://{new Uri(cleanUrl).Host}/";
+                req.Headers.Add("Referer", referer);
             }
             catch { /* malformed URL — skip Referer */ }
 

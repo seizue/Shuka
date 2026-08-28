@@ -27,6 +27,40 @@ public class NoveldexAdapter : ISiteAdapter
         !string.IsNullOrWhiteSpace(url) &&
         url.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Default site-wide og:image — not a novel cover.</summary>
+    public static bool IsSiteDefaultOgImage(string url) =>
+        url.Contains("uploads/settings/ogImage", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Decode /_next/image proxy URLs and normalise relative paths.</summary>
+    public static string? NormalizeCoverUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        url = url.Trim();
+
+        if (url.Contains("/_next/image", StringComparison.OrdinalIgnoreCase) &&
+            url.Contains("url=", StringComparison.OrdinalIgnoreCase))
+        {
+            var m = Regex.Match(url, @"[?&]url=([^&]+)", RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                string inner = Uri.UnescapeDataString(m.Groups[1].Value);
+                if (inner.Contains('?')) inner = inner[..inner.IndexOf('?')];
+                if (!string.IsNullOrWhiteSpace(inner)) url = inner;
+            }
+        }
+
+        if (url.StartsWith("//")) url = "https:" + url;
+        else if (url.StartsWith('/')) url = "https://noveldex.io" + url;
+
+        return url;
+    }
+
+    /// <summary>Referer required by media.noveldex.io CDN hotlink checks.</summary>
+    public static string? GetCoverReferer(string url) =>
+        IsNoveldexUrl(url) || url.Contains("media.noveldex.io", StringComparison.OrdinalIgnoreCase)
+            ? "https://noveldex.io/"
+            : null;
+
     public string NormalizeUrl(string url)
     {
         if (!url.StartsWith("http")) url = "https://" + url;
@@ -183,40 +217,46 @@ public class NoveldexAdapter : ISiteAdapter
         // ── Cover ─────────────────────────────────────────────────────────────
         string? cover = null;
 
-        // Priority 1: Look for cover images specifically (most reliable)
-        var coverImg = Regex.Match(html,
-            @"src=[""'](https://media\.noveldex\.io/[^""']*cover[^""']*)[""']",
+        // Priority 0: og:image injected by WebView bypass with the real CDN URL
+        var injectedOg = Regex.Match(html,
+            @"<meta[^>]+data-shuka-injected=[""']1[""'][^>]+content=[""']([^""']+)[""']",
             RegexOptions.IgnoreCase);
-        if (coverImg.Success) cover = coverImg.Groups[1].Value.Trim();
+        if (!injectedOg.Success)
+            injectedOg = Regex.Match(html,
+                @"<meta[^>]+content=[""']([^""']+)[""'][^>]+data-shuka-injected=[""']1[""']",
+                RegexOptions.IgnoreCase);
+        if (injectedOg.Success)
+            cover = NormalizeCoverUrl(injectedOg.Groups[1].Value.Trim());
 
-        // Priority 2: Any media.noveldex.io CDN URLs
+        // Priority 1: Direct CDN URLs with "cover" in the path
         if (cover == null)
         {
-            var mediaImg = Regex.Match(html,
-                @"src=[""'](https://media\.noveldex\.io/series/[^""']+)[""']",
+            var coverImg = Regex.Match(html,
+                @"(?:src|content)=[""'](https://media\.noveldex\.io/[^""']*cover[^""']*)[""']",
                 RegexOptions.IgnoreCase);
-            if (mediaImg.Success) cover = mediaImg.Groups[1].Value.Trim();
+            if (coverImg.Success) cover = NormalizeCoverUrl(coverImg.Groups[1].Value.Trim());
         }
 
-        // Priority 3: og:image meta tag
+        // Priority 2: Next.js /_next/image proxy — prefer decoded URLs containing "cover"
         if (cover == null)
         {
-            var ogImg = Regex.Match(html,
-                @"<meta[^>]+property=[""']og:image[""'][^>]+content=[""']([^""']+)[""']",
-                RegexOptions.IgnoreCase);
-            if (!ogImg.Success)
-                ogImg = Regex.Match(html,
-                    @"<meta[^>]+content=[""']([^""']+)[""'][^>]+property=[""']og:image[""']",
-                    RegexOptions.IgnoreCase);
-            if (ogImg.Success) cover = ogImg.Groups[1].Value.Trim();
+            foreach (Match nextImg in Regex.Matches(html,
+                         @"src=[""']((?:https://noveldex\.io)?/_next/image\?url=([^""']+?)(?:&amp;|&)[^""']*)[""']",
+                         RegexOptions.IgnoreCase))
+            {
+                string decoded = Uri.UnescapeDataString(nextImg.Groups[2].Value.Trim());
+                if (decoded.Contains('?')) decoded = decoded[..decoded.IndexOf('?')];
+                if (decoded.Contains("cover", StringComparison.OrdinalIgnoreCase) && decoded.StartsWith("http"))
+                {
+                    cover = decoded;
+                    break;
+                }
+            }
         }
 
-        // Priority 4: Next.js image component - decode the inner url parameter.
-        // The serialised DOM HTML-encodes '&' as '&amp;', so we must handle both
-        // raw '&' and '&amp;' as delimiters when extracting the url= query param.
+        // Priority 3: Any /_next/image proxy pointing at media.noveldex.io
         if (cover == null)
         {
-            // Match /_next/image src with either raw & or HTML-encoded &amp; separating params
             var nextImg = Regex.Match(html,
                 @"src=[""']((?:https://noveldex\.io)?/_next/image\?url=([^""'&]+)[^""']*)[""']",
                 RegexOptions.IgnoreCase);
@@ -226,20 +266,17 @@ public class NoveldexAdapter : ISiteAdapter
                     RegexOptions.IgnoreCase);
             if (nextImg.Success)
             {
-                // Decode the inner url= value to get the real CDN URL
                 string rawParam = nextImg.Groups[2].Value.Trim();
                 string decoded  = Uri.UnescapeDataString(rawParam);
-                // Strip any query parameters from the decoded URL to get original quality
-                if (decoded.Contains('?'))
-                    decoded = decoded.Substring(0, decoded.IndexOf('?'));
+                if (decoded.Contains('?')) decoded = decoded[..decoded.IndexOf('?')];
                 if (decoded.StartsWith("http"))
                     cover = decoded;
                 else if (nextImg.Groups[1].Value.StartsWith("http"))
-                    cover = nextImg.Groups[1].Value;
+                    cover = NormalizeCoverUrl(nextImg.Groups[1].Value);
             }
         }
 
-        // Priority 5: Extract from __NEXT_DATA__ JSON (dynamic data)
+        // Priority 4: __NEXT_DATA__ JSON — prefer URLs with "cover" in the path
         if (cover == null)
         {
             var coverNextDataM = Regex.Match(html,
@@ -248,17 +285,47 @@ public class NoveldexAdapter : ISiteAdapter
             if (coverNextDataM.Success)
             {
                 string json = coverNextDataM.Groups[1].Value;
-                // Look for media.noveldex.io URLs in the JSON
-                var cdnMatch = Regex.Match(json, @"""(https://media\.noveldex\.io/[^""]+)""");
-                if (cdnMatch.Success) cover = cdnMatch.Groups[1].Value;
+                var coverCdn = Regex.Match(json,
+                    @"""(https://media\.noveldex\.io/[^""']*cover[^""']*)""",
+                    RegexOptions.IgnoreCase);
+                if (coverCdn.Success)
+                    cover = coverCdn.Groups[1].Value;
+                else
+                {
+                    var cdnMatch = Regex.Match(json, @"""(https://media\.noveldex\.io/[^""]+)""");
+                    if (cdnMatch.Success) cover = cdnMatch.Groups[1].Value;
+                }
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(cover))
+        // Priority 5: og:image meta tag (skip the site-wide default logo)
+        if (cover == null)
         {
-            if (cover.StartsWith("//")) cover = "https:" + cover;
-            else if (cover.StartsWith("/")) cover = "https://noveldex.io" + cover;
+            var ogImg = Regex.Match(html,
+                @"<meta[^>]+property=[""']og:image[""'][^>]+content=[""']([^""']+)[""']",
+                RegexOptions.IgnoreCase);
+            if (!ogImg.Success)
+                ogImg = Regex.Match(html,
+                    @"<meta[^>]+content=[""']([^""']+)[""'][^>]+property=[""']og:image[""']",
+                    RegexOptions.IgnoreCase);
+            if (ogImg.Success)
+            {
+                string og = ogImg.Groups[1].Value.Trim();
+                if (!IsSiteDefaultOgImage(og))
+                    cover = NormalizeCoverUrl(og);
+            }
         }
+
+        // Priority 6: Any CDN series image that explicitly contains "cover"
+        if (cover == null)
+        {
+            var mediaImg = Regex.Match(html,
+                @"src=[""'](https://media\.noveldex\.io/series/[^""']*cover[^""']*)[""']",
+                RegexOptions.IgnoreCase);
+            if (mediaImg.Success) cover = mediaImg.Groups[1].Value.Trim();
+        }
+
+        cover = NormalizeCoverUrl(cover);
 
         return new IndexInfo(title, author, chapters, cover);
     }
