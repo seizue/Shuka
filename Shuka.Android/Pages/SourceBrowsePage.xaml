@@ -235,6 +235,39 @@
                             </Label>
                         </Grid>
 
+
+                        <!-- Fetch novel URL to Download tab -->
+                        <Border x:Name="ImageContextMenuFetchBtn"
+                                Stroke="{DynamicResource Accent}"
+                                StrokeThickness="1.5"
+                                StrokeShape="RoundRectangle 14"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Padding="12,10"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="24,*,Auto"
+                                  ColumnSpacing="10">
+                                <Label Text="&#xE2C4;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource Accent}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Fetch to Download"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="2"
+                                       Text="&#xE5CC;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextMuted}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnImageContextMenuFetchTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
                         <!-- Copy novel title -->
                         <Border x:Name="ImageContextMenuCopyTitleBtn"
                                 Stroke="{DynamicResource Stroke}"
@@ -460,7 +493,7 @@
                              Color="{DynamicResource Stroke}" />
 
                     <!-- Cover + basic info row -->
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto"
                           ColumnSpacing="12"
                           Padding="16,12,16,0">
 
@@ -533,8 +566,26 @@
                                    TextColor="{DynamicResource TextMuted}" />
                         </VerticalStackLayout>
 
+
+                        <!-- Bookmark button -->
+                        <Border x:Name="DetailBookmarkBtn"
+                                Grid.Column="2"
+                                BackgroundColor="Transparent"
+                                StrokeThickness="0"
+                                VerticalOptions="Start"
+                                Padding="4">
+                            <Label x:Name="DetailBookmarkIcon"
+                                   Text="&#xE867;"
+                                   FontFamily="{DynamicResource IconFont}"
+                                   FontSize="20"
+                                   TextColor="{DynamicResource TextMuted}" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnDetailBookmarkTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Action menu button in header -->
-                        <Border Grid.Column="2"
+                        <Border Grid.Column="3"
                                 BackgroundColor="Transparent"
                                 StrokeThickness="0"
                                 VerticalOptions="Start"
@@ -549,7 +600,7 @@
                         </Border>
 
                         <!-- Close button -->
-                        <Border Grid.Column="3"
+                        <Border Grid.Column="4"
                                 BackgroundColor="Transparent"
                                 StrokeThickness="0"
                                 VerticalOptions="Start"

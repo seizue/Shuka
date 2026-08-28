@@ -25,6 +25,25 @@ public partial class BookmarksPage : ContentPage
     private bool _isCardActionSheetOpen;
     private BookmarkItem? _cardActionTarget;
 
+    // ── Cover image loading (with header support for hotlink-protected CDNs) ─
+    private static readonly HttpClient _coverHttp = new(new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 5,
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+        DefaultRequestHeaders =
+        {
+            { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+            { "Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" }
+        }
+    };
+    private static readonly Dictionary<string, byte[]> _coverBytesCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object _coverCacheLock = new();
+
+
     /// <summary>
     /// Creates a bookmarks page showing all bookmarks or filtered by site.
     /// </summary>
@@ -434,39 +453,78 @@ public partial class BookmarksPage : ContentPage
         bool isSelected = _selectedUrls.Contains(bookmark.Url);
 
         // ── Cover thumbnail ────────────────────────────────────────────────
+        string? coverUrl = NormalizeBookmarkCoverUrl(bookmark.CoverUrl, bookmark.SiteName, bookmark.Url);
         View coverThumbnail;
-        if (!string.IsNullOrWhiteSpace(bookmark.CoverUrl) &&
-            Uri.TryCreate(bookmark.CoverUrl, UriKind.Absolute, out var bmCoverUri))
+        if (!string.IsNullOrWhiteSpace(coverUrl) &&
+            Uri.TryCreate(coverUrl, UriKind.Absolute, out var bmCoverUri))
         {
-            coverThumbnail = new Border
+            var placeholderLily = new Image
+            {
+                Source = ImageSource.FromFile("lily.png"),
+                Aspect = Aspect.AspectFit,
+                WidthRequest = 20,
+                HeightRequest = 20,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                Opacity = 0.35,
+            };
+
+            var coverImg = new Image
+            {
+                Aspect = Aspect.AspectFill,
+                WidthRequest = 44,
+                HeightRequest = 62,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                IsVisible = false,
+            };
+
+            var coverGrid = new Grid
+            {
+                WidthRequest = 44,
+                HeightRequest = 62,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+            };
+            coverGrid.Add(placeholderLily);
+            coverGrid.Add(coverImg);
+
+            var coverBorder = new Border
             {
                 StrokeThickness = 0,
                 StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-                WidthRequest = 44, HeightRequest = 62,
+                WidthRequest = 44,
+                HeightRequest = 62,
                 VerticalOptions = LayoutOptions.Center,
-                Content = new Image { Source = ImageSource.FromUri(bmCoverUri), Aspect = Aspect.AspectFill },
+                Content = coverGrid,
             };
-            ((Border)coverThumbnail).SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+            coverBorder.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+            coverThumbnail = coverBorder;
+
+            LoadBookmarkCoverAsync(coverImg, coverUrl, placeholderLily, bookmark.SiteName);
         }
         else
         {
-            coverThumbnail = new Border
+            var fallback = new Border
             {
                 StrokeThickness = 0,
                 StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-                WidthRequest = 44, HeightRequest = 62,
+                WidthRequest = 44,
+                HeightRequest = 62,
                 VerticalOptions = LayoutOptions.Center,
                 Content = new Image
                 {
                     Source = ImageSource.FromFile("lily.png"),
                     Aspect = Aspect.AspectFit,
-                    WidthRequest = 22, HeightRequest = 22,
+                    WidthRequest = 22,
+                    HeightRequest = 22,
                     HorizontalOptions = LayoutOptions.Center,
                     VerticalOptions = LayoutOptions.Center,
                     Opacity = 0.45,
                 },
             };
-            ((Border)coverThumbnail).SetDynamicResource(Border.BackgroundColorProperty, "AccentContainer");
+            fallback.SetDynamicResource(Border.BackgroundColorProperty, "AccentContainer");
+            coverThumbnail = fallback;
         }
 
         // ── Text info ────────────────────────────────────────────────────
@@ -669,6 +727,111 @@ public partial class BookmarksPage : ContentPage
         card.GestureRecognizers.Add(pointerGesture);
         return card;
     }
+
+    private static string? NormalizeBookmarkCoverUrl(string? coverUrl, string? siteName, string? novelUrl)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl)) return null;
+        string url = coverUrl.Trim();
+
+        // Extract and decode Next.js proxy url query param (e.g. /_next/image?url=https%3A%2F%2Fmedia.noveldex.io...)
+        if (url.Contains("/_next/image") && url.Contains("url="))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(url, @"[?&]url=([^&]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                string inner = Uri.UnescapeDataString(m.Groups[1].Value);
+                if (inner.Contains('?')) inner = inner.Substring(0, inner.IndexOf('?'));
+                if (!string.IsNullOrWhiteSpace(inner)) url = inner;
+            }
+        }
+
+        if (url.StartsWith("//"))
+            url = "https:" + url;
+        else if (url.StartsWith("/"))
+        {
+            if (!string.IsNullOrWhiteSpace(novelUrl) && Uri.TryCreate(novelUrl, UriKind.Absolute, out var nUri))
+                url = $"{nUri.Scheme}://{nUri.Host}" + url;
+            else if (!string.IsNullOrWhiteSpace(siteName) && siteName.Contains("noveldex", StringComparison.OrdinalIgnoreCase))
+                url = "https://noveldex.io" + url;
+            else
+                url = "https://" + url.TrimStart('/');
+        }
+
+        return Uri.IsWellFormedUriString(url, UriKind.Absolute) ? url : null;
+    }
+
+    /// <summary>
+    /// Downloads a cover image with proper browser headers so hotlink-protected
+    /// CDNs (e.g. media.noveldex.io) return the real image instead of a 403.
+    /// Uses an in-memory byte cache so repeated rebuilds skip the network.
+    /// </summary>
+    private static void LoadBookmarkCoverAsync(Image targetImg, string? coverUrl, View? placeholderView = null, string? siteName = null)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl) ||
+            !Uri.TryCreate(coverUrl, UriKind.Absolute, out var uri))
+        {
+            targetImg.IsVisible = false;
+            if (placeholderView != null) placeholderView.IsVisible = true;
+            return;
+        }
+
+        // Check cache first
+        byte[]? cached;
+        lock (_coverCacheLock)
+            _coverBytesCache.TryGetValue(coverUrl, out cached);
+
+        if (cached != null)
+        {
+            targetImg.Source = ImageSource.FromStream(() => new MemoryStream(cached));
+            targetImg.IsVisible = true;
+            if (placeholderView != null) placeholderView.IsVisible = false;
+            return;
+        }
+
+        // Show placeholder while downloading
+        targetImg.IsVisible = false;
+        if (placeholderView != null) placeholderView.IsVisible = true;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+
+                // Set Referer to the page origin so CDN hotlink checks pass.
+                // For noveldex CDN (media.noveldex.io), referer must be https://noveldex.io/
+                string referer = (siteName?.Contains("noveldex", StringComparison.OrdinalIgnoreCase) == true ||
+                                  uri.Host.Contains("noveldex", StringComparison.OrdinalIgnoreCase))
+                    ? "https://noveldex.io/"
+                    : $"{uri.Scheme}://{uri.Host}/";
+
+                try { req.Headers.Referrer = new Uri(referer); } catch { }
+
+                using var resp = await _coverHttp.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var data = await resp.Content.ReadAsByteArrayAsync();
+                    if (data != null && data.Length > 0)
+                    {
+                        lock (_coverCacheLock)
+                            _coverBytesCache[coverUrl] = data;
+
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            targetImg.Source = ImageSource.FromStream(() => new MemoryStream(data));
+                            targetImg.IsVisible = true;
+                            if (placeholderView != null) placeholderView.IsVisible = false;
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BookmarksPage] Cover load failed for {coverUrl}: {ex.Message}");
+            }
+        });
+    }
+
 
 
     private Border CreateActionButton(string icon, string label, Func<Task> action, bool isDestructive = false)

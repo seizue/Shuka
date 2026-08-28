@@ -3,6 +3,7 @@ using Shuka.Core.Adapters;
 using Shuka.Android.Platform;
 using System.Text.RegularExpressions;
 using System.IO;
+using Shuka.Android.Services;
 
 namespace Shuka.Android.Pages;
 
@@ -166,6 +167,7 @@ public partial class SourceBrowsePage : ContentPage
                 var nav = Shell.Current?.Navigation;
                 if (nav == null) return;
                 if (nav.NavigationStack?.LastOrDefault() is WebBrowsePage) return;
+                WebBrowsePage.OnUrlFetched = url => MainPage.Instance?.FillUrlFromWebView(url);
                 var webPage = new WebBrowsePage(homeUrl);
                 await nav.PushAsync(webPage, true);
             }
@@ -711,6 +713,7 @@ public partial class SourceBrowsePage : ContentPage
                     {
                         var nav = Shell.Current?.Navigation;
                         if (nav == null) return;
+                        WebBrowsePage.OnUrlFetched = url => MainPage.Instance?.FillUrlFromWebView(url);
                         var webPage = new WebBrowsePage(homeUrl);
                         await nav.PushAsync(webPage, true);
                     }
@@ -1038,11 +1041,19 @@ public partial class SourceBrowsePage : ContentPage
             })
         });
 
+
+        var listActionRow = new HorizontalStackLayout
+        {
+            Spacing         = 4,
+            VerticalOptions = LayoutOptions.Center,
+            Children        = { dlBtn },
+        };
+
         var textStack = new VerticalStackLayout
         {
             Spacing         = 4,
             VerticalOptions = LayoutOptions.Center,
-            Children        = { titleLbl, authorLbl, chapterLbl, descLbl, dlBtn }
+            Children        = { titleLbl, authorLbl, chapterLbl, descLbl, listActionRow }
         };
 
         var contentGrid = new Grid
@@ -1104,6 +1115,7 @@ public partial class SourceBrowsePage : ContentPage
             {
                 try
                 {
+                    WebBrowsePage.OnUrlFetched = url => MainPage.Instance?.FillUrlFromWebView(url);
                     var webPage = new WebBrowsePage(novelUrl);
                     var nav = Shell.Current?.Navigation;
                     if (nav != null)
@@ -1292,6 +1304,7 @@ public partial class SourceBrowsePage : ContentPage
         ImageContextMenuCopyImageBtn.IsVisible = hasImage;
         ImageContextMenuCopyUrlBtn.IsVisible = hasImage;
         ImageContextMenuCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(novelTitle);
+        ImageContextMenuFetchBtn.IsVisible = !string.IsNullOrWhiteSpace(novelUrl);
         ImageContextMenuCopyNovelUrlBtn.IsVisible = !string.IsNullOrWhiteSpace(novelUrl);
 
         ImageContextMenuOverlay.IsVisible = true;
@@ -1356,6 +1369,18 @@ public partial class SourceBrowsePage : ContentPage
             await Clipboard.Default.SetTextAsync(title);
             await ShowImageActionToastAsync($"Copied: {title}");
         }
+    }
+
+    private async void OnImageContextMenuFetchTapped(object sender, TappedEventArgs e)
+    {
+        var url = _currentContextMenuNovelUrl;
+        await HideImageContextMenuSheetAsync();
+        if (string.IsNullOrWhiteSpace(url))
+            return;
+
+        // Pass URL directly to the Download tab URL entry
+        MainPage.Instance?.FillUrlFromWebView(url);
+        await Shell.Current.GoToAsync("//MainPage");
     }
 
     private async void OnImageContextMenuCopyNovelUrlTapped(object sender, TappedEventArgs e)
@@ -1510,6 +1535,10 @@ public partial class SourceBrowsePage : ContentPage
         DetailSummaryLabel.Text      = novel.Description ?? "";
         DetailSummaryLabel.IsVisible = hasSummary;
         DetailNoSummaryLabel.IsVisible = !hasSummary;
+
+        // Update bookmark icon state
+        bool isBookmarked = BookmarkService.Instance.IsBookmarked(novel.Url);
+        UpdateDetailBookmarkIcon(isBookmarked);
 
         // Show sheet
         _isDetailSheetOpen = true;
@@ -1674,6 +1703,7 @@ public partial class SourceBrowsePage : ContentPage
                 var nav = Shell.Current?.Navigation;
                 if (nav == null) return;
                 if (nav.NavigationStack?.LastOrDefault() is WebBrowsePage) return;
+                WebBrowsePage.OnUrlFetched = url => MainPage.Instance?.FillUrlFromWebView(url);
                 var webPage = new WebBrowsePage(novel.Url);
                 await nav.PushAsync(webPage, true);
             }
@@ -1691,6 +1721,49 @@ public partial class SourceBrowsePage : ContentPage
         await HideNovelDetailAsync();
         string? coverUrl = string.IsNullOrWhiteSpace(novel.CoverUrl) ? null : novel.CoverUrl.Trim();
         await ShowImageContextMenuAsync(coverUrl, novel.Title, novel.Url);
+    }
+
+    private void UpdateDetailBookmarkIcon(bool isBookmarked)
+    {
+        if (isBookmarked)
+        {
+            DetailBookmarkIcon.Text = "\uE866"; // bookmark filled
+            DetailBookmarkIcon.SetDynamicResource(Label.TextColorProperty, "AccentLight");
+        }
+        else
+        {
+            DetailBookmarkIcon.Text = "\uE867"; // bookmark outlined
+            DetailBookmarkIcon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
+        }
+    }
+
+    private void OnDetailBookmarkTapped(object sender, TappedEventArgs e)
+    {
+        var novel = _activeDetailNovel;
+        if (novel == null) return;
+
+        bool isBookmarked = BookmarkService.Instance.IsBookmarked(novel.Url);
+
+        if (isBookmarked)
+        {
+            BookmarkService.Instance.RemoveBookmark(novel.Url);
+            UpdateDetailBookmarkIcon(false);
+            _ = ShowImageActionToastAsync("Bookmark removed!");
+        }
+        else
+        {
+            // Need site name — derive it from the source
+            string siteName = _source?.SiteName ?? "";
+            BookmarkService.Instance.AddBookmark(
+                novel.Url,
+                novel.Title,
+                novel.Author ?? "Unknown",
+                siteName,
+                novel.ChapterCount ?? 0,
+                string.IsNullOrWhiteSpace(novel.CoverUrl) ? null : novel.CoverUrl);
+            UpdateDetailBookmarkIcon(true);
+            _ = ShowImageActionToastAsync($"Bookmarked: {novel.Title}");
+        }
     }
 
     private async void OnDetailDownloadTapped(object sender, TappedEventArgs e)

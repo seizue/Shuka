@@ -89,22 +89,7 @@ public partial class MainPage : ContentPage
         // Initialize Scope UI
         UpdateScopeUi();
 
-        // Subscribe to bookmark changes to update the badge counts
-        BookmarkService.Instance.BookmarksChanged += OnBookmarksChanged;
-
         SetActiveTab(download: true);
-    }
-
-    private void OnBookmarksChanged(object? sender, EventArgs e)
-    {
-        // Rebuild discover sources if they've been built
-        if (_discoverBuilt)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                BuildDiscoverSources();
-            });
-        }
     }
 
     private void OnSourceStatusUpdated(object? sender, EventArgs e)
@@ -576,82 +561,6 @@ public partial class MainPage : ContentPage
             })
         });
 
-        // ── Bookmark button ──────────────────────────────────────────────────
-        int bookmarkCount = BookmarkService.Instance.GetBookmarkCountForSite(source.SiteName);
-
-        var bookmarkIcon = new Label
-        {
-            Text = bookmarkCount > 0 ? "\uE866" : "\uE867", // bookmark filled / outlined
-            FontFamily = "MaterialSymbols",
-            FontSize = 20,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        bookmarkIcon.SetDynamicResource(Label.TextColorProperty,
-            bookmarkCount > 0 ? "AccentLight" : "TextMuted");
-
-        // Badge showing bookmark count (only if > 0)
-        var bookmarkBadgeContainer = new Grid
-        {
-            WidthRequest = 40,
-            HeightRequest = 40,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        bookmarkBadgeContainer.Add(bookmarkIcon);
-
-        if (bookmarkCount > 0)
-        {
-            // Small circular badge with count
-            var badgeCircle = new Border
-            {
-                StrokeThickness = 0,
-                StrokeShape = new Microsoft.Maui.Controls.Shapes.Ellipse(),
-                WidthRequest = 16,
-                HeightRequest = 16,
-                HorizontalOptions = LayoutOptions.End,
-                VerticalOptions = LayoutOptions.Start,
-                Margin = new Thickness(0, 0, 0, 0),
-            };
-            badgeCircle.SetDynamicResource(Border.BackgroundColorProperty, "AccentLight");
-
-            var badgeLabel = new Label
-            {
-                Text = bookmarkCount > 99 ? "99+" : bookmarkCount.ToString(),
-                FontSize = 8,
-                FontAttributes = FontAttributes.Bold,
-                TextColor = Colors.White,
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalOptions = LayoutOptions.Center,
-            };
-            badgeCircle.Content = badgeLabel;
-
-            bookmarkBadgeContainer.Add(badgeCircle);
-        }
-
-        var bookmarkBtn = new Border
-        {
-            StrokeThickness = 0,
-            BackgroundColor = Colors.Transparent,
-            Content = bookmarkBadgeContainer,
-        };
-        bookmarkBtn.GestureRecognizers.Add(new TapGestureRecognizer
-        {
-            Command = new Command(async () =>
-            {
-                await bookmarkBtn.ScaleToAsync(0.85, 70, Easing.CubicOut);
-                await bookmarkBtn.ScaleToAsync(1.0, 70, Easing.SpringOut);
-
-                var nav = Shell.Current?.Navigation;
-                if (nav == null) return;
-                if (nav.NavigationStack?.LastOrDefault() is BookmarksPage)
-                    return;
-
-                // Navigate to bookmarks page filtered by this source
-                await nav.PushAsync(
-                    new BookmarksPage(source.SiteName));
-            })
-        });
-
         // ── Chevron ──────────────────────────────────────────────────────────
         var chevron = new Label
         {
@@ -669,7 +578,6 @@ public partial class MainPage : ContentPage
             {
                 new ColumnDefinition { Width = GridLength.Auto },   // icon
                 new ColumnDefinition { Width = GridLength.Star },   // text
-                new ColumnDefinition { Width = GridLength.Auto },   // bookmark
                 new ColumnDefinition { Width = GridLength.Auto },   // pin
                 new ColumnDefinition { Width = GridLength.Auto },   // chevron
             },
@@ -678,9 +586,8 @@ public partial class MainPage : ContentPage
         };
         row.Add(iconBadge, 0, 0);
         row.Add(textStack, 1, 0);
-        row.Add(bookmarkBtn, 2, 0);
-        row.Add(pinBtn, 3, 0);
-        row.Add(chevron, 4, 0);
+        row.Add(pinBtn, 2, 0);
+        row.Add(chevron, 3, 0);
 
         var card = new Border
         {
@@ -1894,85 +1801,12 @@ public partial class MainPage : ContentPage
                 suppressCardTap = false;
             })
         });
-
-        // ── Bookmark button ──────────────────────────────────────────────────
-        var bmIcon = new Label
-        {
-            Text = isBookmarked ? "\uE866" : "\uE867",
-            FontFamily = "MaterialSymbols",
-            FontSize = 11,
-            VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center
-        };
-        bmIcon.SetDynamicResource(Label.TextColorProperty, isBookmarked ? "AccentLight" : "TextSecondary");
-
-        var bmBtn = new Border
-        {
-            StrokeThickness = 1,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
-            WidthRequest = 26,
-            HeightRequest = 26,
-            Padding = new Thickness(0),
-            Content = bmIcon,
-        };
-        bmBtn.SetDynamicResource(Border.BackgroundColorProperty, isBookmarked ? "AccentContainer" : "BgCard");
-        bmBtn.SetDynamicResource(Border.StrokeProperty, isBookmarked ? "AccentLight" : "Stroke");
-        bmBtn.GestureRecognizers.Add(new TapGestureRecognizer
-        {
-            Command = new Command(async () =>
-            {
-                suppressCardTap = true;
-                await bmBtn.ScaleToAsync(0.93, 70, Easing.CubicOut);
-                await bmBtn.ScaleToAsync(1.0, 70, Easing.SpringOut);
-
-                if (BookmarkService.Instance.IsBookmarked(novel.Url, source!.SiteName))
-                {
-                    BookmarkService.Instance.RemoveBookmark(novel.Url);
-                    bmIcon.Text = "\uE867";
-                    bmIcon.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
-                    bmBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
-                    bmBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
-                    await ShowDiscoverBookmarkBannerAsync($"Removed: {novel.Title}");
-                }
-                else
-                {
-                    int knownCount = TryExtractChapterCount(novel);
-                    BookmarkService.Instance.AddBookmark(
-                        novel.Url,
-                        novel.Title,
-                        novel.Author ?? "Unknown",
-                        source!.SiteName,
-                        knownCount,
-                        novel.CoverUrl);
-                    if (knownCount == 0)
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                int n = await _discoverService.GetChapterCountAsync(novel.Url);
-                                if (n > 0)
-                                    BookmarkService.Instance.UpdateBookmarkChapterCount(novel.Url, n);
-                            }
-                            catch { }
-                        });
-                    bmIcon.Text = "\uE866";
-                    bmIcon.SetDynamicResource(Label.TextColorProperty, "AccentLight");
-                    bmBtn.SetDynamicResource(Border.BackgroundColorProperty, "AccentContainer");
-                    bmBtn.SetDynamicResource(Border.StrokeProperty, "AccentLight");
-                    await ShowDiscoverBookmarkBannerAsync($"Saved: {novel.Title}");
-                }
-
-                await Task.Delay(80);
-                suppressCardTap = false;
-            })
-        });
-
         // ── Action row ───────────────────────────────────────────────────────
         var actionRow = new HorizontalStackLayout
         {
             Spacing = 4,
             HorizontalOptions = LayoutOptions.End,
-            Children = { dlBtn, bmBtn }
+            Children = { dlBtn }
         };
 
         // ── Info stack (bottom of card) ──────────────────────────────────────
@@ -2022,6 +1856,7 @@ public partial class MainPage : ContentPage
 
                 // WebBrowsePage must be constructed on the main thread — never inside Task.Run
                 var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
+                WebBrowsePage.OnUrlFetched = FillUrlFromWebView;
                 var webPage = new WebBrowsePage(novel.Url);
 
                 await scaleTask;

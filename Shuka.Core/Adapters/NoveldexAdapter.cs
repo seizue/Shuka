@@ -250,6 +250,12 @@ public class NoveldexAdapter : ISiteAdapter
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(cover))
+        {
+            if (cover.StartsWith("//")) cover = "https:" + cover;
+            else if (cover.StartsWith("/")) cover = "https://noveldex.io" + cover;
+        }
+
         return new IndexInfo(title, author, chapters, cover);
     }
 
