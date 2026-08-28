@@ -64,7 +64,9 @@ dotnet publish Shuka.Android/Shuka.Android.csproj -f net10.0-android -c Release
 
 ## Adding a new site
 
-Implement `ISiteAdapter` in `Shuka.Core/Adapters/` and register it in [`BookService.Adapters`](Shuka.Core/BookService.cs):
+### 1. Download adapter (required)
+
+Implement [`ISiteAdapter`](Shuka.Core/Models.cs) in `Shuka.Core/Adapters/` and register it in [`BookService.Adapters`](Shuka.Core/BookService.cs):
 
 ```csharp
 // Shuka.Core/Adapters/MySiteAdapter.cs
@@ -73,7 +75,8 @@ public class MySiteAdapter : ISiteAdapter
     public string SiteName => "mysite.com";
 
     // Return true if the URL belongs to this site
-    public bool Matches(string url) => url.Contains("mysite.com");
+    public bool Matches(string url) =>
+        url.Contains("mysite.com", StringComparison.OrdinalIgnoreCase);
 
     // Normalize an arbitrary page URL to the novel's index/chapter-list URL
     public string NormalizeUrl(string url) => /* strip chapter suffix, etc. */;
@@ -81,7 +84,7 @@ public class MySiteAdapter : ISiteAdapter
     // Parse the index page HTML — return title, author, cover URL, and ordered chapter list
     public IndexInfo ParseIndex(string html, string indexUrl)
     {
-        // IndexInfo(title, author, List<ChapterRef>, coverUrl)
+        // IndexInfo(title, author, List<ChapterRef>, coverUrl, coverHintUrl?)
         // ChapterRef(url, displayTitle)
         var chapters = new List<ChapterRef> { new("https://mysite.com/ch1", "Chapter 1") };
         return new IndexInfo("Title", "Author", chapters, coverUrl: null);
@@ -90,22 +93,72 @@ public class MySiteAdapter : ISiteAdapter
     // Extract paragraph text from a chapter page
     public List<string> ExtractChapterText(string html) => /* return one string per paragraph */;
 
-    // Set to true only if the site is behind Cloudflare (uses headless browser / WebView)
+    // Set to true if the site needs a headless browser (Windows) or hidden WebView (Android)
     public bool RequiresCfBypass => false;
+
+    // Optional: stop at the first locked/empty chapter instead of waiting for 3 in a row
+    public bool StopOnFirstLockedChapter => false;
 }
 ```
 
-Then register it in the [`Adapters`](Shuka.Core/BookService.cs#L17) array:
+Then register it in the [`Adapters`](Shuka.Core/BookService.cs#L16) array:
 
 ```csharp
 // Shuka.Core/BookService.cs
 public static readonly ISiteAdapter[] Adapters =
     [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(),
-     new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(),
+     new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(),
+     new NoveldexAdapter(), new ShubaowAdapter(),
      new MySiteAdapter()]; // ← add here
 ```
 
-That's all — `BookService` will automatically detect and route downloads to your adapter.
+That's all for downloads — `BookService` will automatically detect and route URLs to your adapter.
+
+### 2. Browse adapter (optional — Android Discover tab)
+
+To show the site in the Android app's **Discover** tab (recent, popular, search), add a separate `*Browse.cs` file implementing [`IBrowsableAdapter`](Shuka.Core/DiscoverModels.cs) and register it in [`DiscoverService.Sources`](Shuka.Core/DiscoverService.cs):
+
+```csharp
+// Shuka.Core/Adapters/MySiteBrowse.cs
+public class MySiteBrowse : IBrowsableAdapter
+{
+    public string SiteName => "mysite.com";
+    public string Description => "Short description shown in the app";
+    public string IconGlyph => "\uE894"; // Material Symbols codepoint
+    public bool RequiresCfBypass => false;
+
+    public string GetRecentUrl(int page = 1) => /* listing URL */;
+    public string GetPopularUrl(int page = 1) => /* listing URL */;
+    public string GetSearchUrl(string query, int page = 1) => /* search URL */;
+
+    public ListingPage ParseListing(string html, string pageUrl)
+    {
+        var novels = new List<NovelEntry>
+        {
+            new("Novel Title", "Author", "https://mysite.com/book/1", coverUrl: null,
+                description: null, tags: null)
+        };
+        return new ListingPage(novels, hasNextPage: false, currentPage: 1);
+    }
+
+    // Optional: POST-based search (e.g. GBK-encoded forms)
+    // public (string postBody, string charset)? GetSearchPostBody(string query, int page = 1) => ...;
+
+    // Optional: category/ranking filters instead of Recent/Popular pills
+    // public IReadOnlyList<SourceFilter>? Filters => ...;
+}
+```
+
+```csharp
+// Shuka.Core/DiscoverService.cs
+public static readonly IReadOnlyList<IBrowsableAdapter> Sources =
+[
+    // ...existing sources...
+    new MySiteBrowse(), // ← add here
+];
+```
+
+Browse support is optional — a download-only adapter still works from pasted URLs on both Windows and Android.
 
 ## License
 
