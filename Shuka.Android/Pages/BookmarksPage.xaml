@@ -8,7 +8,7 @@
 
         <!-- ── Top bar ───────────────────────────────────────── -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="44,*,44,44"
+              ColumnDefinitions="44,*,44"
               HeightRequest="96"
               Padding="8,44,8,8"
               BackgroundColor="{DynamicResource BgCard}">
@@ -40,40 +40,21 @@
                    HorizontalOptions="Start"
                    Margin="8,0,0,0" />
 
-            <!-- Select mode toggle -->
+            <!-- Page action button (3-dots) -->
             <Grid Grid.Column="2"
-                  x:Name="SelectModeButton"
+                  x:Name="PageActionButton"
                   WidthRequest="44"
                   HorizontalOptions="Center"
                   VerticalOptions="Center">
-                <Label x:Name="SelectModeIcon"
-                       Text="&#xE8B3;"
+                <Label x:Name="PageActionIcon"
+                       Text="&#xE5D4;"
                        FontFamily="{DynamicResource IconFont}"
-                       FontSize="20"
+                       FontSize="22"
                        TextColor="{DynamicResource TextMuted}"
                        HorizontalOptions="Center"
                        VerticalOptions="Center" />
                 <Grid.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnSelectModeTapped" />
-                </Grid.GestureRecognizers>
-            </Grid>
-
-            <!-- Clear all / Cancel button -->
-            <Grid Grid.Column="3"
-                  x:Name="ActionButton"
-                  WidthRequest="44"
-                  HorizontalOptions="Center"
-                  VerticalOptions="Center"
-                  IsVisible="False">
-                <Label x:Name="ActionButtonIcon"
-                       Text="&#xE872;"
-                       FontFamily="{DynamicResource IconFont}"
-                       FontSize="20"
-                       TextColor="{DynamicResource TextMuted}"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center" />
-                <Grid.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnActionButtonTapped" />
+                    <TapGestureRecognizer Tapped="OnPageActionTapped" />
                 </Grid.GestureRecognizers>
             </Grid>
         </Grid>
@@ -559,6 +540,99 @@
                             </Grid>
                             <Border.GestureRecognizers>
                                 <TapGestureRecognizer Tapped="OnCardActionRemoveTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- ── Page action bottom sheet (Select / Clear All) ─────────────── -->
+        <Grid x:Name="PageActionSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.RowSpan="4">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnPageActionSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="PageActionSheet"
+                    Margin="12,0,12,16"
+                    Padding="14,14,14,10"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnPageActionSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <VerticalStackLayout Spacing="12">
+
+                    <!-- Title row -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Bookmarks"
+                               FontSize="16" FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}" />
+                        <Label Grid.Column="1"
+                               Text="&#xE5CD;"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextMuted}">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Option Buttons -->
+                    <VerticalStackLayout Spacing="8">
+
+                        <!-- Select -->
+                        <Border BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE8B3;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Select Bookmarks"
+                                       FontSize="13" FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionSelectTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Clear All Bookmarks -->
+                        <Border BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE872;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource Warning}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Clear All Bookmarks"
+                                       FontSize="13" FontAttributes="Bold"
+                                       TextColor="{DynamicResource Warning}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnPageActionClearAllTapped" />
                             </Border.GestureRecognizers>
                         </Border>
 

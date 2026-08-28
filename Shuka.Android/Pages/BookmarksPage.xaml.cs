@@ -89,18 +89,67 @@ public partial class BookmarksPage : ContentPage
         }
     }
 
+    private void OnPageActionTapped(object sender, TappedEventArgs e)
+    {
+        if (_selectMode)
+            ExitSelectMode();
+        else
+            ShowPageActionSheet();
+    }
+
+    private async void ShowPageActionSheet()
+    {
+        PageActionSheetOverlay.IsVisible = true;
+        await Task.WhenAll(
+            PageActionSheet.TranslateToAsync(0, 0, 220, Easing.CubicOut),
+            PageActionSheet.FadeToAsync(1, 180, Easing.CubicOut)
+        );
+    }
+
+    private async void HidePageActionSheet()
+    {
+        await Task.WhenAll(
+            PageActionSheet.TranslateToAsync(0, 28, 200, Easing.CubicIn),
+            PageActionSheet.FadeToAsync(0, 160, Easing.CubicIn)
+        );
+        PageActionSheetOverlay.IsVisible = false;
+    }
+
+    private void OnPageActionSheetOverlayTapped(object sender, TappedEventArgs e)
+    {
+        HidePageActionSheet();
+    }
+
+    private void OnPageActionSheetTapped(object sender, TappedEventArgs e)
+    {
+        // Consume tap so overlay backdrop doesn't close sheet
+    }
+
+    private void OnPageActionSheetCloseTapped(object sender, TappedEventArgs e)
+    {
+        HidePageActionSheet();
+    }
+
+    private void OnPageActionSelectTapped(object sender, TappedEventArgs e)
+    {
+        HidePageActionSheet();
+        EnterSelectMode();
+    }
+
+    private async void OnPageActionClearAllTapped(object sender, TappedEventArgs e)
+    {
+        HidePageActionSheet();
+        // Small delay so the sheet closes before the dialog appears
+        await Task.Delay(220);
+        OnClearAllTapped(sender, e);
+    }
+
     private void OnSelectModeTapped(object sender, TappedEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"[BookmarksPage] Select mode tapped. Current: {_selectMode}");
-
         if (_selectMode)
-        {
             ExitSelectMode();
-        }
         else
-        {
             EnterSelectMode();
-        }
     }
 
     private void EnterSelectMode()
@@ -110,14 +159,13 @@ public partial class BookmarksPage : ContentPage
 
         System.Diagnostics.Debug.WriteLine("[BookmarksPage] Entering select mode");
 
-        SelectModeIcon.Text = "\uE5CD"; // close icon
-        SelectModeIcon.SetDynamicResource(Label.TextColorProperty, "AccentLight");
+        // Switch the 3-dots icon to a close (X) icon to cancel select mode
+        PageActionIcon.Text = "\uE5CD";
+        PageActionIcon.SetDynamicResource(Label.TextColorProperty, "AccentLight");
 
         // Change title to show we're in select mode
         TitleLabel.Text = "Select Bookmarks";
 
-        ActionButton.IsVisible = false;
-        // Action bar visibility will be updated by UpdateSelectionCount
         SelectionActionBar.SetDynamicResource(Border.StrokeProperty, "Stroke");
 
         BuildBookmarksList();
@@ -130,8 +178,9 @@ public partial class BookmarksPage : ContentPage
 
         System.Diagnostics.Debug.WriteLine("[BookmarksPage] Exiting select mode");
 
-        SelectModeIcon.Text = "\uE8B3"; // check_box icon
-        SelectModeIcon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
+        // Restore 3-dots icon
+        PageActionIcon.Text = "\uE5D4";
+        PageActionIcon.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
         // Restore original title
         TitleLabel.Text = !string.IsNullOrEmpty(_filterSiteName)
@@ -145,7 +194,7 @@ public partial class BookmarksPage : ContentPage
 
     private void OnActionButtonTapped(object sender, TappedEventArgs e)
     {
-        // Clear all bookmarks
+        // Legacy - kept for compatibility; real entry point is OnPageActionClearAllTapped
         OnClearAllTapped(sender, e);
     }
 
@@ -199,11 +248,8 @@ public partial class BookmarksPage : ContentPage
         FilterChips.Clear();
 
         // ── Sort chips ───────────────────────────────────────────────────────
-        var latestChip = CreateFilterChip("Latest", "latest", _sortFilter == "latest");
+        var latestChip = CreateFilterChip("Latest", "latest", true);
         FilterChips.Add(latestChip);
-
-        var chaptersChip = CreateFilterChip("Most Chapters", "chapters", _sortFilter == "chapters");
-        FilterChips.Add(chaptersChip);
 
         // ── Divider ──────────────────────────────────────────────────────────
         var divider = new BoxView
@@ -215,31 +261,33 @@ public partial class BookmarksPage : ContentPage
         divider.SetDynamicResource(BoxView.ColorProperty, "Stroke");
         FilterChips.Add(divider);
 
+
         // ── Source filter chips ──────────────────────────────────────────────
         // Collect distinct site names that actually have bookmarks
-        var sitesWithBookmarks = BookmarkService.Instance.Bookmarks
-            .Select(b => b.SiteName)
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s)
+        var siteGroups = BookmarkService.Instance.Bookmarks
+            .Where(b => !string.IsNullOrWhiteSpace(b.SiteName))
+            .GroupBy(b => b.SiteName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key)
             .ToList();
 
-        if (sitesWithBookmarks.Count > 1)
+        if (siteGroups.Count > 1)
         {
             // "All" chip — no source filter
-            var allChip = CreateSourceChip("All", null, _filterSiteName == null);
+            var totalCount = siteGroups.Sum(g => g.Count());
+            var allChip = CreateSourceChip("All", null, _filterSiteName == null, totalCount);
             FilterChips.Add(allChip);
 
-            foreach (var site in sitesWithBookmarks)
+            foreach (var group in siteGroups)
             {
-                var siteChip = CreateSourceChip(site, site,
-                    string.Equals(_filterSiteName, site, StringComparison.OrdinalIgnoreCase));
+                var siteChip = CreateSourceChip(group.Key, group.Key,
+                    string.Equals(_filterSiteName, group.Key, StringComparison.OrdinalIgnoreCase),
+                    group.Count());
                 FilterChips.Add(siteChip);
             }
         }
     }
 
-    private Border CreateSourceChip(string label, string? siteValue, bool isActive)
+    private Border CreateSourceChip(string label, string? siteValue, bool isActive, int count = -1)
     {
         var chipLabel = new Label
         {
@@ -253,7 +301,7 @@ public partial class BookmarksPage : ContentPage
         {
             StrokeThickness = 1,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            Padding = new Thickness(12, 6),
+            Padding = new Thickness(10, 6),
         };
 
         if (isActive)
@@ -269,7 +317,52 @@ public partial class BookmarksPage : ContentPage
             chipLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
         }
 
-        chip.Content = chipLabel;
+        // Build chip content: label + optional count badge
+        if (count >= 0)
+        {
+            var countBadge = new Border
+            {
+                Padding = new Thickness(5, 1),
+                StrokeThickness = 0,
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+                VerticalOptions = LayoutOptions.Center,
+            };
+
+            var countLabel = new Label
+            {
+                Text = count.ToString(),
+                FontSize = 9,
+                FontAttributes = FontAttributes.Bold,
+                VerticalOptions = LayoutOptions.Center,
+            };
+
+            if (isActive)
+            {
+                countBadge.SetDynamicResource(Border.BackgroundColorProperty, "Stroke");
+                countLabel.SetDynamicResource(Label.TextColorProperty, "TextPrimary");
+            }
+            else
+            {
+                countBadge.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+                countLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
+            }
+
+            countBadge.Content = countLabel;
+
+            var row = new HorizontalStackLayout
+            {
+                Spacing = 5,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { chipLabel, countBadge }
+            };
+
+            chip.Content = row;
+        }
+        else
+        {
+            chip.Content = chipLabel;
+        }
+
         chip.GestureRecognizers.Add(new TapGestureRecognizer
         {
             Command = new Command(async () =>
@@ -390,7 +483,6 @@ public partial class BookmarksPage : ContentPage
         if (allBookmarks.Count == 0)
         {
             EmptyState.IsVisible = true;
-            ActionButton.IsVisible = false;
 
             if (!string.IsNullOrEmpty(_searchQuery))
             {
@@ -404,7 +496,6 @@ public partial class BookmarksPage : ContentPage
         }
 
         EmptyState.IsVisible = false;
-        ActionButton.IsVisible = !_selectMode;
 
         // Group by site
         var groupedBookmarks = allBookmarks
@@ -1485,6 +1576,7 @@ public partial class BookmarksPage : ContentPage
         TagSheet.Margin = new Thickness(12, 0, 12, bottomInset);
         RemoveBookmarkSheet.Margin = new Thickness(12, 0, 12, bottomInset);
         CardActionSheet.Margin = new Thickness(12, 0, 12, bottomInset);
+        PageActionSheet.Margin = new Thickness(12, 0, 12, bottomInset);
     }
 
     // ── Card action sheet ─────────────────────────────────────────────────────
