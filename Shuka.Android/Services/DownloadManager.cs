@@ -835,6 +835,10 @@ public class DownloadManager
                 item.OriginalTitle  = book.Title;
                 item.OriginalAuthor = book.Author;
                 item.TotalChapters  = book.Total;
+                if (string.IsNullOrWhiteSpace(item.CoverUrl) && !string.IsNullOrWhiteSpace(book.CoverUrl))
+                {
+                    item.CoverUrl = book.CoverUrl;
+                }
             });
 
             Log($"Title:    {book.Title}");

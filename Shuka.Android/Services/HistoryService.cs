@@ -46,7 +46,19 @@ public class HistoryService
     private static string CoversDir =>
         Path.Combine(FileSystem.AppDataDirectory, "covers");
 
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private static readonly HttpClient _http = new(new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        AllowAutoRedirect = true,
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(20),
+        DefaultRequestHeaders =
+        {
+            { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+            { "Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" }
+        }
+    };
 
     private readonly SemaphoreSlim _saveLock = new(1, 1);
     private readonly TaskCompletionSource _loadedTcs = new();
@@ -104,6 +116,10 @@ public class HistoryService
         // Cache cover image locally
         if (!string.IsNullOrWhiteSpace(entry.CoverUrl))
             entry.CoverLocalPath = await CacheCoverAsync(entry.Id, entry.CoverUrl);
+
+        // Fallback: extract cover image directly from the generated EPUB if network cache was skipped or failed
+        if (string.IsNullOrWhiteSpace(entry.CoverLocalPath) || !File.Exists(entry.CoverLocalPath))
+            entry.CoverLocalPath = TryExtractCoverFromEpub(entry.EpubPath, entry.Id);
 
         entry.IsFileAvailable  = IsEpubAccessible(entry.EpubPath);
         entry.IsCoverAvailable = !string.IsNullOrWhiteSpace(entry.CoverLocalPath) && File.Exists(entry.CoverLocalPath);
@@ -205,7 +221,7 @@ public class HistoryService
             await MainThread.InvokeOnMainThreadAsync(() => Entries.AddRange(list));
             _loadedTcs.TrySetResult(); // signal BEFORE slow chapter migration
 
-            // ── Slow pass: count chapters from ZIP (migration only) ────────────
+            // ── Slow pass: count chapters & extract missing covers from EPUB (migration) ─
             foreach (var entry in list)
             {
                 if (entry.ChapterCount == 0)
@@ -214,6 +230,17 @@ public class HistoryService
                     if (count > 0)
                     {
                         entry.ChapterCount = count;
+                        needsSave = true;
+                    }
+                }
+
+                if (!entry.IsCoverAvailable || string.IsNullOrWhiteSpace(entry.CoverLocalPath) || !File.Exists(entry.CoverLocalPath))
+                {
+                    string? extracted = TryExtractCoverFromEpub(entry.EpubPath, entry.Id);
+                    if (!string.IsNullOrWhiteSpace(extracted) && File.Exists(extracted))
+                    {
+                        entry.CoverLocalPath = extracted;
+                        entry.IsCoverAvailable = true;
                         needsSave = true;
                     }
                 }
@@ -292,7 +319,67 @@ public class HistoryService
         finally { _saveLock.Release(); }
     }
 
-    // ── Cover caching ─────────────────────────────────────────────────────────
+    // ── Cover caching & extraction ───────────────────────────────────────────
+
+    private static string? TryExtractCoverFromEpub(string? epubPath, Guid id)
+    {
+        if (string.IsNullOrWhiteSpace(epubPath)) return null;
+
+        try
+        {
+            Stream? stream = null;
+            if (epubPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase))
+            {
+                var ctx = global::Android.App.Application.Context;
+                var uri = global::Android.Net.Uri.Parse(epubPath);
+                if (uri == null) return null;
+                stream = ctx.ContentResolver?.OpenInputStream(uri);
+            }
+            else
+            {
+                if (!File.Exists(epubPath)) return null;
+                stream = File.OpenRead(epubPath);
+            }
+
+            if (stream == null) return null;
+
+            using (stream)
+            {
+                using var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+
+                // Look for cover image entry in EPUB (exclude SVG and HTML/XML)
+                var coverEntry = archive.Entries.FirstOrDefault(e =>
+                {
+                    string name = e.FullName.ToLowerInvariant();
+                    return (name.Contains("cover.") || name.StartsWith("oebps/cover.") || name.EndsWith("/cover.jpg") || name.EndsWith("/cover.png") || name.EndsWith("/cover.jpeg") || name.EndsWith("/cover.webp") || name.EndsWith("/cover.gif"))
+                        && (name.EndsWith(".jpg") || name.EndsWith(".jpeg") || name.EndsWith(".png") || name.EndsWith(".webp") || name.EndsWith(".gif"));
+                });
+
+                // Fallback: any image file in archive
+                coverEntry ??= archive.Entries.FirstOrDefault(e =>
+                {
+                    string name = e.FullName.ToLowerInvariant();
+                    return (name.EndsWith(".jpg") || name.EndsWith(".jpeg") || name.EndsWith(".png") || name.EndsWith(".webp") || name.EndsWith(".gif"))
+                        && !name.EndsWith(".svg");
+                });
+
+                if (coverEntry == null) return null;
+
+                string ext = Path.GetExtension(coverEntry.Name).ToLowerInvariant();
+                if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".jpg";
+
+                Directory.CreateDirectory(CoversDir);
+                string outPath = Path.Combine(CoversDir, $"{id:N}{ext}");
+
+                using var entryStream = coverEntry.Open();
+                using var outStream = File.Create(outPath);
+                entryStream.CopyTo(outStream);
+
+                return outPath;
+            }
+        }
+        catch { return null; }
+    }
 
     private static async Task<string?> CacheCoverAsync(Guid id, string url)
     {
@@ -300,6 +387,7 @@ public class HistoryService
         {
             string ext  = Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
             if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".jpg";
+            Directory.CreateDirectory(CoversDir);
             string path = Path.Combine(CoversDir, $"{id:N}{ext}");
 
             if (File.Exists(path)) return path;
