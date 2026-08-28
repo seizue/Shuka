@@ -636,27 +636,35 @@ public partial class BookmarksPage : ContentPage
         card.SetDynamicResource(Border.BackgroundColorProperty, "BgCard");
         card.SetDynamicResource(Border.StrokeProperty, (isSelected && _selectMode) ? "AccentLight" : "Stroke");
 
-        // ── Gestures ────────────────────────────────────────────────────
+        // ── Gestures: Long-press to select, tap to open / toggle ──────────
         CancellationTokenSource? lpCts = null;
-        bool longPressTriggered = false;
+        bool isLongPress = false;
+        Point pressStartPoint = Point.Zero;
         var pointerGesture = new PointerGestureRecognizer();
 
         pointerGesture.PointerPressed += async (s, e) =>
         {
             try
             {
-                lpCts?.Cancel(); lpCts?.Dispose();
-                longPressTriggered = false;
+                lpCts?.Cancel();
+                lpCts?.Dispose();
+                isLongPress = false;
+                var pt = e.GetPosition(card);
+                pressStartPoint = pt ?? Point.Zero;
+
                 var cts = new CancellationTokenSource();
                 lpCts = cts;
+
                 try
                 {
-                    await Task.Delay(500, cts.Token);
-                    longPressTriggered = true;
-                    try
-                    {
+                    await Task.Delay(600, cts.Token);
+                    isLongPress = true;
+
+                    // Haptic feedback
 #if ANDROID
 #pragma warning disable CA1416
+                    try
+                    {
                         if (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.S)
                         {
                             var vm = global::Android.App.Application.Context.GetSystemService(global::Android.Content.Context.VibratorManagerService) as global::Android.OS.VibratorManager;
@@ -672,59 +680,102 @@ public partial class BookmarksPage : ContentPage
                                 vib.Vibrate(global::Android.OS.VibrationEffect.CreateOneShot(50, global::Android.OS.VibrationEffect.DefaultAmplitude));
 #pragma warning restore CA1422
                         }
-#pragma warning restore CA1416
-#endif
                     }
                     catch { }
-                    if (!_selectMode) EnterSelectMode();
-                    if (!_selectedUrls.Contains(bookmark.Url))
+#pragma warning restore CA1416
+#endif
+
+                    MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        _selectedUrls.Add(bookmark.Url);
-                        MainThread.BeginInvokeOnMainThread(async () => { await Task.Delay(100); BuildBookmarksList(); });
-                    }
+                        if (!_selectMode) EnterSelectMode();
+                        if (!_selectedUrls.Contains(bookmark.Url))
+                        {
+                            _selectedUrls.Add(bookmark.Url);
+                            BuildBookmarksList();
+                        }
+                    });
                 }
                 catch (OperationCanceledException) { }
-                catch (ObjectDisposedException) { }
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BookmarksPage] PointerPressed: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BookmarksPage] PointerPressed: {ex.Message}");
+            }
         };
 
-        pointerGesture.PointerReleased += async (s, e) =>
+        void CancelLongPress()
         {
             try
             {
-                if (lpCts != null && !lpCts.Token.IsCancellationRequested)
-                {
+                if (lpCts != null && !lpCts.IsCancellationRequested)
                     lpCts.Cancel();
-                    if (longPressTriggered) { longPressTriggered = false; return; }
+            }
+            catch { }
+        }
 
-                    if (_selectMode)
-                    {
-                        if (_selectedUrls.Contains(bookmark.Url)) _selectedUrls.Remove(bookmark.Url);
-                        else _selectedUrls.Add(bookmark.Url);
-                        MainThread.BeginInvokeOnMainThread(async () => { await Task.Delay(100); BuildBookmarksList(); });
-                    }
-                    else
-                    {
-                        try
-                        {
-                            var scaleTask = card.ScaleToAsync(0.95, 50, Easing.CubicOut);
-                            await scaleTask;
-                            await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
-                            // WebBrowsePage MUST be created on the main thread (MAUI requirement)
-                            var webPage = new WebBrowsePage(bookmark.Url);
-                            var nav = Shell.Current?.Navigation;
-                            if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
-                                await nav.PushAsync(webPage);
-                        }
-                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BookmarksPage] OpenWebView: {ex.Message}"); }
-                    }
+        pointerGesture.PointerMoved += (s, e) =>
+        {
+            // If finger moves more than 8 pixels (scrolling / dragging), cancel long press immediately
+            var cur = e.GetPosition(card);
+            if (cur.HasValue)
+            {
+                double dx = Math.Abs(cur.Value.X - pressStartPoint.X);
+                double dy = Math.Abs(cur.Value.Y - pressStartPoint.Y);
+                if (dx > 8 || dy > 8)
+                {
+                    CancelLongPress();
                 }
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BookmarksPage] PointerReleased: {ex.Message}"); }
+            else
+            {
+                CancelLongPress();
+            }
         };
 
+        pointerGesture.PointerExited   += (s, e) => CancelLongPress();
+        pointerGesture.PointerReleased += (s, e) => CancelLongPress();
+
         card.GestureRecognizers.Add(pointerGesture);
+
+        // Tap handling via TapGestureRecognizer (avoids conflicting with scroll gestures)
+        card.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(async () =>
+            {
+                if (isLongPress)
+                {
+                    isLongPress = false;
+                    return;
+                }
+
+                if (_selectMode)
+                {
+                    if (_selectedUrls.Contains(bookmark.Url))
+                        _selectedUrls.Remove(bookmark.Url);
+                    else
+                        _selectedUrls.Add(bookmark.Url);
+
+                    BuildBookmarksList();
+                }
+                else
+                {
+                    try
+                    {
+                        await card.ScaleToAsync(0.95, 50, Easing.CubicOut);
+                        await card.ScaleToAsync(1.0, 100, Easing.SpringOut);
+                        var webPage = new WebBrowsePage(bookmark.Url);
+                        var nav = Shell.Current?.Navigation;
+                        if (nav != null && !(nav.NavigationStack?.LastOrDefault() is WebBrowsePage))
+                            await nav.PushAsync(webPage);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BookmarksPage] OpenWebView: {ex.Message}");
+                    }
+                }
+            })
+        });
+
         return card;
     }
 
