@@ -330,6 +330,7 @@ internal sealed class Downloader
             }
 
             string content;
+            bool translationFailed = false;
             if (isLocked)
             {
                 content = string.Empty;
@@ -337,7 +338,43 @@ internal sealed class Downloader
             }
             else if (translate)
             {
-                content = await _translator.Translate(string.Join("\n", paras), ct: ct);
+                // Translate title and body together using a sentinel separator so we get
+                // an English chapter title for the EPUB heading and TOC, not just the body.
+                const string TitleSep = "\n===TITLE===\n";
+                string combined = ch.Title + TitleSep + string.Join("\n", paras);
+
+                string translated;
+                try
+                {
+                    translated = await _translator.Translate(combined, ct: ct);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch
+                {
+                    translated = combined; // treat as failure, handled below
+                    translationFailed = true;
+                }
+
+                int sepIdx = translated.IndexOf("===TITLE===", StringComparison.OrdinalIgnoreCase);
+                if (sepIdx >= 0)
+                {
+                    ch = new ChapterRef(ch.Url, translated[..sepIdx].Trim());
+                    content = translated[(sepIdx + "===TITLE===".Length)..].Trim();
+                }
+                else
+                {
+                    // Sentinel was dropped by the translator — keep original title, use full result as body
+                    content = translated;
+                }
+
+                // Detect silent translation failure: result still contains a lot of Chinese
+                if (!translationFailed)
+                {
+                    translationFailed = Regex.IsMatch(content, @"[\u4e00-\u9fff]{20,}");
+                }
+
+                if (translationFailed)
+                    content = "[Translation unavailable — original text below]\n" + content;
             }
             else
             {

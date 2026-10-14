@@ -26,6 +26,7 @@ internal static class Tui
                         "Batch download (multiple novels)",
                         "EPUB from checkpoint",
                         "Fix Cloudflare (--solve-cf)",
+                        "Browser (Cloudflare engine)",
                         "View supported sites",
                         "About Shuka",
                         "Exit"));
@@ -43,6 +44,11 @@ internal static class Tui
                     break;
                 case "Fix Cloudflare (--solve-cf)":
                     await RunSolveCfAsync();
+                    AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+                    Console.ReadKey(intercept: true);
+                    break;
+                case "Browser (Cloudflare engine)":
+                    await RunBrowserStatusAsync();
                     AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
                     Console.ReadKey(intercept: true);
                     break;
@@ -620,6 +626,98 @@ internal static class Tui
             // Quit
             AnsiConsole.MarkupLine("\n[grey]Goodbye![/]");
             Environment.Exit(0);
+        }
+    }
+
+    // ── Browser status ────────────────────────────────────────────────────────
+
+    private static async Task RunBrowserStatusAsync()
+    {
+        while (true)
+        {
+            AnsiConsole.Clear();
+            RenderHeader();
+            AnsiConsole.MarkupLine("[bold yellow]  Browser (Cloudflare Engine)[/]\n");
+
+            var status = PlaywrightFetcher.GetPlaywrightStatus();
+
+            // Status table
+            string browserStatus = status.BrowserFound
+                ? "[bold green]✓ Installed[/]"
+                : "[bold red]✗ Not found[/]";
+
+            string versionStatus;
+            if (!status.BrowserFound)
+                versionStatus = "[red]—[/]";
+            else if (string.IsNullOrEmpty(status.InstalledVersion))
+                versionStatus = "[yellow]Unknown (no marker)[/]";
+            else if (status.UpToDate)
+                versionStatus = $"[green]{Markup.Escape(status.InstalledVersion)}[/] [dim](up to date)[/]";
+            else
+                versionStatus = $"[yellow]{Markup.Escape(status.InstalledVersion)}[/] [dim]→ update available: [/][white]{Markup.Escape(status.DllVersion)}[/]";
+
+            AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]Status   [/]  {browserStatus}");
+            AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]Installed[/]  {versionStatus}");
+            AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]Required [/]  [dim]{Markup.Escape(status.DllVersion)}[/]");
+            AnsiConsole.WriteLine();
+
+            if (!status.UpToDate)
+            {
+                string prompt = status.BrowserFound
+                    ? $"[yellow]⚠  An update is available[/] [dim]({Markup.Escape(status.InstalledVersion)} → {Markup.Escape(status.DllVersion)})[/]. Update now for best Cloudflare bypass performance."
+                    : "[red]✗  No browser found.[/] Install it so Cloudflare-protected sites work.";
+                AnsiConsole.MarkupLine($"  {prompt}\n");
+            }
+
+            // Build choices based on current state
+            var choices = new List<string>();
+            if (!status.UpToDate)
+                choices.Add(status.BrowserFound ? "Update browser" : "Install browser");
+            choices.Add("Back to menu");
+
+            var action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[grey]What would you like to do?[/]")
+                    .HighlightStyle(new Style(Color.IndianRed1))
+                    .AddChoices(choices));
+
+            if (action == "Back to menu") return;
+
+            // Install / update — run it then loop back to re-render the status
+            AnsiConsole.WriteLine();
+            bool success = false;
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse("indianred1"))
+                .StartAsync("[grey]Installing Chromium browser...[/]", async ctx =>
+                {
+                    await Task.Run(() =>
+                    {
+                        success = PlaywrightFetcher.InstallOrUpdateChromium(msg =>
+                        {
+                            ctx.Status($"[grey]{Markup.Escape(msg)}[/]");
+                        });
+                    });
+                    ctx.Status(success ? "[green]Done.[/]" : "[red]Failed.[/]");
+                });
+
+            AnsiConsole.WriteLine();
+            if (success)
+            {
+                AnsiConsole.MarkupLine("[bold green]✓ Browser installed/updated successfully.[/]");
+                AnsiConsole.MarkupLine("[dim]  Refreshing status...[/]");
+                await Task.Delay(1000);
+                // Loop back — screen will re-render with fresh status
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[bold red]✗ Installation failed.[/]");
+                AnsiConsole.MarkupLine("[dim]  Check your internet connection and try again, or run:[/]");
+                AnsiConsole.MarkupLine("[dim]  Shuka.exe playwright install chromium[/]");
+                AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+                Console.ReadKey(intercept: true);
+                return;
+            }
         }
     }
 

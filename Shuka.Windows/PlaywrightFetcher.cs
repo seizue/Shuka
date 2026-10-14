@@ -643,14 +643,67 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     private static bool ChromiumExistsUnder(string root)
     {
         if (!Directory.Exists(root)) return false;
-        // Look for chromium-*/chrome-win/chrome.exe (Windows) or chromium-*/chrome-linux/chrome (Linux)
+        // Playwright uses chromium-NNNN folders. The inner bin dir has changed across
+        // versions: older builds used chrome-win, newer ones use chrome-win64.
+        // We also check for an INSTALLATION_COMPLETE marker file (written by newer Playwright)
+        // which is the most reliable signal that install succeeded.
         foreach (string dir in Directory.EnumerateDirectories(root, "chromium-*"))
         {
+            if (File.Exists(Path.Combine(dir, "INSTALLATION_COMPLETE")))      return true;
+            if (File.Exists(Path.Combine(dir, "chrome-win64", "chrome.exe"))) return true;
             if (File.Exists(Path.Combine(dir, "chrome-win",   "chrome.exe"))) return true;
             if (File.Exists(Path.Combine(dir, "chrome-linux", "chrome")))     return true;
         }
         return false;
     }
+
+    /// <summary>
+    /// Returns the current Playwright/Chromium installation status for display in the TUI.
+    /// </summary>
+    public static PlaywrightStatus GetPlaywrightStatus()
+    {
+        string dllVersion = typeof(Microsoft.Playwright.Playwright)
+            .Assembly.GetName().Version?.ToString() ?? "unknown";
+
+        string markerPath = Path.Combine(AppContext.BaseDirectory, ".playwright-version");
+        string installedVersion = File.Exists(markerPath)
+            ? File.ReadAllText(markerPath).Trim()
+            : "";
+
+        bool browserFound = BundledChromiumExists();
+        bool upToDate = installedVersion == dllVersion && browserFound;
+
+        return new PlaywrightStatus(dllVersion, installedVersion, browserFound, upToDate);
+    }
+
+    /// <summary>
+    /// Runs <c>playwright install chromium</c> and updates the version marker.
+    /// Returns true on success, false if the install command failed.
+    /// </summary>
+    public static bool InstallOrUpdateChromium(Action<string>? log = null)
+    {
+        string dllVersion = typeof(Microsoft.Playwright.Playwright)
+            .Assembly.GetName().Version?.ToString() ?? "unknown";
+        string markerPath = Path.Combine(AppContext.BaseDirectory, ".playwright-version");
+
+        log?.Invoke("Running: playwright install chromium ...");
+        int exit = Microsoft.Playwright.Program.Main(["install", "chromium"]);
+        if (exit != 0)
+        {
+            log?.Invoke($"Install exited with code {exit}.");
+            return false;
+        }
+
+        File.WriteAllText(markerPath, dllVersion);
+        log?.Invoke("Browser updated successfully.");
+        return true;
+    }
+
+    public record PlaywrightStatus(
+        string DllVersion,
+        string InstalledVersion,
+        bool BrowserFound,
+        bool UpToDate);
 
     /// <summary>
     /// Opens a visible browser window so the user can solve a CF challenge manually.
