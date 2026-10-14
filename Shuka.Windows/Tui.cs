@@ -550,6 +550,18 @@ internal static class Tui
             if (downloadComplete)
             {
                 AnsiConsole.MarkupLine($"\n[green]✓ Done! EPUB saved to your Downloads folder.[/]");
+
+                // Show translation failure notice if any chapters couldn't be translated
+                if (downloader.LastTranslationFailCount > 0 && downloader.LastTranslationLogPath != null)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  [yellow]⚠  {downloader.LastTranslationFailCount} chapter(s) had translation failures.[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  [dim]Those chapters are in the original Chinese with a notice inside the EPUB.[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  [dim]Details: [/][grey]{Markup.Escape(downloader.LastTranslationLogPath)}[/]");
+                }
+
                 return;
             }
 

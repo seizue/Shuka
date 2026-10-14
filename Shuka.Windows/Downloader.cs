@@ -19,6 +19,10 @@ internal sealed class Downloader
         _http       = http;
     }
 
+    /// <summary>Set after TUI-mode ProcessBookAsync if any chapters failed to translate.</summary>
+    public string? LastTranslationLogPath   { get; private set; }
+    public int     LastTranslationFailCount { get; private set; }
+
     // ── Book info ─────────────────────────────────────────────────────────────
 
     public async Task<BookInfo> GatherBookInfoAsync(
@@ -81,7 +85,7 @@ internal sealed class Downloader
             coverMime = coverRes.mime;
         }
 
-        var (chapters, lockedFromChapter) = await DownloadChaptersAsync(book, null, translate);
+        var (chapters, lockedFromChapter, _) = await DownloadChaptersAsync(book, null, translate);
 
         Console.WriteLine("\n  Building EPUB...");
         string path = BuildOutputPath(book, outFile);
@@ -134,7 +138,7 @@ internal sealed class Downloader
                 book.CoverUrl));
 
         ct.ThrowIfCancellationRequested();
-        var (chapters, lockedFromChapter) = await DownloadChaptersAsync(book, onProgress, translate, ct);
+        var (chapters, lockedFromChapter, translationFailures) = await DownloadChaptersAsync(book, onProgress, translate, ct);
 
         ct.ThrowIfCancellationRequested();
         string path = BuildOutputPath(book, outFile);
@@ -145,6 +149,33 @@ internal sealed class Downloader
         string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
         CheckpointService.Delete(checkpointPath);
+
+        // Write a translation error log only when failures occurred
+        if (translationFailures.Count > 0)
+        {
+            string logDir  = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shuka");
+            Directory.CreateDirectory(logDir);
+            string logPath = Path.Combine(logDir, "translation-errors.log");
+
+            var lines = new List<string>
+            {
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Translation failures for: {book.IndexUrl}",
+                $"  Title : {book.TitleEn ?? book.Title}",
+                $"  Failed chapters ({translationFailures.Count}): {string.Join(", ", translationFailures)}",
+                ""
+            };
+            await File.AppendAllLinesAsync(logPath, lines);
+
+            // Surface the log path so the TUI can display it after download
+            LastTranslationLogPath   = logPath;
+            LastTranslationFailCount = translationFailures.Count;
+        }
+        else
+        {
+            LastTranslationLogPath   = null;
+            LastTranslationFailCount = 0;
+        }
     }
 
     /// <summary>Generates a sample EPUB from already downloaded/checkpointed chapters.</summary>
@@ -226,7 +257,7 @@ internal sealed class Downloader
 
     // ── Chapter download pipeline ─────────────────────────────────────────────
 
-    private async Task<(List<(int Idx, string Title, string Text)> chapters, int? lockedFromChapter)> DownloadChaptersAsync(
+    private async Task<(List<(int Idx, string Title, string Text)> chapters, int? lockedFromChapter, List<int> translationFailures)> DownloadChaptersAsync(
         BookInfo book, Action<int, int, string>? onProgress, bool translate = true,
         CancellationToken ct = default)
     {
@@ -240,6 +271,7 @@ internal sealed class Downloader
 
         var chapters = new List<(int Idx, string Title, string Text)>(book.Total);
         int? lockedFromChapter = null;
+        var translationFailures = new List<int>();
 
         var t0 = DateTime.Now;
         int consecutiveLockedCount = 0;
@@ -374,7 +406,10 @@ internal sealed class Downloader
                 }
 
                 if (translationFailed)
+                {
+                    translationFailures.Add(i + 1);
                     content = "[Translation unavailable — original text below]\n" + content;
+                }
             }
             else
             {
@@ -389,7 +424,7 @@ internal sealed class Downloader
                 onProgress?.Invoke(i + 1, book.Total, translate ? $"Chapter {i + 1} of {book.Total}" : $"Downloaded ch {i + 1} of {book.Total}");
         }
 
-        return (chapters, lockedFromChapter);
+        return (chapters, lockedFromChapter, translationFailures);
     }
 
     // ── Cover download ────────────────────────────────────────────────────────
