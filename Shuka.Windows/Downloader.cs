@@ -123,6 +123,16 @@ internal sealed class Downloader
             coverMime = coverRes.mime;
         }
 
+        // Cache book metadata so export-from-checkpoint skips re-fetching and re-translating
+        string cacheDir0 = Path.Combine(Path.GetTempPath(), "ShukaCache");
+        Directory.CreateDirectory(cacheDir0);
+        string checkpointPath0 = CheckpointService.GetCheckpointPath(cacheDir0, book.IndexUrl);
+        await CheckpointService.SaveBookMetaAsync(checkpointPath0, book.IndexUrl,
+            new CheckpointService.BookMeta(
+                book.Title,   book.TitleEn!,
+                book.Author,  book.AuthorEn!,
+                book.CoverUrl));
+
         ct.ThrowIfCancellationRequested();
         var (chapters, lockedFromChapter) = await DownloadChaptersAsync(book, onProgress, translate, ct);
 
@@ -158,35 +168,56 @@ internal sealed class Downloader
             return null;
         }
 
-        Console.WriteLine("  Gathering book info...");
-        var book = await GatherBookInfoAsync(indexUrl);
+        // Try to use cached metadata — avoids re-fetching the index page and re-translating
+        var cachedMeta = await CheckpointService.LoadBookMetaAsync(checkpointPath);
 
-        byte[]? coverBytes;
-        string coverMime;
-        if (translate)
+        string title, titleEn, author, authorEn;
+        string? coverUrl;
+
+        if (cachedMeta != null)
         {
-            Console.Write("  Translating title/author...");
-            book.TitleEn = await _translator.Translate(book.Title);
-            book.AuthorEn = await _translator.Translate(book.Author);
-            Console.WriteLine(" done");
-            var coverRes = await DownloadCoverAsync(book.CoverUrl);
-            coverBytes = coverRes.bytes;
-            coverMime = coverRes.mime;
+            title    = cachedMeta.Title;
+            titleEn  = cachedMeta.TitleEn;
+            author   = cachedMeta.Author;
+            authorEn = cachedMeta.AuthorEn;
+            coverUrl = cachedMeta.CoverUrl;
         }
         else
         {
-            book.TitleEn = book.Title;
-            book.AuthorEn = book.Author;
-            var coverRes = await DownloadCoverAsync(book.CoverUrl);
-            coverBytes = coverRes.bytes;
-            coverMime = coverRes.mime;
+            Console.WriteLine("  Gathering book info...");
+            var book = await GatherBookInfoAsync(indexUrl);
+
+            if (translate)
+            {
+                Console.Write("  Translating title/author...");
+                book.TitleEn  = await _translator.Translate(book.Title);
+                book.AuthorEn = await _translator.Translate(book.Author);
+                Console.WriteLine(" done");
+            }
+            else
+            {
+                book.TitleEn  = book.Title;
+                book.AuthorEn = book.Author;
+            }
+
+            title    = book.Title;
+            titleEn  = book.TitleEn!;
+            author   = book.Author;
+            authorEn = book.AuthorEn!;
+            coverUrl = book.CoverUrl;
         }
 
+        byte[]? coverBytes;
+        string coverMime;
+        var coverRes = await DownloadCoverAsync(coverUrl);
+        coverBytes = coverRes.bytes;
+        coverMime  = coverRes.mime;
+
         Console.WriteLine($"\n  Building Sample EPUB ({savedChapters.Count} chapters)...");
-        string path = BuildSampleOutputPath(book, outFile, savedChapters.Count);
+        string path = BuildSampleOutputPath(title, titleEn, outFile, savedChapters.Count);
         if (File.Exists(path)) File.Delete(path);
 
-        EpubBuilder.Build(path, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
+        EpubBuilder.Build(path, title, titleEn, author, authorEn,
             savedChapters, coverBytes, coverMime, translate);
 
         Console.WriteLine($"  Sample EPUB saved: {Path.GetFullPath(path)}");
@@ -266,7 +297,7 @@ internal sealed class Downloader
                 Console.Write($"\r  [{i + 1}/{book.Total}] {phaseText}... {eta}      ");
             }
 
-            string html = await _fetcher.FetchAsync(ch.Url);
+            string html = await _fetcher.FetchAsync(ch.Url, ct: ct);
             var paras = book.Adapter.ExtractChapterText(html);
 
             // Empty paragraphs = chapter is paywalled / locked
@@ -306,7 +337,7 @@ internal sealed class Downloader
             }
             else if (translate)
             {
-                content = await _translator.Translate(string.Join("\n", paras));
+                content = await _translator.Translate(string.Join("\n", paras), ct: ct);
             }
             else
             {
@@ -410,13 +441,13 @@ internal sealed class Downloader
         return Path.Combine(downloads, fileName);
     }
 
-    private static string BuildSampleOutputPath(BookInfo book, string? outFile, int chapterCount)
+    private static string BuildSampleOutputPath(string title, string titleEn, string? outFile, int chapterCount)
     {
         if (outFile != null) return outFile;
-        string safeName = Regex.Replace(book.TitleEn ?? book.Title,
+        string safeName = Regex.Replace(titleEn ?? title,
             @"[\\/:*?""<>|]", "_").Trim('_');
         if (string.IsNullOrWhiteSpace(safeName))
-            safeName = Regex.Match(book.IndexUrl, @"/([^/]+?)/?$").Groups[1].Value;
+            safeName = "unknown";
         string fileName = safeName[..Math.Min(safeName.Length, 50)] + $"_sample_ch1-{chapterCount}.epub";
         string downloads = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");

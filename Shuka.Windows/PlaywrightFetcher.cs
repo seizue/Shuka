@@ -54,36 +54,38 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     /// Fetches a URL. For JS-rendered sites goes straight to Playwright;
     /// for other sites tries plain HTTP first and falls back on CF detection.
     /// </summary>
-    public async Task<string> FetchAsync(string url, int retries = 4)
+    public async Task<string> FetchAsync(string url, int retries = 4, CancellationToken ct = default)
     {
         // Known JS-rendered sites — skip HTTP entirely and use Playwright
         if (url.Contains("69shuba.com",  StringComparison.OrdinalIgnoreCase) ||
             url.Contains("noveldex.io",  StringComparison.OrdinalIgnoreCase))
-            return await FetchWithPlaywrightVerified(url);
+            return await FetchWithPlaywrightVerified(url, ct: ct);
 
         int delay = 1000;
         Exception? last = null;
         for (int i = 0; i <= retries; i++)
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 var uri = new Uri(url);
                 req.Headers.Add("Referer", $"{uri.Scheme}://{uri.Host}/");
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var resp = await _site.SendAsync(req, cts.Token);
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+                var resp = await _site.SendAsync(req, linked.Token);
 
                 bool isCf = resp.Headers.Contains("cf-ray") ||
                             resp.Headers.Server.ToString().Contains("cloudflare");
                 if (isCf && ((int)resp.StatusCode is 403 or 503))
-                    return await FetchWithPlaywrightVerified(url);
+                    return await FetchWithPlaywrightVerified(url, ct: ct);
 
                 resp.EnsureSuccessStatusCode();
                 byte[] bytes = await resp.Content.ReadAsByteArrayAsync();
                 string latin1 = Encoding.Latin1.GetString(bytes);
 
                 if (latin1.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase))
-                    return await FetchWithPlaywrightVerified(url);
+                    return await FetchWithPlaywrightVerified(url, ct: ct);
 
                 string charset = DetectCharset(resp, latin1);
                 Encoding enc;
@@ -94,14 +96,14 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 if (result.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
                     (result.Contains("请稍候", StringComparison.OrdinalIgnoreCase) &&
                      result.Contains("cloudflare", StringComparison.OrdinalIgnoreCase)))
-                    return await FetchWithPlaywrightVerified(url);
+                    return await FetchWithPlaywrightVerified(url, ct: ct);
 
                 return result;
             }
             catch (Exception ex)
             {
                 last = ex;
-                await Task.Delay(delay);
+                await Task.Delay(delay, ct).ConfigureAwait(false);
                 delay = Math.Min(delay * 2, 16000);
             }
         }

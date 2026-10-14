@@ -12,7 +12,14 @@ namespace Shuka.Core;
 public static class CheckpointService
 {
     private record ChapterRecord(int Index, string Title, string Text);
-    private record CheckpointData(string Url, List<ChapterRecord> Chapters);
+
+    /// <summary>Book-level metadata cached alongside chapter data.</summary>
+    public record BookMeta(
+        string Title, string TitleEn,
+        string Author, string AuthorEn,
+        string? CoverUrl);
+
+    private record CheckpointData(string Url, List<ChapterRecord> Chapters, BookMeta? Meta = null);
 
     /// <summary>
     /// Returns the checkpoint file path for a given download URL.
@@ -90,6 +97,50 @@ public static class CheckpointService
                 JsonSerializer.Serialize(data));
         }
         finally { writeLock.Release(); }
+    }
+
+    /// <summary>
+    /// Saves book-level metadata (title, author, cover URL) into the checkpoint file.
+    /// Called once after title/author translation so export can skip re-fetching.
+    /// </summary>
+    public static async Task SaveBookMetaAsync(string checkpointPath, string url, BookMeta meta)
+    {
+        // Use a dedicated lock per path — reuse the chapter write pattern (no external lock needed
+        // here since this is called once before the chapter loop starts).
+        CheckpointData data;
+        if (File.Exists(checkpointPath))
+        {
+            try
+            {
+                string existing = await File.ReadAllTextAsync(checkpointPath);
+                data = JsonSerializer.Deserialize<CheckpointData>(existing)
+                       ?? new CheckpointData(url, new List<ChapterRecord>());
+            }
+            catch { data = new CheckpointData(url, new List<ChapterRecord>()); }
+        }
+        else
+        {
+            data = new CheckpointData(url, new List<ChapterRecord>());
+        }
+
+        data = data with { Meta = meta };
+        await File.WriteAllTextAsync(checkpointPath, JsonSerializer.Serialize(data));
+    }
+
+    /// <summary>
+    /// Reads the cached book metadata from a checkpoint file.
+    /// Returns null if the file doesn't exist, is corrupt, or has no metadata.
+    /// </summary>
+    public static async Task<BookMeta?> LoadBookMetaAsync(string checkpointPath)
+    {
+        if (!File.Exists(checkpointPath)) return null;
+        try
+        {
+            string json = await File.ReadAllTextAsync(checkpointPath);
+            var data = JsonSerializer.Deserialize<CheckpointData>(json);
+            return data?.Meta;
+        }
+        catch { return null; }
     }
 
     /// <summary>Deletes the checkpoint file after a successful download.</summary>
