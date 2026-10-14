@@ -511,7 +511,10 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     {
         if (_playwright != null) return;
 
-        // Auto-install / update Chromium when the Playwright version changes
+        // Auto-install / update Chromium when the Playwright version changes.
+        // The installer bundles a pre-downloaded .playwright folder alongside the exe,
+        // so if the install command fails (e.g. no internet, proxy, permissions) we
+        // check whether a usable browser binary is already present before giving up.
         string version = typeof(Microsoft.Playwright.Playwright)
             .Assembly.GetName().Version?.ToString() ?? "unknown";
         string markerPath = Path.Combine(AppContext.BaseDirectory, ".playwright-version");
@@ -522,9 +525,29 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             Console.WriteLine(installed == ""
                 ? "\n  [cloudflare] Installing browser (first run)..."
                 : $"\n  [cloudflare] Updating browser ({installed} → {version})...");
-            int exit = Microsoft.Playwright.Program.Main(new[] { "install", "chromium" });
+
+            int exit = Microsoft.Playwright.Program.Main(["install", "chromium"]);
             if (exit != 0)
-                throw new Exception($"Playwright install failed (exit {exit}). Run: Shuka.exe playwright install chromium");
+            {
+                // Install failed — check if a bundled/cached browser is already present.
+                // Playwright stores binaries under .playwright/chromium-*/chrome-win/chrome.exe
+                // relative to the app base directory (set via PLAYWRIGHT_BROWSERS_PATH env var
+                // or the default %LocalAppData%\ms-playwright on the user machine).
+                bool bundledBrowserExists = BundledChromiumExists();
+                if (bundledBrowserExists)
+                {
+                    // Browser is there from the installer bundle — log a warning and proceed.
+                    Console.WriteLine($"\n  [cloudflare] Browser install returned exit {exit} but a bundled browser was found — continuing.");
+                }
+                else
+                {
+                    throw new Exception(
+                        $"Playwright browser install failed (exit {exit}) and no bundled browser was found.\n" +
+                        $"Fix: run  Shuka.exe playwright install chromium  from the app folder, or reinstall Shuka.");
+                }
+            }
+
+            // Mark the version so we don't attempt re-install on every launch
             File.WriteAllText(markerPath, version);
         }
 
@@ -593,6 +616,40 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             delete window.__pw_manual;
             delete window.__selenium_unwrapped;
         ");
+    }
+
+    /// <summary>
+    /// Returns true when a Chromium binary already exists in either the app-local
+    /// .playwright folder (bundled by the installer) or the user's ms-playwright cache.
+    /// This lets us survive a failed <c>playwright install</c> network call when the
+    /// browser was already shipped alongside the exe.
+    /// </summary>
+    private static bool BundledChromiumExists()
+    {
+        // 1. App-local bundle: {AppBaseDir}\.playwright\chromium-*\chrome-win\chrome.exe
+        string appBase = AppContext.BaseDirectory;
+        string appLocalPlaywright = Path.Combine(appBase, ".playwright");
+        if (ChromiumExistsUnder(appLocalPlaywright)) return true;
+
+        // 2. User-level Playwright cache (default install target on user machines)
+        string userCache = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ms-playwright");
+        if (ChromiumExistsUnder(userCache)) return true;
+
+        return false;
+    }
+
+    private static bool ChromiumExistsUnder(string root)
+    {
+        if (!Directory.Exists(root)) return false;
+        // Look for chromium-*/chrome-win/chrome.exe (Windows) or chromium-*/chrome-linux/chrome (Linux)
+        foreach (string dir in Directory.EnumerateDirectories(root, "chromium-*"))
+        {
+            if (File.Exists(Path.Combine(dir, "chrome-win",   "chrome.exe"))) return true;
+            if (File.Exists(Path.Combine(dir, "chrome-linux", "chrome")))     return true;
+        }
+        return false;
     }
 
     /// <summary>

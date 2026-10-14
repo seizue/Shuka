@@ -269,16 +269,39 @@ public class BookService
                 break;
             }
 
+            string chapterTitle = ch.Title;
             string text = "";
+            bool translationFailed = false;
+
             if (paras.Count > 0)
             {
                 if (translate)
                 {
+                    // Translate title and body together so we only need one translation call
+                    // when both succeed. Title is prepended with a sentinel separator so we
+                    // can split the result back out without ambiguity.
+                    const string TitleSep = "\n===TITLE===\n";
+                    string combined = ch.Title + TitleSep + string.Join("\n", paras);
+
                     for (int transAttempt = 1; transAttempt <= 6; transAttempt++)
                     {
                         try
                         {
-                            text = await _translator.Translate(string.Join("\n", paras), log, ct);
+                            string translated = await _translator.Translate(combined, log, ct);
+
+                            // Split translated result back into title + body
+                            int sepIdx = translated.IndexOf("===TITLE===", StringComparison.OrdinalIgnoreCase);
+                            if (sepIdx >= 0)
+                            {
+                                chapterTitle = translated[..sepIdx].Trim();
+                                text         = translated[(sepIdx + "===TITLE===".Length)..].Trim();
+                            }
+                            else
+                            {
+                                // Separator was lost in translation — keep original title, use full result as body
+                                chapterTitle = ch.Title;
+                                text         = translated;
+                            }
                             break;
                         }
                         catch (OperationCanceledException) { throw; }
@@ -287,7 +310,9 @@ public class BookService
                             if (transAttempt == 6)
                             {
                                 log?.Invoke($"[translate failed ch{i + 1} after 6 attempts] {ex.Message} — keeping original");
-                                text = string.Join("\n", paras);
+                                chapterTitle     = ch.Title;
+                                text             = string.Join("\n", paras);
+                                translationFailed = true;
                             }
                             else
                             {
@@ -297,6 +322,11 @@ public class BookService
                             }
                         }
                     }
+
+                    // Prepend a visible notice when translation failed so readers know
+                    // the chapter body is in the original language
+                    if (translationFailed)
+                        text = "[Translation unavailable — original text below]\n" + text;
                 }
                 else
                 {
@@ -304,12 +334,12 @@ public class BookService
                 }
             }
 
-            results.Add((i + 1, ch.Title, text));
+            results.Add((i + 1, chapterTitle, text));
 
             // Save to checkpoint so this chapter isn't re-downloaded on retry
             if (checkpointPath != null)
                 await CheckpointService.SaveChapterAsync(
-                    checkpointPath, book.IndexUrl, i, ch.Title, text, writeLock);
+                    checkpointPath, book.IndexUrl, i, chapterTitle, text, writeLock);
 
             progress?.Report(new ProgressEventArgs
             {
