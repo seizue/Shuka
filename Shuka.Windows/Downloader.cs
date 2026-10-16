@@ -9,10 +9,10 @@ namespace Shuka;
 internal sealed class Downloader
 {
     private readonly PlaywrightFetcher _fetcher;
-    private readonly Translator        _translator;
+    private readonly WindowsTranslator _translator;
     private readonly HttpClient        _http;
 
-    public Downloader(PlaywrightFetcher fetcher, Translator translator, HttpClient http)
+    public Downloader(PlaywrightFetcher fetcher, WindowsTranslator translator, HttpClient http)
     {
         _fetcher    = fetcher;
         _translator = translator;

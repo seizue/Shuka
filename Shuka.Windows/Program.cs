@@ -22,6 +22,9 @@ if (argsList.RemoveAll(arg => arg.Equals("--sample", StringComparison.OrdinalIgn
 }
 args = argsList.ToArray();
 
+// Load translator engine preference (persisted in %LocalAppData%\Shuka\translator-settings.json)
+var translatorSettings = TranslatorSettings.Load();
+
 // Background release check (non-blocking).
 ReleaseUpdateService.StartBackgroundCheck(message =>
 {
@@ -55,10 +58,21 @@ if (args.Length == 0)
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
     await using var fetcherTui    = new PlaywrightFetcher(siteClientTui);
-    var             translatorTui = new Translator(httpClientTui);
+    var             googleTui     = new Translator(httpClientTui);
+    var             translatorTui = new WindowsTranslator(translatorSettings, googleTui);
     var             downloaderTui = new Downloader(fetcherTui, translatorTui, httpClientTui);
 
-    await Tui.RunAsync(downloaderTui, translate);
+    await Tui.RunAsync(downloaderTui, translate, translatorSettings);
+    return;
+}
+
+// ── --clear-cache / --clear-checkpoints: clear checkpoint cache ────────────────
+if (args.Length >= 1 && (args[0].Equals("--clear-cache", StringComparison.OrdinalIgnoreCase) ||
+                         args[0].Equals("--clear-checkpoints", StringComparison.OrdinalIgnoreCase)))
+{
+    string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+    int count = CheckpointService.ClearAll(cacheDir);
+    Console.WriteLine($"[Shuka] Cleared {count} checkpoint cache file(s).");
     return;
 }
 
@@ -115,7 +129,8 @@ httpClient.DefaultRequestHeaders.Add("User-Agent",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
 await using var fetcher    = new PlaywrightFetcher(siteClient);
-var             translator = new Translator(httpClient);
+var             googleCli  = new Translator(httpClient);
+var             translator = new WindowsTranslator(translatorSettings, googleCli);
 var             downloader = new Downloader(fetcher, translator, httpClient);
 
 // ── --sample mode ─────────────────────────────────────────────────────────────

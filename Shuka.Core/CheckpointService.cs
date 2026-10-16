@@ -150,6 +150,26 @@ public static class CheckpointService
         catch { }
     }
 
+    /// <summary>
+    /// Deletes all checkpoint files in the specified cache directory.
+    /// Returns the number of checkpoint files deleted.
+    /// </summary>
+    public static int ClearAll(string cacheDir)
+    {
+        if (!Directory.Exists(cacheDir)) return 0;
+        int deleted = 0;
+        foreach (string file in Directory.GetFiles(cacheDir, "_checkpoint_*.json"))
+        {
+            try
+            {
+                File.Delete(file);
+                deleted++;
+            }
+            catch { }
+        }
+        return deleted;
+    }
+
     /// <summary>Returns how many chapters are already saved in the checkpoint.</summary>
     public static int CountSaved(string checkpointPath)
     {

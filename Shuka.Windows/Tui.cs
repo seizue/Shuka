@@ -10,7 +10,8 @@ namespace Shuka;
 /// </summary>
 internal static class Tui
 {
-    public static async Task RunAsync(Downloader downloader, bool defaultTranslate = true)
+    public static async Task RunAsync(Downloader downloader, bool defaultTranslate = true,
+        TranslatorSettings? translatorSettings = null)
     {
         while (true)
         {
@@ -28,6 +29,7 @@ internal static class Tui
                         "Fix Cloudflare (--solve-cf)",
                         "Browser (Cloudflare engine)",
                         "View supported sites",
+                        "Translation Engine",
                         "About Shuka",
                         "Exit"));
 
@@ -56,6 +58,16 @@ internal static class Tui
                     RunViewSites();
                     AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
                     Console.ReadKey(intercept: true);
+                    break;
+                case "Translation Engine":
+                    if (translatorSettings != null)
+                        await RunTranslationEngineAsync(translatorSettings);
+                    else
+                    {
+                        AnsiConsole.MarkupLine("[grey]Translation Engine settings unavailable.[/]");
+                        AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+                        Console.ReadKey(intercept: true);
+                    }
                     break;
                 case "About Shuka":
                     RunAbout();
@@ -318,6 +330,7 @@ internal static class Tui
                 : cp.Url;
             return $"{Markup.Escape(display)}  [dim]({cp.Count} ch)[/]";
         }).ToList();
+        labels.Add("[red]Clear all checkpoints[/]");
         labels.Add("[grey]Back to menu[/]");
 
         string picked = AnsiConsole.Prompt(
@@ -328,6 +341,23 @@ internal static class Tui
                 .AddChoices(labels));
 
         if (picked == "[grey]Back to menu[/]") return;
+
+        if (picked == "[red]Clear all checkpoints[/]")
+        {
+            bool confirm = AnsiConsole.Confirm("[yellow]Are you sure you want to delete all checkpoint cache files?[/]", false);
+            if (confirm)
+            {
+                int clearedCount = CheckpointService.ClearAll(cacheDir);
+                AnsiConsole.MarkupLine($"\n[green]✓ Cleared {clearedCount} checkpoint cache file(s).[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("\n[grey]Cancelled.[/]");
+            }
+            AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
+            Console.ReadKey(intercept: true);
+            return;
+        }
 
         // Find the selected checkpoint
         int idx = labels.IndexOf(picked);
@@ -453,6 +483,29 @@ internal static class Tui
         {
             AnsiConsole.MarkupLine("[red]No chapters found.[/]");
             return;
+        }
+
+        // Check for existing checkpoint
+        string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+        string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
+        int savedCount = CheckpointService.CountSaved(checkpointPath);
+        if (savedCount > 0)
+        {
+            var resumeChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title($"[yellow]Found existing checkpoint with {savedCount} saved chapter(s) for this novel.[/]")
+                    .HighlightStyle(new Style(Color.IndianRed1))
+                    .AddChoices(
+                        $"Resume download ({savedCount} ch already saved)",
+                        "Clear checkpoint cache & start fresh",
+                        "Cancel"));
+
+            if (resumeChoice == "Cancel") return;
+            if (resumeChoice.StartsWith("Clear"))
+            {
+                CheckpointService.Delete(checkpointPath);
+                AnsiConsole.MarkupLine("[green]✓ Existing checkpoint cleared. Starting fresh download.[/]\n");
+            }
         }
 
         // Phase 2: download loop — supports pause (P) and export (E) via keypress
@@ -838,6 +891,123 @@ internal static class Tui
 
         AnsiConsole.Write(infoTable);
         AnsiConsole.WriteLine();
+    }
+
+    // ── Translation Engine ────────────────────────────────────────────────────
+
+    private static async Task RunTranslationEngineAsync(TranslatorSettings settings)
+    {
+        while (true)
+        {
+            AnsiConsole.Clear();
+            RenderHeader();
+            AnsiConsole.MarkupLine("[bold yellow]  Translation Engine[/]\n");
+
+            // Status panel
+            string activeEngine = settings.Engine switch
+            {
+                TranslatorEngine.Google              => "[green]Google (scraper)[/]",
+                TranslatorEngine.LocalLlama          => "[magenta1]Local AI · Qwen2.5 (offline)[/]",
+                TranslatorEngine.PlaywrightTranslate => "[yellow]Browser Translate (Playwright)[/]",
+                _                                    => settings.Engine.ToString()
+            };
+            AnsiConsole.MarkupLine($"  [indianred1]│[/] [grey]Active engine  [/]  {activeEngine}");
+
+            // Local AI model download status
+            var localLlama  = new LocalLlamaTranslator();
+            string llamaStatus = localLlama.IsModelDownloaded()
+                ? "[green]✓ Downloaded[/]"
+                : "[yellow]✗ Not downloaded (~468MB)[/]";
+            AnsiConsole.MarkupLine(
+                $"  [indianred1]│[/] [grey]Local AI model [/]  {llamaStatus}");
+
+            AnsiConsole.WriteLine();
+
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[grey]Select an action:[/]")
+                    .HighlightStyle(new Style(Color.IndianRed1))
+                    .AddChoices(
+                        "Use Google (scraper — default)",
+                        "Use Browser Translate (Playwright — immune to rate limits)",
+                        "Use Local AI · Qwen2.5 (100% offline, no internet needed)",
+                        "Back"));
+
+            if (choice == "Back") return;
+
+            if (choice.StartsWith("Use Google"))
+            {
+                settings.Engine = TranslatorEngine.Google;
+                settings.Save();
+                AnsiConsole.MarkupLine("\n[green]✓ Google set as active engine.[/]");
+                await Task.Delay(800);
+                continue;
+            }
+
+            if (choice.StartsWith("Use Browser Translate"))
+            {
+                settings.Engine = TranslatorEngine.PlaywrightTranslate;
+                settings.Save();
+                AnsiConsole.MarkupLine("\n[green]✓ Browser Translate set as active engine.[/]");
+                AnsiConsole.MarkupLine("[dim]  Uses bundled Chromium — no 429 rate limits.[/]");
+                AnsiConsole.MarkupLine("[dim]  First translation per session takes a few extra seconds to spin up.[/]");
+                await Task.Delay(1500);
+                continue;
+            }
+
+            if (choice.StartsWith("Use Local AI"))
+            {
+                if (!localLlama.IsModelDownloaded())
+                {
+                    AnsiConsole.MarkupLine("\n[yellow]⚠  Qwen2.5 model is not downloaded yet.[/]");
+                    AnsiConsole.MarkupLine("[dim]  Size: ~468MB. Stored in %LocalAppData%\\Shuka\\models\\[/]");
+                    AnsiConsole.WriteLine();
+
+                    var dlChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Download the Qwen2.5 model now?[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices("Download now (~468MB)", "Cancel"));
+
+                    if (dlChoice == "Cancel") continue;
+
+                    bool dlOk = false;
+                    Exception? dlErr = null;
+
+                    await AnsiConsole.Status()
+                        .Spinner(Spinner.Known.Dots)
+                        .SpinnerStyle(Style.Parse("indianred1"))
+                        .StartAsync("[grey]Downloading Qwen2.5 model...[/]", async ctx =>
+                        {
+                            try
+                            {
+                                await localLlama.DownloadModelAsync(
+                                    msg => ctx.Status($"[grey]{Markup.Escape(msg)}[/]"),
+                                    CancellationToken.None);
+                                dlOk = true;
+                            }
+                            catch (Exception ex) { dlErr = ex; }
+                        });
+
+                    if (!dlOk)
+                    {
+                        AnsiConsole.MarkupLine($"\n[red]✗ Download failed: {Markup.Escape(dlErr?.Message ?? "unknown")}[/]");
+                        AnsiConsole.MarkupLine("\n[grey]Press any key to continue...[/]");
+                        Console.ReadKey(intercept: true);
+                        continue;
+                    }
+
+                    AnsiConsole.MarkupLine("\n[green]✓ Qwen2.5 model downloaded.[/]");
+                }
+
+                settings.Engine = TranslatorEngine.LocalLlama;
+                settings.Save();
+                AnsiConsole.MarkupLine("[green]✓ Local AI (Qwen2.5) set as active engine.[/]");
+                AnsiConsole.MarkupLine("[dim]  Runs 100% offline on CPU. First load takes a moment.[/]");
+                await Task.Delay(1200);
+                continue;
+            }
+        }
     }
 
     private static void RenderHeader()
