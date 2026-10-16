@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Spectre.Console;
 using Shuka.Core;
 
@@ -30,6 +31,7 @@ internal static class Tui
                         "Browser (Cloudflare engine)",
                         "View supported sites",
                         "Translation Engine",
+                        "View logs",
                         "About Shuka",
                         "Exit"));
 
@@ -68,6 +70,9 @@ internal static class Tui
                         AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
                         Console.ReadKey(intercept: true);
                     }
+                    break;
+                case "View logs":
+                    await RunViewLogsAsync();
                     break;
                 case "About Shuka":
                     RunAbout();
@@ -845,6 +850,191 @@ internal static class Tui
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]Sites marked [/][yellow]CF bypass[/][grey] require running [/][indianred1]Fix Cloudflare[/][grey] once before downloading.[/]");
+    }
+
+    // ── Logs ──────────────────────────────────────────────────────────────────
+
+    private static async Task RunViewLogsAsync()
+    {
+        while (true)
+        {
+            AnsiConsole.Clear();
+            RenderHeader();
+            AnsiConsole.MarkupLine("[bold yellow]  Logs[/]\n");
+
+            string logDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shuka");
+
+            if (!Directory.Exists(logDir))
+                Directory.CreateDirectory(logDir);
+
+            var logFiles = Directory.GetFiles(logDir, "*.log", SearchOption.TopDirectoryOnly)
+                .Select(f => new FileInfo(f))
+                .OrderByDescending(f => f.LastWriteTime)
+                .ToList();
+
+            if (logFiles.Count == 0)
+            {
+                AnsiConsole.MarkupLine("  [green]✓ No log files found.[/]");
+                AnsiConsole.MarkupLine($"  [dim]Log directory: {Markup.Escape(logDir)}[/]\n");
+
+                var emptyChoice = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[grey]Options:[/]")
+                        .HighlightStyle(new Style(Color.IndianRed1))
+                        .AddChoices(
+                            "Open logs folder in Explorer",
+                            "Back to menu"));
+
+                if (emptyChoice == "Open logs folder in Explorer")
+                {
+                    TryOpenPath(logDir);
+                    continue;
+                }
+                return;
+            }
+
+            var prompt = new SelectionPrompt<string>()
+                .Title("[grey]Select a log file to view:[/]")
+                .HighlightStyle(new Style(Color.IndianRed1));
+
+            foreach (var file in logFiles)
+            {
+                string sizeStr = file.Length switch
+                {
+                    < 1024 => $"{file.Length} B",
+                    < 1024 * 1024 => $"{file.Length / 1024.0:F1} KB",
+                    _ => $"{file.Length / (1024.0 * 1024):F1} MB"
+                };
+                prompt.AddChoice($"{file.Name} ({sizeStr}, {file.LastWriteTime:yyyy-MM-dd HH:mm})");
+            }
+            prompt.AddChoice("Open logs folder in Explorer");
+            prompt.AddChoice("Back to menu");
+
+            var picked = AnsiConsole.Prompt(prompt);
+            if (picked == "Back to menu") return;
+
+            if (picked == "Open logs folder in Explorer")
+            {
+                TryOpenPath(logDir);
+                continue;
+            }
+
+            var selectedFile = logFiles.FirstOrDefault(f => picked.StartsWith(f.Name));
+            if (selectedFile == null) continue;
+
+            await DisplayLogFileAsync(selectedFile);
+        }
+    }
+
+    private static async Task DisplayLogFileAsync(FileInfo file)
+    {
+        while (true)
+        {
+            AnsiConsole.Clear();
+            RenderHeader();
+            AnsiConsole.MarkupLine($"[bold yellow]  Log:[/] [cyan]{Markup.Escape(file.Name)}[/]");
+            AnsiConsole.MarkupLine($"  [dim]Path: {Markup.Escape(file.FullName)}[/]\n");
+
+            file.Refresh();
+            if (!file.Exists)
+            {
+                AnsiConsole.MarkupLine("  [yellow]Log file no longer exists.[/]\n");
+                AnsiConsole.MarkupLine("  [grey]Press any key to return...[/]");
+                Console.ReadKey(intercept: true);
+                return;
+            }
+
+            string[] allLines;
+            try
+            {
+                allLines = await File.ReadAllLinesAsync(file.FullName);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"  [red]Error reading file: {Markup.Escape(ex.Message)}[/]\n");
+                AnsiConsole.MarkupLine("  [grey]Press any key to return...[/]");
+                Console.ReadKey(intercept: true);
+                return;
+            }
+
+            if (allLines.Length == 0)
+            {
+                AnsiConsole.MarkupLine("  [grey](Log file is empty)[/]\n");
+            }
+            else
+            {
+                // Show last 30 lines if file is long
+                int take = Math.Min(30, allLines.Length);
+                var displayLines = allLines.TakeLast(take).ToArray();
+                string preview = string.Join("\n", displayLines.Select(Markup.Escape));
+
+                var panel = new Panel(preview)
+                    .Header(allLines.Length > take
+                        ? $"[grey]Showing last {take} of {allLines.Length} lines[/]"
+                        : $"[grey]{allLines.Length} line(s)[/]")
+                    .BorderColor(Color.Grey)
+                    .RoundedBorder();
+
+                AnsiConsole.Write(panel);
+                AnsiConsole.WriteLine();
+            }
+
+            var action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[grey]Actions:[/]")
+                    .HighlightStyle(new Style(Color.IndianRed1))
+                    .AddChoices(
+                        "Open file in default editor",
+                        "Clear / delete this log",
+                        "Back to logs list"));
+
+            if (action == "Back to logs list") return;
+
+            if (action == "Open file in default editor")
+            {
+                TryOpenPath(file.FullName);
+                continue;
+            }
+
+            if (action == "Clear / delete this log")
+            {
+                bool confirm = AnsiConsole.Confirm("  [yellow]Are you sure you want to delete this log file?[/]", false);
+                if (confirm)
+                {
+                    try
+                    {
+                        File.Delete(file.FullName);
+                        AnsiConsole.MarkupLine("\n  [green]✓ Log file deleted.[/]");
+                        await Task.Delay(800);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        AnsiConsole.MarkupLine($"\n  [red]Failed to delete log: {Markup.Escape(ex.Message)}[/]");
+                        await Task.Delay(1500);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void TryOpenPath(string path)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"\n  [yellow]Could not open automatically: {Markup.Escape(ex.Message)}[/]");
+            AnsiConsole.MarkupLine($"  [grey]Path: {Markup.Escape(path)}[/]");
+            Thread.Sleep(1200);
+        }
     }
 
     // ── About ─────────────────────────────────────────────────────────────────
