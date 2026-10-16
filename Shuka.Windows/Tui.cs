@@ -930,7 +930,7 @@ internal static class Tui
                     .AddChoices(
                         "Use Google (scraper — default)",
                         "Use Browser Translate (Playwright — immune to rate limits)",
-                        "Use Local AI · Qwen2.5 (100% offline, no internet needed)",
+                        "Use Local AI · Qwen2.5 (on-device translation, no API key)",
                         "Back"));
 
             if (choice == "Back") return;
