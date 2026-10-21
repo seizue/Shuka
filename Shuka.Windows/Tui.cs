@@ -463,6 +463,7 @@ internal static class Tui
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine($"[red]  ✗ Error: {Markup.Escape(ex.Message)}[/]");
+                    PrintCloudflareHelp(url);
                 }
             });
 
@@ -627,6 +628,7 @@ internal static class Tui
             if (downloadError != null)
             {
                 AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                PrintCloudflareHelp(book.IndexUrl);
                 return;
             }
 
@@ -1210,5 +1212,19 @@ internal static class Tui
                        "[bold indianred1]  ║[/]  [bold white]Shuka[/]  [grey]Chinese To English EPUB[/]  [bold indianred1]║[/]\n" +
                        "[bold indianred1]  ╚══════════════════════════════════╝[/]\n"));
         AnsiConsole.WriteLine();
+    }
+
+    private static void PrintCloudflareHelp(string url)
+    {
+        if (url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("yamibo.com", StringComparison.OrdinalIgnoreCase))
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("  [bold yellow]Cloudflare Challenge Detected / Bypass Needed[/]");
+            AnsiConsole.MarkupLine("  [grey]To fix this:[/] [yellow]1.[/] Return to the main menu and select [indianred1]Fix Cloudflare (--solve-cf)[/]");
+            AnsiConsole.MarkupLine("          [yellow]2.[/] Enter the site address ([cyan]https://www.69shuba.com[/])");
+            AnsiConsole.MarkupLine("          [yellow]3.[/] In the browser window that opens, verify Cloudflare, then press Enter.");
+            AnsiConsole.MarkupLine("          [yellow]4.[/] Rerun your download — clearance cookies will be reused automatically.");
+        }
     }
 }
