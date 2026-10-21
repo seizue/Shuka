@@ -1216,15 +1216,20 @@ internal static class Tui
 
     private static void PrintCloudflareHelp(string url)
     {
-        if (url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase) ||
-            url.Contains("yamibo.com", StringComparison.OrdinalIgnoreCase))
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("  [bold yellow]Cloudflare Challenge Detected / Bypass Needed[/]");
-            AnsiConsole.MarkupLine("  [grey]To fix this:[/] [yellow]1.[/] Return to the main menu and select [indianred1]Fix Cloudflare (--solve-cf)[/]");
-            AnsiConsole.MarkupLine("          [yellow]2.[/] Enter the site address ([cyan]https://www.69shuba.com[/])");
-            AnsiConsole.MarkupLine("          [yellow]3.[/] In the browser window that opens, verify Cloudflare, then press Enter.");
-            AnsiConsole.MarkupLine("          [yellow]4.[/] Rerun your download — clearance cookies will be reused automatically.");
-        }
+        bool isCfSite = url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase) ||
+                        url.Contains("yamibo.com",  StringComparison.OrdinalIgnoreCase);
+        if (!isCfSite) return;
+
+        // Extract just the origin (scheme + host) for the instructions
+        string siteOrigin = url;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            siteOrigin = $"{uri.Scheme}://{uri.Host}";
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("  [bold yellow]Cloudflare Challenge Detected / Bypass Needed[/]");
+        AnsiConsole.MarkupLine("  [grey]To fix this:[/] [yellow]1.[/] Return to the main menu and select [indianred1]Fix Cloudflare (--solve-cf)[/]");
+        AnsiConsole.MarkupLine($"          [yellow]2.[/] Enter the site address ([cyan]{Markup.Escape(siteOrigin)}[/])");
+        AnsiConsole.MarkupLine("          [yellow]3.[/] In the browser window that opens, verify Cloudflare, then press Enter.");
+        AnsiConsole.MarkupLine("          [yellow]4.[/] Rerun your download — clearance cookies will be reused automatically.");
     }
 }
