@@ -36,7 +36,7 @@ internal static class Program
         // ── 1. Google HttpClient scraper ──────────────────────────────────────
         if (engine is "all" or "google")
         {
-            Console.WriteLine("① Google Engine (HttpClient scraper)...");
+            Console.WriteLine("① Google Engine (Default HttpClient scraper)...");
             (bool ok, string result) = await TestGoogleScraper();
             if (ok)
             {
@@ -46,7 +46,6 @@ internal static class Program
             else
             {
                 Console.WriteLine($"   ✗ BLOCKED/FAILED: {result}");
-                Console.WriteLine("     → This confirms the need for Browser Translate engine.");
             }
             Console.WriteLine();
         }
@@ -144,12 +143,6 @@ internal static class Program
         Console.WriteLine($"  Browser Translate: {(pwOk      ? "✓ WORKING" : "✗ FAILED / NOT TESTED")}");
         Console.WriteLine();
 
-        if (!googleOk && pwOk)
-            Console.WriteLine("  ► Recommendation: Use 'Browser Translate' engine — Google scraper is blocked.");
-        else if (googleOk)
-            Console.WriteLine("  ► Google engine is working fine on this network.");
-
-        Console.WriteLine();
         return 0;
     }
 
@@ -160,36 +153,14 @@ internal static class Program
         try
         {
             using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("User-Agent",
-                "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
-            http.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+            var translator = new Translator(http);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            string result = await translator.Translate(SampleZh, ct: cts.Token);
 
-            string url = $"https://translate.google.com/m?sl=zh-CN&tl=en&q={Uri.EscapeDataString(SampleZh)}";
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var resp = await http.GetAsync(url, cts.Token);
+            if (string.IsNullOrWhiteSpace(result))
+                return (false, "Empty result");
 
-            if (!resp.IsSuccessStatusCode)
-                return (false, $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
-
-            string html = await resp.Content.ReadAsStringAsync(cts.Token);
-            var m = Regex.Match(html,
-                @"class=""result-container""[^>]*>([\s\S]*?)</div>",
-                RegexOptions.IgnoreCase);
-
-            if (!m.Success)
-            {
-                // Check for CAPTCHA/redirect
-                if (html.Contains("sorry") || html.Contains("CAPTCHA") || html.Length < 500)
-                    return (false, $"CAPTCHA / redirect (HTML length={html.Length})");
-                return (false, "No result-container div found");
-            }
-
-            string result = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-            if (string.IsNullOrEmpty(result))
-                return (false, "Empty result (soft rate-limited)");
-
-            // Check it's actually English and not the original Chinese
-            bool hasChineseChars = Regex.IsMatch(result, @"[\u4e00-\u9fff]");
+            bool hasChineseChars = Regex.IsMatch(result, @"[\u4e00-\u9fff]{5,}");
             if (hasChineseChars)
                 return (false, $"Returned Chinese (not translated): {result[..Math.Min(80, result.Length)]}");
 
@@ -247,9 +218,9 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(result))
                 return (false, "Empty result");
 
-            bool hasChineseChars = Regex.IsMatch(result, @"[\u4e00-\u9fff]");
-            if (hasChineseChars && result.Trim() == SampleZh.Trim())
-                return (false, "Returned unchanged Chinese — no translation scraped");
+            bool hasChineseChars = Regex.IsMatch(result, @"[\u4e00-\u9fff]{5,}");
+            if (hasChineseChars)
+                return (false, $"Returned Chinese: {result[..Math.Min(80, result.Length)]}");
 
             return (true, result);
         }
@@ -265,16 +236,19 @@ internal static class Program
     {
         try
         {
-            using var ai = new LocalLlamaTranslator();
-            string result = await ai.Translate(
-                SampleZh[..Math.Min(100, SampleZh.Length)],
-                msg => Console.WriteLine($"   [AI] {msg}"),
+            using var llama = new LocalLlamaTranslator();
+            string result = await llama.Translate(SampleZh,
+                msg => Console.WriteLine($"   [Llama] {msg}"),
                 CancellationToken.None);
 
             if (string.IsNullOrWhiteSpace(result))
                 return (false, "Empty result");
 
-            return (true, result.Length > 200 ? result[..200] + "..." : result);
+            bool hasChineseChars = Regex.IsMatch(result, @"[\u4e00-\u9fff]{5,}");
+            if (hasChineseChars)
+                return (false, $"Returned Chinese: {result[..Math.Min(80, result.Length)]}");
+
+            return (true, result);
         }
         catch (Exception ex)
         {
