@@ -329,7 +329,20 @@ internal sealed class Downloader
                 Console.Write($"\r  [{i + 1}/{book.Total}] {phaseText}... {eta}      ");
             }
 
-            string html = await _fetcher.FetchAsync(ch.Url, ct: ct);
+            string html;
+            try
+            {
+                html = await _fetcher.FetchAsync(ch.Url, ct: ct);
+            }
+            catch (CloudflareBlockedException cfEx)
+            {
+                // Site is still behind CF — abort the whole download with a clear message
+                // (don't silently treat chapters as locked)
+                throw new Exception(
+                    $"Download stopped: {cfEx.Message}\n" +
+                    "  → Return to the main menu, choose 'Fix Cloudflare (--solve-cf)', solve the challenge, then retry.",
+                    cfEx);
+            }
             var paras = book.Adapter.ExtractChapterText(html);
 
             // Empty paragraphs = chapter is paywalled / locked

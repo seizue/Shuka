@@ -48,7 +48,14 @@ internal sealed class WindowsTranslator : IAsyncDisposable
             case TranslatorEngine.PlaywrightTranslate:
                 try
                 {
-                    return await PwTranslate.Translate(text, log, ct);
+                    string res = await PwTranslate.Translate(text, log, ct);
+                    // If Browser Translate returned untranslated text with significant Chinese, fall back to Google scraper
+                    if (System.Text.RegularExpressions.Regex.IsMatch(res, @"[\u4e00-\u9fff]{10,}"))
+                    {
+                        log?.Invoke("[Browser Translate incomplete/untranslated — falling back to Google]");
+                        return await _google.Translate(text, log, ct);
+                    }
+                    return res;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)

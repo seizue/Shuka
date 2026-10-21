@@ -463,6 +463,7 @@ internal static class Tui
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine($"[red]  ✗ Error: {Markup.Escape(ex.Message)}[/]");
+                    PrintCloudflareHelp(url);
                 }
             });
 
@@ -626,7 +627,55 @@ internal static class Tui
             // ── Error (not a pause) ────────────────────────────────────────────
             if (downloadError != null)
             {
-                AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                // Check if a Cloudflare block caused the failure
+                bool isCfBlock = downloadError is CloudflareBlockedException ||
+                                 downloadError.InnerException is CloudflareBlockedException;
+
+                if (isCfBlock)
+                {
+                    string siteOrigin = Uri.TryCreate(book.IndexUrl, UriKind.Absolute, out var cfUri)
+                        ? $"{cfUri.Scheme}://{cfUri.Host}" : book.IndexUrl;
+
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [bold yellow]⚠  Cloudflare is blocking chapter downloads.[/]");
+                    AnsiConsole.MarkupLine($"  [grey]Site:[/] [cyan]{Markup.Escape(siteOrigin)}[/]");
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [grey]You need to solve the CF challenge once so the app can store the bypass cookie.[/]");
+                    AnsiConsole.WriteLine();
+
+                    var cfFix = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Fix Cloudflare now?[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                $"Open browser for {siteOrigin} — solve it, then press Enter",
+                                "Skip — I'll fix it from the main menu later"));
+
+                    if (cfFix.StartsWith("Open browser"))
+                    {
+                        try
+                        {
+                            AnsiConsole.MarkupLine($"\n  [dim]Opening browser... complete the challenge then press Enter here.[/]\n");
+                            await PlaywrightFetcher.SolveCfInteractiveAsync(siteOrigin);
+                            AnsiConsole.MarkupLine("\n  [green]✓ CF cookies saved![/]");
+                            AnsiConsole.MarkupLine("  [grey]Re-run your download — it should now bypass Cloudflare automatically.[/]");
+                        }
+                        catch (Exception solveEx)
+                        {
+                            AnsiConsole.MarkupLine($"\n  [red]✗ Browser failed: {Markup.Escape(solveEx.Message)}[/]");
+                            AnsiConsole.MarkupLine("  [dim]Try using 'Fix Cloudflare (--solve-cf)' from the main menu instead.[/]");
+                        }
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("  [dim]Return to the main menu → Fix Cloudflare (--solve-cf) when ready.[/]");
+                    }
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                    PrintCloudflareHelp(book.IndexUrl);
+                }
                 return;
             }
 
@@ -1210,5 +1259,24 @@ internal static class Tui
                        "[bold indianred1]  ║[/]  [bold white]Shuka[/]  [grey]Chinese To English EPUB[/]  [bold indianred1]║[/]\n" +
                        "[bold indianred1]  ╚══════════════════════════════════╝[/]\n"));
         AnsiConsole.WriteLine();
+    }
+
+    private static void PrintCloudflareHelp(string url)
+    {
+        bool isCfSite = url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase) ||
+                        url.Contains("yamibo.com",  StringComparison.OrdinalIgnoreCase);
+        if (!isCfSite) return;
+
+        // Extract just the origin (scheme + host) for the instructions
+        string siteOrigin = url;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            siteOrigin = $"{uri.Scheme}://{uri.Host}";
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("  [bold yellow]Cloudflare Challenge Detected / Bypass Needed[/]");
+        AnsiConsole.MarkupLine("  [grey]To fix this:[/] [yellow]1.[/] Return to the main menu and select [indianred1]Fix Cloudflare (--solve-cf)[/]");
+        AnsiConsole.MarkupLine($"          [yellow]2.[/] Enter the site address ([cyan]{Markup.Escape(siteOrigin)}[/])");
+        AnsiConsole.MarkupLine("          [yellow]3.[/] In the browser window that opens, verify Cloudflare, then press Enter.");
+        AnsiConsole.MarkupLine("          [yellow]4.[/] Rerun your download — clearance cookies will be reused automatically.");
     }
 }

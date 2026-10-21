@@ -9,10 +9,9 @@ public class Translator
     private readonly HttpClient _http;
 
     // 3 concurrent translate calls — balanced between speed and avoiding rate limits.
-    // Lower concurrency means fewer 429s on large novels (1000+ chapters).
     private static readonly SemaphoreSlim _globalSem = new(3);
 
-    // 800 chars — fits comfortably in the mobile web page URL
+    // 800 chars — comfortable chunk size
     private const int ChunkSize = 800;
 
     public Translator(HttpClient http)
@@ -64,105 +63,69 @@ public class Translator
     }
 
     /// <summary>
-    /// Translate one chunk. Tries multiple Google endpoints with backoff, then MyMemory.
+    /// Translate one chunk. Tries Google GTX API (GET/POST) first, then MyMemory, then legacy web.
     /// Logs every failure so the user can see what's happening.
     /// </summary>
     private async Task<string> TranslateChunk(string chunk, Action<string>? log,
         CancellationToken ct)
     {
-        // ── Endpoint 1: Google Translate mobile web page ──────────────────────
-        // Scrapes the result-container div. Not rate-limited like the JSON API.
-        // Retry up to 5 times with exponential backoff on rate-limit signals.
-        for (int attempt = 1; attempt <= 5; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                string truncated = chunk.Length > 900 ? chunk[..900] : chunk;
-                string? result = await CallGoogleMobileWeb(truncated, ct);
-                if (result != null) return result;
-
-                // Empty result — likely a soft rate-limit, back off and retry
-                if (attempt < 5)
-                {
-                    int wait = Math.Min(500 * attempt, 4000);
-                    await Task.Delay(wait, ct);
-                }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (OperationCanceledException ex)
-            {
-                // Internal HTTP timeout (linked CTS) — treat as retryable, not user cancel
-                if (attempt < 5) await Task.Delay(Math.Min(1000 * attempt, 8000), ct);
-                else log?.Invoke($"[Google web timed out after 5 attempts: {ex.Message}]");
-            }
-            catch (Exception ex)
-            {
-                bool isRateLimit = ex.Message.Contains("429") ||
-                                   ex.Message.Contains("Too Many") ||
-                                   ex.Message.Contains("HTML instead of");
-                int wait = isRateLimit
-                    ? Math.Min(1000 * attempt, 8000)
-                    : Math.Min(300  * attempt, 2000);
-                if (attempt < 5) await Task.Delay(wait, ct);
-                else log?.Invoke($"[Google web failed after 5 attempts: {ex.Message}]");
-            }
-        }
-
-        // ── Endpoint 2: Google gtx GET (JSON API) ─────────────────────────────
+        // ── Endpoint 1: Google GTX GET / POST API ────────────────────────────
+        // Direct, fast, works across both Simplified and Traditional Chinese.
         for (int attempt = 1; attempt <= 3; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                string? result = await CallGoogleGtx(chunk, ct);
+                // If chunk is large (> 400 chars), prefer POST to avoid query string length limits
+                string? result = chunk.Length > 400
+                    ? await CallGooglePost(chunk, ct)
+                    : await CallGoogleGtx(chunk, ct);
+
                 if (result != null) return result;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (OperationCanceledException)
             {
-                log?.Invoke($"[Google gtx timeout attempt {attempt}/3]");
-                if (attempt < 3) await Task.Delay(400 * attempt, ct);
+                log?.Invoke($"[Google GTX timeout attempt {attempt}/3]");
+                if (attempt < 3) await Task.Delay(300 * attempt, ct);
             }
             catch (Exception ex)
             {
-                log?.Invoke($"[Google gtx attempt {attempt}/3 failed: {ex.Message}]");
-                if (attempt < 3)
-                    await Task.Delay(400 * attempt, ct);
+                log?.Invoke($"[Google GTX attempt {attempt}/3 failed: {ex.Message}]");
+                if (attempt < 3) await Task.Delay(300 * attempt, ct);
             }
         }
 
-        // ── Endpoint 3: Google translate POST ────────────────────────────────
-        for (int attempt = 1; attempt <= 3; attempt++)
+        // ── Endpoint 2: Google GTX POST (if GET was tried first or vice versa) ─
+        for (int attempt = 1; attempt <= 2; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                string? result = await CallGooglePost(chunk, ct);
+                string? result = chunk.Length > 400
+                    ? await CallGoogleGtx(chunk, ct)
+                    : await CallGooglePost(chunk, ct);
+
                 if (result != null) return result;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (OperationCanceledException)
             {
-                log?.Invoke($"[Google POST timeout attempt {attempt}/3]");
-                if (attempt < 3) await Task.Delay(400 * attempt, ct);
+                if (attempt < 2) await Task.Delay(400 * attempt, ct);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                log?.Invoke($"[Google POST attempt {attempt}/3 failed: {ex.Message}]");
-                if (attempt < 3)
-                    await Task.Delay(400 * attempt, ct);
+                if (attempt < 2) await Task.Delay(400 * attempt, ct);
             }
         }
 
-        // ── Endpoint 4: MyMemory (reliable free fallback, 500-char limit) ─────
-        log?.Invoke("[Google failed, trying MyMemory...]");
+        // ── Endpoint 3: MyMemory (reliable free fallback) ─────────────────────
         try
         {
             string? mm = await CallMyMemory(chunk, ct);
             if (mm != null)
             {
-                log?.Invoke("[MyMemory ok]");
+                log?.Invoke("[MyMemory fallback ok]");
                 return mm;
             }
         }
@@ -172,63 +135,41 @@ public class Translator
             log?.Invoke($"[MyMemory failed: {ex.Message}]");
         }
 
-        // ── Last resort: return original Chinese ──────────────────────────────
+        // ── Endpoint 4: Google mobile web page (last resort scraper) ──────────
+        try
+        {
+            string truncated = chunk.Length > 600 ? chunk[..600] : chunk;
+            string? result = await CallGoogleMobileWeb(truncated, ct);
+            if (result != null) return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { /* ignored as mobile endpoint is usually 429 */ }
+
+        // ── Last resort: return original text ─────────────────────────────────
         log?.Invoke("[all translation endpoints failed — keeping original]");
         return chunk;
-    }
-
-    /// <summary>Google Translate mobile web page — scrapes result-container div.</summary>
-    private async Task<string?> CallGoogleMobileWeb(string chunk, CancellationToken ct)
-    {
-        string url = $"https://translate.google.com/m?sl=zh-CN&tl=en&q={Uri.EscapeDataString(chunk)}";
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Add("User-Agent",
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
-        req.Headers.Add("Accept-Language", "en-US,en;q=0.9");
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(10));
-
-        var resp = await _http.SendAsync(req, cts.Token);
-        if (!resp.IsSuccessStatusCode)
-            throw new Exception($"HTTP {(int)resp.StatusCode}");
-
-        string html = await resp.Content.ReadAsStringAsync(cts.Token);
-        var m = System.Text.RegularExpressions.Regex.Match(html,
-            @"class=""result-container""[^>]*>([\s\S]*?)</div>",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (!m.Success) return null;
-
-        string result = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-        return string.IsNullOrEmpty(result) ? null : result;
     }
 
     /// <summary>Google Translate unofficial GET endpoint (gtx client).</summary>
     private async Task<string?> CallGoogleGtx(string chunk, CancellationToken ct)
     {
         string url = "https://translate.googleapis.com/translate_a/single" +
-            $"?client=gtx&sl=zh-CN&tl=en&dt=t&q={Uri.EscapeDataString(chunk)}";
+            $"?client=gtx&sl=auto&tl=en&dt=t&q={Uri.EscapeDataString(chunk)}";
 
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Add("User-Agent",
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36");
-        req.Headers.Add("Accept", "application/json, text/plain, */*");
-        req.Headers.Add("Accept-Language", "en-US,en;q=0.9");
-        req.Headers.Add("Referer", "https://translate.google.com/");
+        req.Headers.TryAddWithoutValidation("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        req.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+        req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
 
         var resp = await _http.SendAsync(req, cts.Token);
-
-        // If we get a non-success or HTML error page, treat as failure
         if (!resp.IsSuccessStatusCode)
             throw new Exception($"HTTP {(int)resp.StatusCode}");
 
         string json = await resp.Content.ReadAsStringAsync(cts.Token);
-
-        // Detect HTML error page (Google sometimes returns HTML instead of JSON)
         if (json.TrimStart().StartsWith('<'))
             throw new Exception("Got HTML instead of JSON (rate limited or blocked)");
 
@@ -236,23 +177,17 @@ public class Translator
     }
 
     /// <summary>
-    /// Google Translate via POST to the web API — works better on mobile networks
-    /// where the GET endpoint is sometimes blocked.
+    /// Google Translate via POST to the web API — avoids URL length limits.
     /// </summary>
     private async Task<string?> CallGooglePost(string chunk, CancellationToken ct)
     {
-        // Use the same endpoint but with POST and form-encoded body
         const string url = "https://translate.googleapis.com/translate_a/single" +
-            "?client=gtx&sl=zh-CN&tl=en&dt=t";
+            "?client=gtx&sl=auto&tl=en&dt=t";
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Headers.Add("User-Agent",
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36");
-        req.Headers.Add("Referer", "https://translate.google.com/");
-        req.Content = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("q", chunk)
-        });
+        req.Headers.TryAddWithoutValidation("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        req.Content = new StringContent($"q={Uri.EscapeDataString(chunk)}", Encoding.UTF8, "application/x-www-form-urlencoded");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
@@ -266,6 +201,33 @@ public class Translator
             throw new Exception("Got HTML instead of JSON");
 
         return ParseGoogleJson(json, chunk);
+    }
+
+    /// <summary>Google Translate mobile web page — scrapes result-container div.</summary>
+    private async Task<string?> CallGoogleMobileWeb(string chunk, CancellationToken ct)
+    {
+        string url = $"https://translate.google.com/m?sl=auto&tl=en&q={Uri.EscapeDataString(chunk)}";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent",
+            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+        req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(8));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (!resp.IsSuccessStatusCode)
+            throw new Exception($"HTTP {(int)resp.StatusCode}");
+
+        string html = await resp.Content.ReadAsStringAsync(cts.Token);
+        var m = System.Text.RegularExpressions.Regex.Match(html,
+            @"class=""result-container""[^>]*>([\s\S]*?)</div>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+
+        string result = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+        return string.IsNullOrEmpty(result) ? null : result;
     }
 
     private static string? ParseGoogleJson(string json, string original)
@@ -296,21 +258,20 @@ public class Translator
     private async Task<string?> CallMyMemory(string chunk, CancellationToken ct)
     {
         // MyMemory caps at 500 chars — split and reassemble
-        if (chunk.Length <= 500)
+        if (chunk.Length <= 450)
             return await CallMyMemoryChunk(chunk, ct);
 
         var parts   = new List<string>();
         var results = new List<string>();
 
-        for (int i = 0; i < chunk.Length; i += 450)
-            parts.Add(chunk.Substring(i, Math.Min(450, chunk.Length - i)));
+        for (int i = 0; i < chunk.Length; i += 400)
+            parts.Add(chunk.Substring(i, Math.Min(400, chunk.Length - i)));
 
         foreach (var part in parts)
         {
             string? r = await CallMyMemoryChunk(part, ct);
             if (r == null) return null;
             results.Add(r);
-            // Small delay between MyMemory requests to avoid rate limiting
             if (parts.Count > 1)
                 await Task.Delay(100, ct);
         }
@@ -321,11 +282,11 @@ public class Translator
     private async Task<string?> CallMyMemoryChunk(string chunk, CancellationToken ct)
     {
         string url = "https://api.mymemory.translated.net/get" +
-            $"?q={Uri.EscapeDataString(chunk)}&langpair=zh-CN|en-US";
+            $"?q={Uri.EscapeDataString(chunk)}&langpair=zh|en-US";
 
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Add("User-Agent",
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36");
+        req.Headers.TryAddWithoutValidation("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
@@ -337,7 +298,6 @@ public class Translator
         string json = await resp.Content.ReadAsStringAsync(cts.Token);
         using var jdoc = JsonDocument.Parse(json);
 
-        // Check response status
         int responseStatus = jdoc.RootElement
             .GetProperty("responseStatus")
             .GetInt32();

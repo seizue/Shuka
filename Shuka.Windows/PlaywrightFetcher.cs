@@ -142,7 +142,10 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                     await Task.Delay(attempt * 4000, ct);
                 }
             }
-            return await FetchWithPlaywright(url, ct);
+            // All retries exhausted — still getting CF challenge. Throw so callers know why.
+            string lastHtml = await FetchWithPlaywright(url, ct);
+            string host = Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : url;
+            throw new CloudflareBlockedException(host, url);
         }
         finally
         {
@@ -805,5 +808,22 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         if (_noveldexContext is not null) await _noveldexContext.CloseAsync();
         if (_context is not null) await _context.CloseAsync();
         _playwright?.Dispose();
+    }
+}
+
+/// <summary>
+/// Thrown when Playwright exhausts all CF-bypass retries and the site still
+/// returns a Cloudflare challenge page. The user must run --solve-cf first.
+/// </summary>
+internal sealed class CloudflareBlockedException : Exception
+{
+    public string Host { get; }
+    public string Url  { get; }
+
+    public CloudflareBlockedException(string host, string url)
+        : base($"Cloudflare is blocking access to {host}. Run --solve-cf to bypass it, then retry the download.")
+    {
+        Host = host;
+        Url  = url;
     }
 }
