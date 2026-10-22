@@ -44,6 +44,18 @@ public class DownloadItem : INotifyPropertyChanged
     /// <summary>Actual chapter count resolved after GatherBookInfo completes.</summary>
     public int    TotalChapters { get; set; } = 0;
 
+    private int _untranslatedCount;
+    public int UntranslatedCount
+    {
+        get => _untranslatedCount;
+        set { _untranslatedCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasFailedChapters)); }
+    }
+
+    [JsonIgnore]
+    public bool HasFailedChapters => _untranslatedCount > 0;
+
+    public List<int> FailedChapters { get; set; } = new();
+
     public string StatusText
     {
         get => _statusText;

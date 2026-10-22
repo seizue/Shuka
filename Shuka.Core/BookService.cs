@@ -13,6 +13,16 @@ public class BookService
     private readonly HttpClient _gtClient;
     private readonly Translator _translator;
 
+    /// <summary>Chapter numbers (1-based) that could not be translated due to rate limits or network errors.</summary>
+    public List<int> LastTranslationFailures { get; } = new();
+
+    public List<(int Idx, string Title, string Text)>? LastChapters { get; private set; }
+    public BookInfo? LastBook { get; private set; }
+    public byte[]? LastCoverBytes { get; private set; }
+    public string? LastCoverMime { get; private set; }
+    public int? LastLockedFromChapter { get; private set; }
+    public string? LastOutputPath { get; private set; }
+
     public static readonly ISiteAdapter[] Adapters =
         [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter()];
 
@@ -125,11 +135,20 @@ public class BookService
             var authorTask = _translator.Translate(book.Author, log, ct);
             var coverTask = DownloadCover(book.CoverUrl, log, ct);
 
-            await Task.WhenAll(titleTask, authorTask, coverTask);
+            try
+            {
+                await Task.WhenAll(titleTask, authorTask);
+                book.TitleEn = titleTask.Result;
+                book.AuthorEn = authorTask.Result;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[Title/Author translation failed: {ex.Message} — using original]");
+                book.TitleEn = book.Title;
+                book.AuthorEn = book.Author;
+            }
 
-            book.TitleEn = titleTask.Result;
-            book.AuthorEn = authorTask.Result;
-            (coverBytes, coverMime) = coverTask.Result;
+            (coverBytes, coverMime) = await coverTask;
 
             log?.Invoke($"Title (EN): {book.TitleEn}  Author (EN): {book.AuthorEn}");
         }
@@ -148,16 +167,159 @@ public class BookService
         ct.ThrowIfCancellationRequested();
         var (chapters, lockedFromChapter) = await DownloadChapters(book, progress, log, ct, checkpointPath, translate);
 
+        LastBook = book;
+        LastChapters = chapters;
+        LastCoverBytes = coverBytes;
+        LastCoverMime = coverMime;
+        LastLockedFromChapter = lockedFromChapter;
+        LastOutputPath = outputPath;
+
         ct.ThrowIfCancellationRequested();
         log?.Invoke("Building EPUB...");
         if (File.Exists(outputPath)) File.Delete(outputPath);
         EpubBuilder.Build(outputPath, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
             chapters, coverBytes, coverMime, translate, lockedFromChapter);
 
-        // Delete checkpoint on success — no longer needed
-        if (checkpointPath != null) CheckpointService.Delete(checkpointPath);
+        // Delete checkpoint on full success — keep it if chapters failed so user can retranslate
+        if (checkpointPath != null && LastTranslationFailures.Count == 0)
+            CheckpointService.Delete(checkpointPath);
 
         return outputPath;
+    }
+
+    /// <summary>
+    /// Retranslates chapters that failed in the previous download run, updates the checkpoint,
+    /// and rebuilds the final EPUB.
+    /// </summary>
+    public async Task<(int resolvedCount, int remainingFailures)> RetranslateFailedChaptersAsync(
+        BookInfo? book = null,
+        List<(int Idx, string Title, string Text)>? chapters = null,
+        string? outputPath = null,
+        string? checkpointPath = null,
+        IProgress<ProgressEventArgs>? progress = null,
+        Action<string>? log = null,
+        CancellationToken ct = default)
+    {
+        book ??= LastBook;
+        chapters ??= LastChapters;
+        outputPath ??= LastOutputPath;
+
+        if (book == null || chapters == null || LastTranslationFailures.Count == 0)
+            return (0, 0);
+
+        var stillFailed = new List<int>();
+        int resolved = 0;
+        var writeLock = new SemaphoreSlim(1, 1);
+        int totalToRetry = LastTranslationFailures.Count;
+
+        for (int f = 0; f < LastTranslationFailures.Count; f++)
+        {
+            ct.ThrowIfCancellationRequested();
+            int chNum = LastTranslationFailures[f]; // 1-based
+            int chIdx = chNum - 1; // 0-based
+
+            if (chIdx < 0 || chIdx >= chapters.Count || chIdx >= book.ChapterUrls.Count)
+                continue;
+
+            var chRef = book.ChapterUrls[chIdx];
+            string statusMsg = $"Retranslating ch {chNum} ({f + 1}/{totalToRetry})...";
+            log?.Invoke(statusMsg);
+            progress?.Report(new ProgressEventArgs { Current = f + 1, Total = totalToRetry, Message = statusMsg });
+
+            string existingText = chapters[chIdx].Text;
+            const string Notice = "[Translation unavailable — original text below]\n";
+            string rawChinese = existingText.StartsWith(Notice)
+                ? existingText[Notice.Length..]
+                : existingText;
+
+            if (string.IsNullOrWhiteSpace(rawChinese))
+            {
+                try
+                {
+                    string html = await _fetcher.Fetch(chRef.Url, log: log, ct: ct, forceBypass: book.Adapter.RequiresCfBypass);
+                    var paras = book.Adapter.ExtractChapterText(html);
+                    rawChinese = string.Join("\n", paras);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch
+                {
+                    stillFailed.Add(chNum);
+                    continue;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(rawChinese))
+            {
+                stillFailed.Add(chNum);
+                continue;
+            }
+
+            const string TitleSep = "\n===TITLE===\n";
+            string combined = chRef.Title + TitleSep + rawChinese;
+
+            string chapterTitle = chRef.Title;
+            string text = "";
+            bool success = false;
+
+            try
+            {
+                string translated = await _translator.Translate(combined, log, ct);
+                int sepIdx = translated.IndexOf("===TITLE===", StringComparison.OrdinalIgnoreCase);
+                if (sepIdx >= 0)
+                {
+                    chapterTitle = translated[..sepIdx].Trim();
+                    text = translated[(sepIdx + "===TITLE===".Length)..].Trim();
+                }
+                else
+                {
+                    chapterTitle = chRef.Title;
+                    text = translated;
+                }
+
+                if (!Translator.IsUntranslatedChinese(combined, text))
+                {
+                    success = true;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[retranslate ch {chNum} failed: {ex.Message}]");
+            }
+
+            if (success)
+            {
+                chapters[chIdx] = (chNum, chapterTitle, text);
+                resolved++;
+                if (checkpointPath != null)
+                {
+                    await CheckpointService.SaveChapterAsync(
+                        checkpointPath, book.IndexUrl, chIdx, chapterTitle, text, writeLock);
+                }
+            }
+            else
+            {
+                stillFailed.Add(chNum);
+            }
+        }
+
+        LastTranslationFailures.Clear();
+        LastTranslationFailures.AddRange(stillFailed);
+
+        if (resolved > 0 && !string.IsNullOrWhiteSpace(outputPath))
+        {
+            log?.Invoke("Rebuilding EPUB with retranslated chapters...");
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+            EpubBuilder.Build(outputPath, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
+                chapters, LastCoverBytes, LastCoverMime ?? "image/jpeg", true, LastLockedFromChapter);
+
+            if (LastTranslationFailures.Count == 0 && checkpointPath != null)
+            {
+                CheckpointService.Delete(checkpointPath);
+            }
+        }
+
+        return (resolved, stillFailed.Count);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -175,6 +337,7 @@ public class BookService
         int total = chapterList.Count;
         var results = new List<(int Idx, string Title, string Text)>(total);
         int? lockedFromChapter = null;
+        LastTranslationFailures.Clear();
 
         // Load checkpoint — skip already-completed chapters
         var saved = checkpointPath != null
@@ -208,6 +371,11 @@ public class BookService
             {
                 string savedTitle = saved[i]!.Value.title;
                 string savedText  = saved[i]!.Value.text;
+
+                if (savedText.StartsWith("[Translation unavailable", StringComparison.OrdinalIgnoreCase))
+                {
+                    LastTranslationFailures.Add(i + 1);
+                }
 
                 // If adapter signals stop-on-first-locked and this checkpoint entry is empty, stop now
                 if (book.Adapter.StopOnFirstLockedChapter && string.IsNullOrWhiteSpace(savedText))
@@ -283,7 +451,8 @@ public class BookService
                     const string TitleSep = "\n===TITLE===\n";
                     string combined = ch.Title + TitleSep + string.Join("\n", paras);
 
-                    for (int transAttempt = 1; transAttempt <= 6; transAttempt++)
+                    int maxAttempts = Translator.IsGoogleRateLimited ? 2 : 5;
+                    for (int transAttempt = 1; transAttempt <= maxAttempts; transAttempt++)
                     {
                         try
                         {
@@ -302,22 +471,31 @@ public class BookService
                                 chapterTitle = ch.Title;
                                 text         = translated;
                             }
+
+                            // Verify that the translated body is not still untranslated Chinese
+                            if (Translator.IsUntranslatedChinese(combined, text))
+                            {
+                                throw new TranslationFailedException("Translation result still contained untranslated Chinese.");
+                            }
+
+                            translationFailed = false;
                             break;
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
-                            if (transAttempt == 6)
+                            if (transAttempt == maxAttempts)
                             {
-                                log?.Invoke($"[translate failed ch{i + 1} after 6 attempts] {ex.Message} — keeping original");
-                                chapterTitle     = ch.Title;
-                                text             = string.Join("\n", paras);
+                                log?.Invoke($"[translate failed ch{i + 1} after {maxAttempts} attempts] {ex.Message} — keeping original");
+                                chapterTitle      = ch.Title;
+                                text              = string.Join("\n", paras);
                                 translationFailed = true;
+                                LastTranslationFailures.Add(i + 1);
                             }
                             else
                             {
-                                int delaySec = Math.Min((int)Math.Pow(2, transAttempt), 30);
-                                log?.Invoke($"[translate retry {transAttempt}/6 ch{i + 1}] waiting {delaySec}s...");
+                                int delaySec = Math.Min((int)Math.Pow(2, transAttempt), 15);
+                                log?.Invoke($"[translate retry {transAttempt}/{maxAttempts} ch{i + 1}] waiting {delaySec}s...");
                                 await Task.Delay(delaySec * 1000, ct);
                             }
                         }
@@ -347,6 +525,22 @@ public class BookService
                 Total = total,
                 Message = translate ? $"Translated chapter {i + 1} of {total}..." : $"Downloaded chapter {i + 1} of {total}..."
             });
+
+            // ── Long download pacing (500+ chapters rate-limit prevention) ────────
+            if (translate && (i + 1) < total)
+            {
+                if ((i + 1) % 25 == 0)
+                {
+                    int pauseSec = Translator.IsGoogleRateLimited ? 4 : 2;
+                    log?.Invoke($"[Pacing pause: resting {pauseSec}s after chapter {i + 1} to prevent rate limits]");
+                    await Task.Delay(pauseSec * 1000, ct);
+                }
+                else
+                {
+                    int chDelayMs = Translator.IsGoogleRateLimited ? 800 : 250;
+                    await Task.Delay(chDelayMs, ct);
+                }
+            }
         }
 
         return (results, lockedFromChapter);

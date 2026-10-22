@@ -593,6 +593,21 @@ internal sealed class Downloader
 
             if (!isLocked)
                 onProgress?.Invoke(i + 1, book.Total, translate ? $"Chapter {i + 1} of {book.Total}" : $"Downloaded ch {i + 1} of {book.Total}");
+
+            // ── Long download pacing (500+ chapters rate-limit prevention) ────────
+            if (translate && (i + 1) < book.Total)
+            {
+                if ((i + 1) % 25 == 0)
+                {
+                    int pauseSec = _translator.IsGoogleRateLimited ? 4 : 2;
+                    await Task.Delay(pauseSec * 1000, ct);
+                }
+                else
+                {
+                    int chDelayMs = _translator.IsGoogleRateLimited ? 800 : 250;
+                    await Task.Delay(chDelayMs, ct);
+                }
+            }
         }
 
         return (chapters, lockedFromChapter, translationFailures);
