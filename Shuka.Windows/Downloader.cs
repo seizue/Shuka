@@ -12,6 +12,8 @@ internal sealed class Downloader
     private readonly WindowsTranslator _translator;
     private readonly HttpClient        _http;
 
+    public WindowsTranslator Translator => _translator;
+
     public Downloader(PlaywrightFetcher fetcher, WindowsTranslator translator, HttpClient http)
     {
         _fetcher    = fetcher;
@@ -21,7 +23,15 @@ internal sealed class Downloader
 
     /// <summary>Set after TUI-mode ProcessBookAsync if any chapters failed to translate.</summary>
     public string? LastTranslationLogPath   { get; private set; }
-    public int     LastTranslationFailCount { get; private set; }
+    public List<int> LastTranslationFailures { get; private set; } = new();
+    public int     LastTranslationFailCount => LastTranslationFailures.Count;
+
+    private List<(int Idx, string Title, string Text)>? _lastChapters;
+    private BookInfo? _lastBook;
+    private byte[]? _lastCoverBytes;
+    private string? _lastCoverMime;
+    private int? _lastLockedFromChapter;
+    private string? _lastOutFile;
 
     // ── Book info ─────────────────────────────────────────────────────────────
 
@@ -85,7 +95,15 @@ internal sealed class Downloader
             coverMime = coverRes.mime;
         }
 
-        var (chapters, lockedFromChapter, _) = await DownloadChaptersAsync(book, null, translate);
+        var (chapters, lockedFromChapter, translationFailures) = await DownloadChaptersAsync(book, null, translate);
+
+        _lastChapters          = chapters;
+        _lastBook              = book;
+        _lastCoverBytes        = coverBytes;
+        _lastCoverMime         = coverMime;
+        _lastLockedFromChapter = lockedFromChapter;
+        _lastOutFile           = outFile;
+        LastTranslationFailures = translationFailures;
 
         Console.WriteLine("\n  Building EPUB...");
         string path = BuildOutputPath(book, outFile);
@@ -95,7 +113,10 @@ internal sealed class Downloader
         
         string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
-        CheckpointService.Delete(checkpointPath);
+        if (translationFailures.Count == 0)
+        {
+            CheckpointService.Delete(checkpointPath);
+        }
 
         Console.WriteLine($"  Saved: {Path.GetFullPath(path)}");
     }
@@ -140,6 +161,14 @@ internal sealed class Downloader
         ct.ThrowIfCancellationRequested();
         var (chapters, lockedFromChapter, translationFailures) = await DownloadChaptersAsync(book, onProgress, translate, ct);
 
+        _lastChapters          = chapters;
+        _lastBook              = book;
+        _lastCoverBytes        = coverBytes;
+        _lastCoverMime         = coverMime;
+        _lastLockedFromChapter = lockedFromChapter;
+        _lastOutFile           = outFile;
+        LastTranslationFailures = translationFailures;
+
         ct.ThrowIfCancellationRequested();
         string path = BuildOutputPath(book, outFile);
         if (File.Exists(path)) File.Delete(path);
@@ -148,7 +177,10 @@ internal sealed class Downloader
 
         string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
         string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
-        CheckpointService.Delete(checkpointPath);
+        if (translationFailures.Count == 0)
+        {
+            CheckpointService.Delete(checkpointPath);
+        }
 
         // Write a translation error log only when failures occurred
         if (translationFailures.Count > 0)
@@ -168,14 +200,139 @@ internal sealed class Downloader
             await File.AppendAllLinesAsync(logPath, lines);
 
             // Surface the log path so the TUI can display it after download
-            LastTranslationLogPath   = logPath;
-            LastTranslationFailCount = translationFailures.Count;
+            LastTranslationLogPath = logPath;
         }
         else
         {
-            LastTranslationLogPath   = null;
-            LastTranslationFailCount = 0;
+            LastTranslationLogPath = null;
         }
+    }
+
+    /// <summary>
+    /// Retranslates chapters that failed in the previous download run, updates the checkpoint,
+    /// and rebuilds the final EPUB.
+    /// </summary>
+    public async Task<(int resolvedCount, int remainingFailures)> RetranslateFailedChaptersAsync(
+        Action<int, int, string>? onProgress = null,
+        CancellationToken ct = default)
+    {
+        if (_lastBook == null || _lastChapters == null || LastTranslationFailures.Count == 0)
+            return (0, 0);
+
+        var book = _lastBook;
+        var chapters = _lastChapters;
+        var stillFailed = new List<int>();
+        int resolved = 0;
+
+        string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+        string checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
+        var writeLock = new SemaphoreSlim(1, 1);
+
+        for (int f = 0; f < LastTranslationFailures.Count; f++)
+        {
+            ct.ThrowIfCancellationRequested();
+            int chNum = LastTranslationFailures[f]; // 1-based chapter number
+            int chIdx = chNum - 1; // 0-based index
+
+            if (chIdx < 0 || chIdx >= chapters.Count || chIdx >= book.ChapterUrls.Count)
+                continue;
+
+            var chRef = book.ChapterUrls[chIdx];
+            onProgress?.Invoke(f + 1, LastTranslationFailures.Count, $"Retranslating ch {chNum} ({f + 1}/{LastTranslationFailures.Count})...");
+
+            string existingText = chapters[chIdx].Text;
+            const string Notice = "[Translation unavailable — original text below]\n";
+            string rawChinese = existingText.StartsWith(Notice)
+                ? existingText[Notice.Length..]
+                : existingText;
+
+            if (string.IsNullOrWhiteSpace(rawChinese))
+            {
+                try
+                {
+                    string html = await _fetcher.FetchAsync(chRef.Url, ct: ct);
+                    var paras = book.Adapter.ExtractChapterText(html);
+                    rawChinese = string.Join("\n", paras);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch
+                {
+                    stillFailed.Add(chNum);
+                    continue;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(rawChinese))
+            {
+                stillFailed.Add(chNum);
+                continue;
+            }
+
+            const string TitleSep = "\n===TITLE===\n";
+            string combined = chRef.Title + TitleSep + rawChinese;
+
+            string translated;
+            bool failed = false;
+            try
+            {
+                translated = await _translator.Translate(combined, ct: ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (LocalAiNotInstalledException) { throw; }
+            catch
+            {
+                translated = combined;
+                failed = true;
+            }
+
+            string finalTitle = chRef.Title;
+            string finalContent;
+
+            int sepIdx = translated.IndexOf("===TITLE===", StringComparison.OrdinalIgnoreCase);
+            if (sepIdx >= 0)
+            {
+                finalTitle   = translated[..sepIdx].Trim();
+                finalContent = translated[(sepIdx + "===TITLE===".Length)..].Trim();
+            }
+            else
+            {
+                finalContent = translated;
+            }
+
+            if (!failed)
+            {
+                failed = WindowsTranslator.IsUntranslatedChinese(combined, translated);
+            }
+
+            if (failed)
+            {
+                stillFailed.Add(chNum);
+                finalContent = Notice + rawChinese;
+            }
+            else
+            {
+                resolved++;
+            }
+
+            chapters[chIdx] = (chNum, finalTitle, finalContent);
+
+            await CheckpointService.SaveChapterAsync(checkpointPath, book.IndexUrl, chIdx, finalTitle, finalContent, writeLock);
+        }
+
+        LastTranslationFailures = stillFailed;
+
+        // Rebuild EPUB with updated chapters
+        string path = BuildOutputPath(book, _lastOutFile);
+        if (File.Exists(path)) File.Delete(path);
+        EpubBuilder.Build(path, book.Title, book.TitleEn!, book.Author, book.AuthorEn!,
+            chapters, _lastCoverBytes, _lastCoverMime ?? "image/jpeg", true, _lastLockedFromChapter);
+
+        if (stillFailed.Count == 0)
+        {
+            CheckpointService.Delete(checkpointPath);
+        }
+
+        return (resolved, stillFailed.Count);
     }
 
     /// <summary>Generates a sample EPUB from already downloaded/checkpointed chapters.</summary>
@@ -329,7 +486,20 @@ internal sealed class Downloader
                 Console.Write($"\r  [{i + 1}/{book.Total}] {phaseText}... {eta}      ");
             }
 
-            string html = await _fetcher.FetchAsync(ch.Url, ct: ct);
+            string html;
+            try
+            {
+                html = await _fetcher.FetchAsync(ch.Url, ct: ct);
+            }
+            catch (CloudflareBlockedException cfEx)
+            {
+                // Site is still behind CF — abort the whole download with a clear message
+                // (don't silently treat chapters as locked)
+                throw new Exception(
+                    $"Download stopped: {cfEx.Message}\n" +
+                    "  → Return to the main menu, choose 'Fix Cloudflare (--solve-cf)', solve the challenge, then retry.",
+                    cfEx);
+            }
             var paras = book.Adapter.ExtractChapterText(html);
 
             // Empty paragraphs = chapter is paywalled / locked
@@ -381,6 +551,7 @@ internal sealed class Downloader
                     translated = await _translator.Translate(combined, ct: ct);
                 }
                 catch (OperationCanceledException) { throw; }
+                catch (LocalAiNotInstalledException) { throw; }
                 catch
                 {
                     translated = combined; // treat as failure, handled below

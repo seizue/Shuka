@@ -11,9 +11,12 @@ namespace Shuka;
 /// </summary>
 internal static class Tui
 {
+    private static TranslatorSettings _settings = new();
+
     public static async Task RunAsync(Downloader downloader, bool defaultTranslate = true,
         TranslatorSettings? translatorSettings = null)
     {
+        _settings = translatorSettings ?? TranslatorSettings.Load();
         while (true)
         {
             AnsiConsole.Clear();
@@ -161,7 +164,7 @@ internal static class Tui
 
         AnsiConsole.WriteLine();
 
-        await RunDownloadAsync(downloader, url, chapterLimit, cover, translate, chapterFrom);
+        await RunDownloadAsync(downloader, url, chapterLimit, cover, translate, chapterFrom, _settings);
 
         var after = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -287,7 +290,7 @@ internal static class Tui
         for (int i = 0; i < queue.Count; i++)
         {
             AnsiConsole.MarkupLine($"[bold]\n[[{i + 1}/{queue.Count}]] Downloading...[/]");
-            await RunDownloadAsync(downloader, queue[i].Url, 0, queue[i].Cover, translate);
+            await RunDownloadAsync(downloader, queue[i].Url, 0, queue[i].Cover, translate, 0, _settings);
         }
 
         AnsiConsole.MarkupLine("\n[green]✓ Batch complete! Check your Downloads folder.[/]");
@@ -445,7 +448,8 @@ internal static class Tui
     // ── Download pipeline with live progress ──────────────────────────────────
 
     private static async Task RunDownloadAsync(
-        Downloader downloader, string url, int chapters, string? cover, bool translate, int chapterFrom = 0)
+        Downloader downloader, string url, int chapters, string? cover, bool translate, int chapterFrom = 0,
+        TranslatorSettings? translatorSettings = null)
     {
         BookInfo? book = null;
 
@@ -463,6 +467,7 @@ internal static class Tui
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine($"[red]  ✗ Error: {Markup.Escape(ex.Message)}[/]");
+                    PrintCloudflareHelp(url);
                 }
             });
 
@@ -514,7 +519,7 @@ internal static class Tui
         }
 
         // Phase 2: download loop — supports pause (P) and export (E) via keypress
-        await RunDownloadLoopAsync(downloader, book, translate);
+        await RunDownloadLoopAsync(downloader, book, translate, translatorSettings);
     }
 
     /// <summary>
@@ -523,7 +528,8 @@ internal static class Tui
     /// watches for P (pause) and E (export EPUB). On pause the loop exits cleanly
     /// (checkpoint data is intact) and the user is prompted to Resume, Export, or Quit.
     /// </summary>
-    private static async Task RunDownloadLoopAsync(Downloader downloader, BookInfo book, bool translate)
+    private static async Task RunDownloadLoopAsync(
+        Downloader downloader, BookInfo book, bool translate, TranslatorSettings? translatorSettings = null)
     {
         // Track how far we got so we can show a meaningful "paused at ch X" message.
         int lastProgress = 0;
@@ -609,15 +615,105 @@ internal static class Tui
             {
                 AnsiConsole.MarkupLine($"\n[green]✓ Done! EPUB saved to your Downloads folder.[/]");
 
-                // Show translation failure notice if any chapters couldn't be translated
-                if (downloader.LastTranslationFailCount > 0 && downloader.LastTranslationLogPath != null)
+                // Show translation failure notice and offer prompt to retranslate failed chapters
+                while (downloader.LastTranslationFailCount > 0)
                 {
+                    AnsiConsole.WriteLine();
                     AnsiConsole.MarkupLine(
                         $"  [yellow]⚠  {downloader.LastTranslationFailCount} chapter(s) had translation failures.[/]");
                     AnsiConsole.MarkupLine(
-                        $"  [dim]Those chapters are in the original Chinese with a notice inside the EPUB.[/]");
-                    AnsiConsole.MarkupLine(
-                        $"  [dim]Details: [/][grey]{Markup.Escape(downloader.LastTranslationLogPath)}[/]");
+                        $"  [dim]Failed chapter(s): [/][white]{string.Join(", ", downloader.LastTranslationFailures)}[/]");
+                    if (downloader.LastTranslationLogPath != null)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  [dim]Log details: [/][grey]{Markup.Escape(downloader.LastTranslationLogPath)}[/]");
+                    }
+                    AnsiConsole.WriteLine();
+
+                    var retryChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Would you like to retranslate the failed chapter(s)?[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                $"Retranslate {downloader.LastTranslationFailCount} failed chapter(s)",
+                                "Keep current EPUB and finish"));
+
+                    if (retryChoice.StartsWith("Retranslate"))
+                    {
+                        AnsiConsole.WriteLine();
+                        int resolved = 0;
+                        int remaining = 0;
+                        Exception? retryErr = null;
+
+                        await AnsiConsole.Status()
+                            .Spinner(Spinner.Known.Dots)
+                            .SpinnerStyle(Style.Parse("indianred1"))
+                            .StartAsync("[grey]Retranslating failed chapters...[/]", async ctx =>
+                            {
+                                try
+                                {
+                                    var res = await downloader.RetranslateFailedChaptersAsync(
+                                        (cur, tot, msg) => ctx.Status($"[grey]{Markup.Escape(msg)}[/]"));
+                                    resolved = res.resolvedCount;
+                                    remaining = res.remainingFailures;
+                                }
+                                catch (Exception ex)
+                                {
+                                    retryErr = ex;
+                                }
+                            });
+
+                        if (retryErr is LocalAiNotInstalledException || retryErr?.InnerException is LocalAiNotInstalledException)
+                        {
+                            AnsiConsole.WriteLine();
+                            AnsiConsole.MarkupLine("  [bold red]✗ Retranslation paused:[/] Local AI is required for offline fallback but is not installed.");
+                            AnsiConsole.WriteLine();
+                            var engineChoice = AnsiConsole.Prompt(
+                                new SelectionPrompt<string>()
+                                    .Title("[grey]Select an option:[/]")
+                                    .HighlightStyle(new Style(Color.IndianRed1))
+                                    .AddChoices(
+                                        "Go to Translation Engine menu to download Local AI configuration",
+                                        "Stop and keep current EPUB"));
+
+                            if (engineChoice.StartsWith("Go to Translation Engine"))
+                            {
+                                await RunTranslationEngineAsync(_settings);
+                                downloader.Translator.ReloadEngines();
+                                continue;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        else if (retryErr != null)
+                        {
+                            AnsiConsole.MarkupLine($"\n  [red]✗ Retranslation error:[/] {Markup.Escape(retryErr.Message)}");
+                            break;
+                        }
+
+                        if (resolved > 0)
+                            AnsiConsole.MarkupLine($"\n  [green]✓ Successfully retranslated {resolved} chapter(s)! EPUB updated.[/]");
+
+                        if (remaining == 0)
+                        {
+                            AnsiConsole.MarkupLine("  [green]✓ All chapters are now translated.[/]");
+                            break;
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine($"  [yellow]⚠  {remaining} chapter(s) still could not be translated.[/]");
+                        }
+                    }
+                    else
+                    {
+                        // User chose to keep current EPUB
+                        string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+                        string cpPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
+                        CheckpointService.Delete(cpPath);
+                        break;
+                    }
                 }
 
                 return;
@@ -626,7 +722,107 @@ internal static class Tui
             // ── Error (not a pause) ────────────────────────────────────────────
             if (downloadError != null)
             {
-                AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                bool isLocalAiNotInstalled = downloadError is LocalAiNotInstalledException ||
+                                             downloadError.InnerException is LocalAiNotInstalledException;
+
+                if (isLocalAiNotInstalled)
+                {
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [bold red]✗ Translation Failure:[/] Cannot proceed since Local AI is not installed.");
+                    AnsiConsole.MarkupLine("  [grey]Google Translate unofficial API hit rate limits, and fallback engines failed.[/]");
+                    AnsiConsole.MarkupLine("  [grey]Local AI (Qwen2.5) is required as the offline fallback, but the model (~468MB) is not downloaded.[/]");
+                    AnsiConsole.WriteLine();
+
+                    var actionChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Select an option:[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                "Go to Translation Engine menu to download Local AI configuration",
+                                "Stop and exit"));
+
+                    if (actionChoice.StartsWith("Go to Translation Engine"))
+                    {
+                        var settings = translatorSettings ?? TranslatorSettings.Load();
+                        await RunTranslationEngineAsync(settings);
+                        downloader.Translator.ReloadEngines();
+
+                        var localCheck = new LocalLlamaTranslator();
+                        bool canResume = localCheck.IsModelDownloaded() ||
+                                         settings.Engine == TranslatorEngine.PlaywrightTranslate;
+
+                        if (canResume)
+                        {
+                            AnsiConsole.WriteLine();
+                            var resumeChoice = AnsiConsole.Prompt(
+                                new SelectionPrompt<string>()
+                                    .Title("[grey]Configuration updated. Resume downloading now?[/]")
+                                    .HighlightStyle(new Style(Color.IndianRed1))
+                                    .AddChoices("Resume download", "Return to main menu"));
+
+                            if (resumeChoice == "Resume download")
+                            {
+                                AnsiConsole.WriteLine();
+                                continue;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("  [dim]Download stopped. Progress has been saved in checkpoint.[/]");
+                    }
+                    return;
+                }
+
+                // Check if a Cloudflare block caused the failure
+                bool isCfBlock = downloadError is CloudflareBlockedException ||
+                                 downloadError.InnerException is CloudflareBlockedException;
+
+                if (isCfBlock)
+                {
+                    string siteOrigin = Uri.TryCreate(book.IndexUrl, UriKind.Absolute, out var cfUri)
+                        ? $"{cfUri.Scheme}://{cfUri.Host}" : book.IndexUrl;
+
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [bold yellow]⚠  Cloudflare is blocking chapter downloads.[/]");
+                    AnsiConsole.MarkupLine($"  [grey]Site:[/] [cyan]{Markup.Escape(siteOrigin)}[/]");
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [grey]You need to solve the CF challenge once so the app can store the bypass cookie.[/]");
+                    AnsiConsole.WriteLine();
+
+                    var cfFix = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Fix Cloudflare now?[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                $"Open browser for {siteOrigin} — solve it, then press Enter",
+                                "Skip — I'll fix it from the main menu later"));
+
+                    if (cfFix.StartsWith("Open browser"))
+                    {
+                        try
+                        {
+                            AnsiConsole.MarkupLine($"\n  [dim]Opening browser... complete the challenge then press Enter here.[/]\n");
+                            await PlaywrightFetcher.SolveCfInteractiveAsync(siteOrigin);
+                            AnsiConsole.MarkupLine("\n  [green]✓ CF cookies saved![/]");
+                            AnsiConsole.MarkupLine("  [grey]Re-run your download — it should now bypass Cloudflare automatically.[/]");
+                        }
+                        catch (Exception solveEx)
+                        {
+                            AnsiConsole.MarkupLine($"\n  [red]✗ Browser failed: {Markup.Escape(solveEx.Message)}[/]");
+                            AnsiConsole.MarkupLine("  [dim]Try using 'Fix Cloudflare (--solve-cf)' from the main menu instead.[/]");
+                        }
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("  [dim]Return to the main menu → Fix Cloudflare (--solve-cf) when ready.[/]");
+                    }
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"\n[bold red]✗ Error:[/] {Markup.Escape(downloadError.Message)}");
+                    PrintCloudflareHelp(book.IndexUrl);
+                }
                 return;
             }
 
@@ -1210,5 +1406,24 @@ internal static class Tui
                        "[bold indianred1]  ║[/]  [bold white]Shuka[/]  [grey]Chinese To English EPUB[/]  [bold indianred1]║[/]\n" +
                        "[bold indianred1]  ╚══════════════════════════════════╝[/]\n"));
         AnsiConsole.WriteLine();
+    }
+
+    private static void PrintCloudflareHelp(string url)
+    {
+        bool isCfSite = url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase) ||
+                        url.Contains("yamibo.com",  StringComparison.OrdinalIgnoreCase);
+        if (!isCfSite) return;
+
+        // Extract just the origin (scheme + host) for the instructions
+        string siteOrigin = url;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            siteOrigin = $"{uri.Scheme}://{uri.Host}";
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("  [bold yellow]Cloudflare Challenge Detected / Bypass Needed[/]");
+        AnsiConsole.MarkupLine("  [grey]To fix this:[/] [yellow]1.[/] Return to the main menu and select [indianred1]Fix Cloudflare (--solve-cf)[/]");
+        AnsiConsole.MarkupLine($"          [yellow]2.[/] Enter the site address ([cyan]{Markup.Escape(siteOrigin)}[/])");
+        AnsiConsole.MarkupLine("          [yellow]3.[/] In the browser window that opens, verify Cloudflare, then press Enter.");
+        AnsiConsole.MarkupLine("          [yellow]4.[/] Rerun your download — clearance cookies will be reused automatically.");
     }
 }

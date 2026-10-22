@@ -234,5 +234,14 @@ if (args[0].Equals("--batch", StringComparison.OrdinalIgnoreCase))
     if (book.Total == 0) { Console.WriteLine("No chapters found."); return; }
 
     Console.WriteLine("=== Phase 2: Downloading & building EPUB ===");
-    await downloader.ProcessBookAsync(book, outFile, translate);
+    try
+    {
+        await downloader.ProcessBookAsync(book, outFile, translate);
+    }
+    catch (LocalAiNotInstalledException ex)
+    {
+        Console.WriteLine($"\n[Error] {ex.Message}");
+        Console.WriteLine("Google Translate hit rate limits and online fallbacks failed.");
+        Console.WriteLine("To download the Local AI offline fallback model (~468MB), run Shuka and select 'Translation Engine' -> 'Use Local AI · Qwen2.5'.");
+    }
 }

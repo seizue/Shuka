@@ -19,6 +19,7 @@
     <Compile Include="..\Shuka.Windows\LocalLlamaTranslator.cs" />
     <Compile Include="..\Shuka.Windows\TranslatorEngine.cs" />
     <Compile Include="..\Shuka.Windows\WindowsTranslator.cs" />
+    <Compile Include="..\Shuka.Windows\LocalAiNotInstalledException.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Shuka.Core\Shuka.Core.csproj" />
