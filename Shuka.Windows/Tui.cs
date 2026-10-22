@@ -11,9 +11,12 @@ namespace Shuka;
 /// </summary>
 internal static class Tui
 {
+    private static TranslatorSettings _settings = new();
+
     public static async Task RunAsync(Downloader downloader, bool defaultTranslate = true,
         TranslatorSettings? translatorSettings = null)
     {
+        _settings = translatorSettings ?? TranslatorSettings.Load();
         while (true)
         {
             AnsiConsole.Clear();
@@ -161,7 +164,7 @@ internal static class Tui
 
         AnsiConsole.WriteLine();
 
-        await RunDownloadAsync(downloader, url, chapterLimit, cover, translate, chapterFrom);
+        await RunDownloadAsync(downloader, url, chapterLimit, cover, translate, chapterFrom, _settings);
 
         var after = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -287,7 +290,7 @@ internal static class Tui
         for (int i = 0; i < queue.Count; i++)
         {
             AnsiConsole.MarkupLine($"[bold]\n[[{i + 1}/{queue.Count}]] Downloading...[/]");
-            await RunDownloadAsync(downloader, queue[i].Url, 0, queue[i].Cover, translate);
+            await RunDownloadAsync(downloader, queue[i].Url, 0, queue[i].Cover, translate, 0, _settings);
         }
 
         AnsiConsole.MarkupLine("\n[green]✓ Batch complete! Check your Downloads folder.[/]");
@@ -445,7 +448,8 @@ internal static class Tui
     // ── Download pipeline with live progress ──────────────────────────────────
 
     private static async Task RunDownloadAsync(
-        Downloader downloader, string url, int chapters, string? cover, bool translate, int chapterFrom = 0)
+        Downloader downloader, string url, int chapters, string? cover, bool translate, int chapterFrom = 0,
+        TranslatorSettings? translatorSettings = null)
     {
         BookInfo? book = null;
 
@@ -515,7 +519,7 @@ internal static class Tui
         }
 
         // Phase 2: download loop — supports pause (P) and export (E) via keypress
-        await RunDownloadLoopAsync(downloader, book, translate);
+        await RunDownloadLoopAsync(downloader, book, translate, translatorSettings);
     }
 
     /// <summary>
@@ -524,7 +528,8 @@ internal static class Tui
     /// watches for P (pause) and E (export EPUB). On pause the loop exits cleanly
     /// (checkpoint data is intact) and the user is prompted to Resume, Export, or Quit.
     /// </summary>
-    private static async Task RunDownloadLoopAsync(Downloader downloader, BookInfo book, bool translate)
+    private static async Task RunDownloadLoopAsync(
+        Downloader downloader, BookInfo book, bool translate, TranslatorSettings? translatorSettings = null)
     {
         // Track how far we got so we can show a meaningful "paused at ch X" message.
         int lastProgress = 0;
@@ -627,6 +632,58 @@ internal static class Tui
             // ── Error (not a pause) ────────────────────────────────────────────
             if (downloadError != null)
             {
+                bool isLocalAiNotInstalled = downloadError is LocalAiNotInstalledException ||
+                                             downloadError.InnerException is LocalAiNotInstalledException;
+
+                if (isLocalAiNotInstalled)
+                {
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("  [bold red]✗ Translation Failure:[/] Cannot proceed since Local AI is not installed.");
+                    AnsiConsole.MarkupLine("  [grey]Google Translate unofficial API hit rate limits, and fallback engines failed.[/]");
+                    AnsiConsole.MarkupLine("  [grey]Local AI (Qwen2.5) is required as the offline fallback, but the model (~468MB) is not downloaded.[/]");
+                    AnsiConsole.WriteLine();
+
+                    var actionChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Select an option:[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                "Go to Translation Engine menu to download Local AI configuration",
+                                "Stop and exit"));
+
+                    if (actionChoice.StartsWith("Go to Translation Engine"))
+                    {
+                        var settings = translatorSettings ?? TranslatorSettings.Load();
+                        await RunTranslationEngineAsync(settings);
+                        downloader.Translator.ReloadEngines();
+
+                        var localCheck = new LocalLlamaTranslator();
+                        bool canResume = localCheck.IsModelDownloaded() ||
+                                         settings.Engine == TranslatorEngine.PlaywrightTranslate;
+
+                        if (canResume)
+                        {
+                            AnsiConsole.WriteLine();
+                            var resumeChoice = AnsiConsole.Prompt(
+                                new SelectionPrompt<string>()
+                                    .Title("[grey]Configuration updated. Resume downloading now?[/]")
+                                    .HighlightStyle(new Style(Color.IndianRed1))
+                                    .AddChoices("Resume download", "Return to main menu"));
+
+                            if (resumeChoice == "Resume download")
+                            {
+                                AnsiConsole.WriteLine();
+                                continue;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("  [dim]Download stopped. Progress has been saved in checkpoint.[/]");
+                    }
+                    return;
+                }
+
                 // Check if a Cloudflare block caused the failure
                 bool isCfBlock = downloadError is CloudflareBlockedException ||
                                  downloadError.InnerException is CloudflareBlockedException;

@@ -117,15 +117,41 @@ internal static class Program
         // ── 5. Integrated WindowsTranslator Orchestrator ─────────────────────
         if (engine is "all" or "orchestrator")
         {
-            Console.WriteLine("⑤ Integrated WindowsTranslator Orchestrator (Browser Engine)...");
+            Console.WriteLine("⑤ Integrated WindowsTranslator Orchestrator (Google Engine with Auto-Fallback)...");
             try
             {
-                var settings = new TranslatorSettings { Engine = TranslatorEngine.PlaywrightTranslate };
+                var settings = new TranslatorSettings { Engine = TranslatorEngine.Google };
                 using var http = new HttpClient();
                 var google = new Translator(http);
                 await using var orchestrator = new WindowsTranslator(settings, google);
-                string orchResult = await orchestrator.Translate("第一章 开始新的冒险", msg => Console.WriteLine($"   [Orch] {msg}"));
-                Console.WriteLine($"   ✓ Translated: '第一章 开始新的冒险' → '{orchResult}'");
+                string orchResult = await orchestrator.Translate("第一章 开始新的冒险", msg => Console.WriteLine($"   [Orch 1] {msg}"));
+                Console.WriteLine($"   ✓ Translated 1: '第一章 开始新的冒险' → '{orchResult}'");
+                Console.WriteLine($"   ✓ Google rate limited state: {orchestrator.IsGoogleRateLimited}");
+
+                Console.WriteLine("   Testing subsequent call (should immediately route to Browser Translate without Google delay):");
+                string orchResult2 = await orchestrator.Translate("第二章 探索未知的森林", msg => Console.WriteLine($"   [Orch 2] {msg}"));
+                Console.WriteLine($"   ✓ Translated 2: '第二章 探索未知的森林' → '{orchResult2}'");
+                Console.WriteLine("   Testing LocalAiNotInstalledException when model is missing:");
+                // When Local AI is selected and model is missing:
+                var mockSettings = new TranslatorSettings { Engine = TranslatorEngine.LocalLlama };
+                await using var localAiTester = new WindowsTranslator(mockSettings, google);
+                // Check if model is downloaded
+                if (!localAiTester.LocalLlama.IsModelDownloaded())
+                {
+                    try
+                    {
+                        await localAiTester.Translate("测试文本");
+                        Console.WriteLine("   ✗ Expected LocalAiNotInstalledException but none was thrown!");
+                    }
+                    catch (LocalAiNotInstalledException ex)
+                    {
+                        Console.WriteLine($"   ✓ Successfully caught LocalAiNotInstalledException: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("   (Local AI model is already downloaded on this PC, skipping missing-model throw test)");
+                }
             }
             catch (Exception ex)
             {

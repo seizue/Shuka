@@ -12,6 +12,8 @@ internal sealed class Downloader
     private readonly WindowsTranslator _translator;
     private readonly HttpClient        _http;
 
+    public WindowsTranslator Translator => _translator;
+
     public Downloader(PlaywrightFetcher fetcher, WindowsTranslator translator, HttpClient http)
     {
         _fetcher    = fetcher;
@@ -394,6 +396,7 @@ internal sealed class Downloader
                     translated = await _translator.Translate(combined, ct: ct);
                 }
                 catch (OperationCanceledException) { throw; }
+                catch (LocalAiNotInstalledException) { throw; }
                 catch
                 {
                     translated = combined; // treat as failure, handled below
