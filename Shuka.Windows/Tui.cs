@@ -615,15 +615,105 @@ internal static class Tui
             {
                 AnsiConsole.MarkupLine($"\n[green]✓ Done! EPUB saved to your Downloads folder.[/]");
 
-                // Show translation failure notice if any chapters couldn't be translated
-                if (downloader.LastTranslationFailCount > 0 && downloader.LastTranslationLogPath != null)
+                // Show translation failure notice and offer prompt to retranslate failed chapters
+                while (downloader.LastTranslationFailCount > 0)
                 {
+                    AnsiConsole.WriteLine();
                     AnsiConsole.MarkupLine(
                         $"  [yellow]⚠  {downloader.LastTranslationFailCount} chapter(s) had translation failures.[/]");
                     AnsiConsole.MarkupLine(
-                        $"  [dim]Those chapters are in the original Chinese with a notice inside the EPUB.[/]");
-                    AnsiConsole.MarkupLine(
-                        $"  [dim]Details: [/][grey]{Markup.Escape(downloader.LastTranslationLogPath)}[/]");
+                        $"  [dim]Failed chapter(s): [/][white]{string.Join(", ", downloader.LastTranslationFailures)}[/]");
+                    if (downloader.LastTranslationLogPath != null)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  [dim]Log details: [/][grey]{Markup.Escape(downloader.LastTranslationLogPath)}[/]");
+                    }
+                    AnsiConsole.WriteLine();
+
+                    var retryChoice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[grey]Would you like to retranslate the failed chapter(s)?[/]")
+                            .HighlightStyle(new Style(Color.IndianRed1))
+                            .AddChoices(
+                                $"Retranslate {downloader.LastTranslationFailCount} failed chapter(s)",
+                                "Keep current EPUB and finish"));
+
+                    if (retryChoice.StartsWith("Retranslate"))
+                    {
+                        AnsiConsole.WriteLine();
+                        int resolved = 0;
+                        int remaining = 0;
+                        Exception? retryErr = null;
+
+                        await AnsiConsole.Status()
+                            .Spinner(Spinner.Known.Dots)
+                            .SpinnerStyle(Style.Parse("indianred1"))
+                            .StartAsync("[grey]Retranslating failed chapters...[/]", async ctx =>
+                            {
+                                try
+                                {
+                                    var res = await downloader.RetranslateFailedChaptersAsync(
+                                        (cur, tot, msg) => ctx.Status($"[grey]{Markup.Escape(msg)}[/]"));
+                                    resolved = res.resolvedCount;
+                                    remaining = res.remainingFailures;
+                                }
+                                catch (Exception ex)
+                                {
+                                    retryErr = ex;
+                                }
+                            });
+
+                        if (retryErr is LocalAiNotInstalledException || retryErr?.InnerException is LocalAiNotInstalledException)
+                        {
+                            AnsiConsole.WriteLine();
+                            AnsiConsole.MarkupLine("  [bold red]✗ Retranslation paused:[/] Local AI is required for offline fallback but is not installed.");
+                            AnsiConsole.WriteLine();
+                            var engineChoice = AnsiConsole.Prompt(
+                                new SelectionPrompt<string>()
+                                    .Title("[grey]Select an option:[/]")
+                                    .HighlightStyle(new Style(Color.IndianRed1))
+                                    .AddChoices(
+                                        "Go to Translation Engine menu to download Local AI configuration",
+                                        "Stop and keep current EPUB"));
+
+                            if (engineChoice.StartsWith("Go to Translation Engine"))
+                            {
+                                await RunTranslationEngineAsync(_settings);
+                                downloader.Translator.ReloadEngines();
+                                continue;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        else if (retryErr != null)
+                        {
+                            AnsiConsole.MarkupLine($"\n  [red]✗ Retranslation error:[/] {Markup.Escape(retryErr.Message)}");
+                            break;
+                        }
+
+                        if (resolved > 0)
+                            AnsiConsole.MarkupLine($"\n  [green]✓ Successfully retranslated {resolved} chapter(s)! EPUB updated.[/]");
+
+                        if (remaining == 0)
+                        {
+                            AnsiConsole.MarkupLine("  [green]✓ All chapters are now translated.[/]");
+                            break;
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine($"  [yellow]⚠  {remaining} chapter(s) still could not be translated.[/]");
+                        }
+                    }
+                    else
+                    {
+                        // User chose to keep current EPUB
+                        string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+                        string cpPath = CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl);
+                        CheckpointService.Delete(cpPath);
+                        break;
+                    }
                 }
 
                 return;
