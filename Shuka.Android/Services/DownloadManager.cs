@@ -660,6 +660,128 @@ public class DownloadManager
         return failed;
     }
 
+    /// <summary>Retranslates only the chapters that failed in a completed download.</summary>
+    public void RetranslateFailedChapters(DownloadItem item)
+    {
+        if (item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming)
+            return;
+
+        Translator.ClearGoogleRateLimit();
+        item.Status = DownloadStatus.Resuming;
+        item.StatusText = "Retranslating failed chapters...";
+        _ = ProcessRetranslateAsync(item);
+    }
+
+    private async Task ProcessRetranslateAsync(DownloadItem item)
+    {
+        string cacheDir = GetCacheDirectory();
+        string? checkpointPath = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
+        item.Cts = new CancellationTokenSource();
+        var ct = item.Cts.Token;
+
+        void Log(string msg) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+                item.LogText += msg + "\n");
+
+        try
+        {
+            var service = new BookService(new WebViewCloudflareBypass());
+            var book = await service.GatherBookInfo(item.Url, item.Chapters, item.CoverUrl, Log, ct, item.ChapterFrom);
+
+            var saved = checkpointPath != null
+                ? await CheckpointService.LoadAsync(checkpointPath, book.Total)
+                : null;
+
+            if (saved != null)
+            {
+                var chapters = new List<(int Idx, string Title, string Text)>();
+                var failedIndices = new List<int>();
+
+                for (int i = 0; i < saved.Length; i++)
+                {
+                    if (saved[i] != null)
+                    {
+                        string t = saved[i]!.Value.title;
+                        string txt = saved[i]!.Value.text;
+                        if (txt.StartsWith("[Translation unavailable", StringComparison.OrdinalIgnoreCase))
+                        {
+                            failedIndices.Add(i + 1);
+                        }
+                        chapters.Add((i + 1, t, txt));
+                    }
+                }
+
+                if (failedIndices.Count == 0 && item.FailedChapters.Count > 0)
+                {
+                    failedIndices.AddRange(item.FailedChapters);
+                }
+
+                if (failedIndices.Count > 0)
+                {
+                    service.LastTranslationFailures.Clear();
+                    service.LastTranslationFailures.AddRange(failedIndices);
+
+                    string tempPath = Path.Combine(cacheDir, $"_shuka_{item.Id:N}.epub");
+
+                    var progress = new Progress<ProgressEventArgs>(p =>
+                    {
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            item.StatusText = p.Message ?? $"Retranslating {p.Current}/{p.Total}...";
+                            if (p.Total > 0) item.Progress = (double)p.Current / p.Total;
+                        });
+                    });
+
+                    var (resolved, remaining) = await service.RetranslateFailedChaptersAsync(
+                        book, chapters, tempPath, checkpointPath, progress, Log, ct);
+
+                    string rawTitle = book.TitleEn ?? book.Title;
+                    string finalName = SanitizeFileName(rawTitle);
+                    if (string.IsNullOrWhiteSpace(finalName)) finalName = $"novel_{item.Id:N8}";
+
+                    string finalPath = await CopyToOutputAsync(tempPath, finalName, ct);
+                    item.EpubPath = finalPath;
+                    item.UntranslatedCount = remaining;
+                    item.FailedChapters = new List<int>(service.LastTranslationFailures);
+
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        item.Progress = 1.0;
+                        item.StatusText = remaining == 0
+                            ? "Done (all retranslated)"
+                            : $"Done ({remaining} ch untranslated)";
+                        item.Status = DownloadStatus.Completed;
+                    });
+
+                    Log($"Retranslation complete: {resolved} resolved, {remaining} remaining.");
+                    return;
+                }
+            }
+
+            // If no checkpoint, enqueue normal processing
+            item.Status = DownloadStatus.Pending;
+            item.StatusText = "Queued";
+            _ = ProcessQueueAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                item.Status = DownloadStatus.Paused;
+                item.StatusText = "Retranslation paused";
+            });
+        }
+        catch (Exception ex)
+        {
+            Log($"Retranslation error: {ex.Message}");
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                item.Status = DownloadStatus.Completed;
+                item.StatusText = $"Retranslate failed: {ex.Message}";
+            });
+        }
+    }
+
     /// <summary>Dismiss a failed or cancelled item from the list without retrying.</summary>
     public void Dismiss(DownloadItem item)
     {
@@ -915,15 +1037,23 @@ public class DownloadManager
 
             Log($"Saved: {finalPath}");
 
+            int untranslatedCount = service.LastTranslationFailures.Count;
+            if (untranslatedCount > 0)
+            {
+                Log($"Completed with {untranslatedCount} untranslated chapter(s) due to translation limits.");
+            }
+
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 item.Title      = book.TitleEn ?? book.Title;
                 item.Author     = book.AuthorEn ?? book.Author;
                 item.EpubPath   = finalPath;
                 item.Progress   = 1.0;
+                item.UntranslatedCount = untranslatedCount;
+                item.FailedChapters = new List<int>(service.LastTranslationFailures);
                 item.StatusText = (item.StatusText != null && item.StatusText.Contains("is locked"))
                     ? item.StatusText
-                    : "Done";
+                    : (untranslatedCount > 0 ? $"Done ({untranslatedCount} ch untranslated)" : "Done");
                 item.Status     = DownloadStatus.Completed;
             });
 

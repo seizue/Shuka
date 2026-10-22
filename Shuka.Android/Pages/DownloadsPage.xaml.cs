@@ -363,6 +363,18 @@ public partial class DownloadsPage : ContentPage
         bool isCompleted = item.Status == DownloadStatus.Completed;
         OptionsSheetOpenBtn.IsVisible = isCompleted;
         OptionsSheetShareBtn.IsVisible = isCompleted;
+
+        bool hasFailedChs = item.HasFailedChapters ||
+            (item.StatusText != null && item.StatusText.Contains("untranslated", StringComparison.OrdinalIgnoreCase));
+        OptionsSheetRetranslateBtn.IsVisible = isCompleted && hasFailedChs;
+        if (OptionsSheetRetranslateBtn.IsVisible)
+        {
+            int count = item.UntranslatedCount > 0 ? item.UntranslatedCount : item.FailedChapters.Count;
+            OptionsSheetRetranslateLabel.Text = count > 0
+                ? $"Retranslate {count} Failed Chapter(s)"
+                : "Retranslate Failed Chapters";
+        }
+
         OptionsSheetDismissBtn.IsVisible = isCompleted || item.Status == DownloadStatus.Failed || item.Status == DownloadStatus.Cancelled;
 
         OptionsSheetCancelBtn.IsVisible = item.Status != DownloadStatus.Completed;
@@ -424,6 +436,14 @@ public partial class DownloadsPage : ContentPage
         var item = _activeOptionsItem;
         await HideOptionsSheetAsync();
         HandleShareRequested(item);
+    }
+
+    private async void OnOptionsSheetRetranslateTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        DownloadManager.Instance.RetranslateFailedChapters(item);
     }
 
     private async void OnOptionsSheetDismissTapped(object sender, TappedEventArgs e)

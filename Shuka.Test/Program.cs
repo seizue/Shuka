@@ -67,6 +67,21 @@ internal static class Program
             Console.WriteLine();
         }
 
+        if (engine is "all" or "bing")
+        {
+            Console.WriteLine("Bing Translator fallback...");
+            (bool ok, string result) = await TestBing();
+            if (ok)
+            {
+                Console.WriteLine($"   ✓ Result: {result}");
+            }
+            else
+            {
+                Console.WriteLine($"   ✗ FAILED: {result}");
+            }
+            Console.WriteLine();
+        }
+
         // ── 3. Browser Translate (Playwright) ────────────────────────────────
         if (engine is "all" or "playwright" or "browser")
         {
@@ -223,6 +238,53 @@ internal static class Program
             if (hasChineseChars) return (false, $"Returned Chinese: {text}");
 
             return (true, text);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public static async Task<(bool, string)> TestBing()
+    {
+        try
+        {
+            var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All, UseCookies = true };
+            using var http = new HttpClient(handler);
+            http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+            http.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+
+            string html = await http.GetStringAsync("https://www.bing.com/translator");
+            var igMatch = Regex.Match(html, @"IG:""([a-zA-Z0-9]+)""");
+            string ig = igMatch.Success ? igMatch.Groups[1].Value : "";
+
+            var iidMatch = Regex.Match(html, @"data-iid=""([^""]+)""");
+            string iid = iidMatch.Success ? iidMatch.Groups[1].Value : "translator.5026";
+
+            var helperMatch = Regex.Match(html, @"params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*""([^""]+)""");
+            if (!helperMatch.Success) return (false, "Could not extract Bing AbusePreventionHelper");
+
+            string key = helperMatch.Groups[1].Value;
+            string token = helperMatch.Groups[2].Value;
+
+            string postUrl = $"https://www.bing.com/ttranslatev3?isVertical=1&IG={ig}&IID={iid}";
+            var form = new Dictionary<string, string>
+            {
+                { "fromLang", "auto-detect" },
+                { "to", "en" },
+                { "text", "你好世界" },
+                { "token", token },
+                { "key", key }
+            };
+
+            using var postReq = new HttpRequestMessage(HttpMethod.Post, postUrl);
+            postReq.Content = new FormUrlEncodedContent(form);
+            var resp = await http.SendAsync(postReq);
+            string json = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+                return (false, $"HTTP {(int)resp.StatusCode}: {json}");
+
+            return (true, json);
         }
         catch (Exception ex)
         {
