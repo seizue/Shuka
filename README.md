@@ -39,7 +39,7 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 
 > **czbooks.net** and **69shuba.com** is protected by Cloudflare. Shuka handles this automatically using a headless browser on Windows and a hidden WebView on Android — no extra setup needed.
 
-
+**Note on Rate Limits (200+ Chapters):** Free translation providers enforce request quotas. Shuka uses gentle download pacing, saves progress chapter-by-chapter, and automatically fails over to backup engines (Bing on Android; Browser Translate / Local AI on Windows) if limits are hit.
 ## Building from source
 
 Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (Windows CLI) and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (Android / MAUI).
@@ -63,6 +63,8 @@ dotnet publish Shuka.Android/Shuka.Android.csproj -f net10.0-android -c Release
 ```
 
 ## Adding a new site
+<details>
+<summary>Show instructions for adding a new site adapter</summary>
 
 ### 1. Download adapter (required)
 
@@ -159,6 +161,10 @@ public static readonly IReadOnlyList<IBrowsableAdapter> Sources =
 ```
 
 Browse support is optional — a download-only adapter still works from pasted URLs on both Windows and Android.
+
+</details>
+
+
 
 ## License
 
