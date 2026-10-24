@@ -54,6 +54,32 @@ public partial class DownloadsPage : ContentPage
 
         TabTransition.Prepare(RootGrid, myTabIndex: 1);
         await TabTransition.SlideInAsync(RootGrid);
+
+        // Check if navigated from notification wanting to retranslate
+        if (!string.IsNullOrEmpty(MainActivity.PendingRetranslateItemId))
+        {
+            string idStr = MainActivity.PendingRetranslateItemId;
+            MainActivity.PendingRetranslateItemId = null;
+            if (Guid.TryParse(idStr, out var targetId))
+            {
+                var target = DownloadManager.Instance.Downloads.FirstOrDefault(d => d.Id == targetId);
+                if (target != null && target.HasFailedChapters)
+                {
+                    string chStr = target.FailedChapters.Count == 1
+                        ? $"Chapter {target.FailedChapters[0]}"
+                        : $"Chapters {string.Join(", ", target.FailedChapters.Take(4))}{(target.FailedChapters.Count > 4 ? "..." : "")}";
+                    bool confirm = await DisplayAlertAsync(
+                        "Translate Again",
+                        $"'{target.Title}' has {target.UntranslatedCount} untranslated chapter(s) ({chStr}).\n\nTranslate again now?",
+                        "Translate Again",
+                        "Cancel");
+                    if (confirm)
+                    {
+                        DownloadManager.Instance.RetranslateFailedChapters(target);
+                    }
+                }
+            }
+        }
     }
 
     // ── Collection / Property Changes ──────────────────────────────────────────

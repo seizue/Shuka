@@ -81,12 +81,33 @@ public class Translator
         if (string.IsNullOrWhiteSpace(result)) return true;
         if (!AnyChineseRegex.IsMatch(original)) return false;
 
+        // If the translation resulted in the exact same text, it was echoed/untranslated
+        if (string.Equals(result.Trim(), original.Trim(), StringComparison.Ordinal))
+            return true;
+
         // If short text (e.g. title) still contains any Chinese characters
-        if (original.Length < 25)
+        if (original.Length < 30)
             return AnyChineseRegex.IsMatch(result);
 
-        // For chapter bodies, check for runs of Chinese characters
-        if (SignificantChineseRegex.IsMatch(result))
+        // Count Chinese characters in the result (including ideographs across standard CJK blocks)
+        int chineseCount = 0;
+        for (int i = 0; i < result.Length; i++)
+        {
+            char c = result[i];
+            if ((c >= 0x4e00 && c <= 0x9fff) ||
+                (c >= 0x3400 && c <= 0x4dbf) ||
+                (c >= 0xf900 && c <= 0xfaff))
+            {
+                chineseCount++;
+            }
+        }
+
+        // If there are 5 or more Chinese characters, it definitely contains untranslated Chinese
+        if (chineseCount >= 5)
+            return true;
+
+        // Or if Chinese characters make up more than 5% of the string
+        if (result.Length > 0 && (double)chineseCount / result.Length > 0.05)
             return true;
 
         return false;
@@ -214,7 +235,16 @@ public class Translator
         // ── 2. Bing Translator (independent high-quality fallback) ───────────
         try
         {
-            string? bingRes = await CallBingTranslator(chunk, ct);
+            string? bingRes = await CallBingTranslator(chunk, ct, "auto-detect");
+            if (bingRes == null || IsUntranslatedChinese(chunk, bingRes))
+            {
+                // If auto-detect returned untranslated Chinese, retry once explicitly with zh-Hans
+                if (AnyChineseRegex.IsMatch(chunk))
+                {
+                    bingRes = await CallBingTranslator(chunk, ct, "zh-Hans");
+                }
+            }
+
             if (bingRes != null && !IsUntranslatedChinese(chunk, bingRes))
             {
                 log?.Invoke("[Bing Translator fallback ok]");
@@ -313,7 +343,7 @@ public class Translator
     /// <summary>
     /// Microsoft Bing Translator web API. Caches session parameters for up to 10 minutes.
     /// </summary>
-    private async Task<string?> CallBingTranslator(string chunk, CancellationToken ct)
+    private async Task<string?> CallBingTranslator(string chunk, CancellationToken ct, string fromLang = "auto-detect")
     {
         await EnsureBingSessionAsync(ct);
         if (_bingToken == null || _bingKey == null)
@@ -322,7 +352,7 @@ public class Translator
         string postUrl = $"https://www.bing.com/ttranslatev3?isVertical=1&IG={_bingIg}&IID={_bingIid}";
         var form = new Dictionary<string, string>
         {
-            { "fromLang", "auto-detect" },
+            { "fromLang", fromLang },
             { "to", "en" },
             { "text", chunk },
             { "token", _bingToken },

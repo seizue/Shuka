@@ -48,7 +48,14 @@ public class DownloadItem : INotifyPropertyChanged
     public int UntranslatedCount
     {
         get => _untranslatedCount;
-        set { _untranslatedCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasFailedChapters)); }
+        set
+        {
+            _untranslatedCount = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasFailedChapters));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(StatusIcon));
+        }
     }
 
     [JsonIgnore]
@@ -121,7 +128,9 @@ public class DownloadItem : INotifyPropertyChanged
     public bool HasEpub     => Status == DownloadStatus.Completed && !string.IsNullOrEmpty(EpubPath);
 
     [JsonIgnore]
-    public Color StatusColor => Status switch
+    public Color StatusColor => (Status == DownloadStatus.Completed && HasFailedChapters)
+        ? Color.FromArgb("#FF9F0A")
+        : Status switch
     {
         DownloadStatus.Completed => Color.FromArgb("#30D158"),
         DownloadStatus.Failed    => Color.FromArgb("#FF453A"),
@@ -133,7 +142,9 @@ public class DownloadItem : INotifyPropertyChanged
     };
 
     [JsonIgnore]
-    public string StatusIcon => Status switch
+    public string StatusIcon => (Status == DownloadStatus.Completed && HasFailedChapters)
+        ? "\uE002" // warning icon
+        : Status switch
     {
         DownloadStatus.Completed => "\uE876", // check
         DownloadStatus.Failed    => "\uE5CD", // close

@@ -372,7 +372,8 @@ public class BookService
                 string savedTitle = saved[i]!.Value.title;
                 string savedText  = saved[i]!.Value.text;
 
-                if (savedText.StartsWith("[Translation unavailable", StringComparison.OrdinalIgnoreCase))
+                if (savedText.StartsWith("[Translation unavailable", StringComparison.OrdinalIgnoreCase) ||
+                    (translate && Translator.IsUntranslatedChinese(savedTitle, savedText)))
                 {
                     LastTranslationFailures.Add(i + 1);
                 }

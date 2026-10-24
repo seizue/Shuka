@@ -747,11 +747,28 @@ public class DownloadManager
                     await MainThread.InvokeOnMainThreadAsync(() =>
                     {
                         item.Progress = 1.0;
-                        item.StatusText = remaining == 0
-                            ? "Done (all retranslated)"
-                            : $"Done ({remaining} ch untranslated)";
+                        if (remaining == 0)
+                        {
+                            item.StatusText = "Done (all retranslated)";
+                        }
+                        else
+                        {
+                            string chStr = item.FailedChapters.Count == 1
+                                ? $"Ch {item.FailedChapters[0]}"
+                                : (item.FailedChapters.Count <= 3 ? $"Ch {string.Join(", ", item.FailedChapters)}" : $"{remaining} ch");
+                            item.StatusText = $"Done ({chStr} untranslated — tap to retry)";
+                        }
                         item.Status = DownloadStatus.Completed;
                     });
+
+#if ANDROID
+                    DownloadForegroundService.NotifyDone(
+                        book.TitleEn ?? book.Title,
+                        finalPath,
+                        remaining,
+                        item.FailedChapters,
+                        item.Id.ToString());
+#endif
 
                     Log($"Retranslation complete: {resolved} resolved, {remaining} remaining.");
                     return;
@@ -1038,6 +1055,7 @@ public class DownloadManager
             Log($"Saved: {finalPath}");
 
             int untranslatedCount = service.LastTranslationFailures.Count;
+            var failedList = new List<int>(service.LastTranslationFailures);
             if (untranslatedCount > 0)
             {
                 Log($"Completed with {untranslatedCount} untranslated chapter(s) due to translation limits.");
@@ -1050,10 +1068,24 @@ public class DownloadManager
                 item.EpubPath   = finalPath;
                 item.Progress   = 1.0;
                 item.UntranslatedCount = untranslatedCount;
-                item.FailedChapters = new List<int>(service.LastTranslationFailures);
-                item.StatusText = (item.StatusText != null && item.StatusText.Contains("is locked"))
-                    ? item.StatusText
-                    : (untranslatedCount > 0 ? $"Done ({untranslatedCount} ch untranslated)" : "Done");
+                item.FailedChapters = failedList;
+                string statusMsg;
+                if (item.StatusText != null && item.StatusText.Contains("is locked"))
+                {
+                    statusMsg = item.StatusText;
+                }
+                else if (untranslatedCount > 0)
+                {
+                    string chStr = failedList.Count == 1
+                        ? $"Ch {failedList[0]}"
+                        : (failedList.Count <= 3 ? $"Ch {string.Join(", ", failedList)}" : $"{untranslatedCount} ch");
+                    statusMsg = $"Done ({chStr} untranslated — tap to retry)";
+                }
+                else
+                {
+                    statusMsg = "Done";
+                }
+                item.StatusText = statusMsg;
                 item.Status     = DownloadStatus.Completed;
             });
 
@@ -1061,7 +1093,36 @@ public class DownloadManager
             await HistoryService.Instance.AddAsync(item);
 
 #if ANDROID
-            DownloadForegroundService.NotifyDone(book.TitleEn ?? book.Title, finalPath);
+            DownloadForegroundService.NotifyDone(
+                book.TitleEn ?? book.Title,
+                finalPath,
+                untranslatedCount,
+                failedList,
+                item.Id.ToString());
+
+            // In-app alert if download finishes while user is inside the app
+            if (untranslatedCount > 0)
+            {
+                _ = MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+                    if (mainPage != null)
+                    {
+                        string chStr = failedList.Count == 1
+                            ? $"Chapter {failedList[0]} is not translated."
+                            : $"Chapters {string.Join(", ", failedList.Take(5))}{(failedList.Count > 5 ? "..." : "")} are not translated.";
+                        bool retranslate = await mainPage.DisplayAlertAsync(
+                            "Translation Incomplete",
+                            $"{book.TitleEn ?? book.Title}\n{chStr}\n\nTranslate again now?",
+                            "Translate Again",
+                            "Later");
+                        if (retranslate)
+                        {
+                            RetranslateFailedChapters(item);
+                        }
+                    }
+                });
+            }
 #endif
         }
         catch (OperationCanceledException)

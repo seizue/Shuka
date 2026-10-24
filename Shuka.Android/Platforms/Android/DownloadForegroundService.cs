@@ -104,7 +104,7 @@ public class DownloadForegroundService : Service
     /// Post a "download complete" heads-up notification with an "Open" action.
     /// Safe to call from any thread.
     /// </summary>
-    public static void NotifyDone(string title, string epubPath)
+    public static void NotifyDone(string title, string epubPath, int untranslatedCount = 0, IList<int>? failedChapters = null, string? itemId = null)
     {
         var ctx = global::Android.App.Application.Context;
         EnsureDoneChannel(ctx);
@@ -115,6 +115,10 @@ public class DownloadForegroundService : Service
             ?.SetFlags(ActivityFlags.SingleTop)
             ?? new Intent(ctx, typeof(DownloadForegroundService));
         launchIntent.PutExtra("navigate_to", "DownloadsPage");
+        if (untranslatedCount > 0 && !string.IsNullOrEmpty(itemId))
+        {
+            launchIntent.PutExtra("retranslate_item_id", itemId);
+        }
 
 #pragma warning disable CA1416
         var pendingFlags = Build.VERSION.SdkInt >= BuildVersionCodes.M
@@ -160,13 +164,53 @@ public class DownloadForegroundService : Service
             // If we can't create the open intent, just skip the action button
         }
 
+        string notifTitle = untranslatedCount > 0
+            ? $"Download complete ({untranslatedCount} untranslated)"
+            : "Download complete";
+
+        string notifText;
+        if (untranslatedCount > 0)
+        {
+            string chStr = (failedChapters != null && failedChapters.Count > 0)
+                ? (failedChapters.Count == 1 ? $"Chapter {failedChapters[0]}" : $"Chapters {string.Join(", ", failedChapters.Take(4))}{(failedChapters.Count > 4 ? "..." : "")}")
+                : $"{untranslatedCount} chapter(s)";
+            notifText = $"{title} — {chStr} is not translated. Translate again?";
+        }
+        else
+        {
+            notifText = title;
+        }
+
         var builder = new NotificationCompat.Builder(ctx, DoneChannelId)
-            .SetContentTitle("Download complete")
-            .SetContentText(title)
+            .SetContentTitle(notifTitle)
+            .SetContentText(notifText)
+            .SetStyle(new NotificationCompat.BigTextStyle().BigText(notifText))
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysDownloadDone)
             .SetAutoCancel(true)
             .SetContentIntent(launchPendingIntent)
             .SetPriority(NotificationCompat.PriorityDefault);
+
+        // Add "Translate Again" action button if chapters were untranslated
+        if (untranslatedCount > 0)
+        {
+            var retransIntent = ctx.PackageManager
+                ?.GetLaunchIntentForPackage(ctx.PackageName ?? "")
+                ?.SetFlags(ActivityFlags.SingleTop);
+            if (retransIntent != null)
+            {
+                retransIntent.PutExtra("navigate_to", "DownloadsPage");
+                if (!string.IsNullOrEmpty(itemId))
+                    retransIntent.PutExtra("retranslate_item_id", itemId);
+
+                var retransPending = PendingIntent.GetActivity(
+                    ctx, (title + "_retrans").GetHashCode(), retransIntent, pendingFlags);
+
+                builder.AddAction(
+                    global::Android.Resource.Drawable.StatNotifySync,
+                    "Translate Again",
+                    retransPending);
+            }
+        }
 
         // Add "Open" action button if we successfully created the intent
         if (openPendingIntent != null)

@@ -239,12 +239,33 @@ internal sealed class WindowsTranslator : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(result)) return true;
         if (!AnyChineseRegex.IsMatch(original)) return false;
 
+        // If the translation resulted in the exact same text, it was echoed/untranslated
+        if (string.Equals(result.Trim(), original.Trim(), StringComparison.Ordinal))
+            return true;
+
         // If short text (e.g. title) still contains any Chinese characters
-        if (original.Length < 25)
+        if (original.Length < 30)
             return AnyChineseRegex.IsMatch(result);
 
-        // For chapter bodies, check for runs of Chinese characters
-        if (SignificantChineseRegex.IsMatch(result))
+        // Count Chinese characters in the result (including ideographs across standard CJK blocks)
+        int chineseCount = 0;
+        for (int i = 0; i < result.Length; i++)
+        {
+            char c = result[i];
+            if ((c >= 0x4e00 && c <= 0x9fff) ||
+                (c >= 0x3400 && c <= 0x4dbf) ||
+                (c >= 0xf900 && c <= 0xfaff))
+            {
+                chineseCount++;
+            }
+        }
+
+        // If there are 5 or more Chinese characters, it definitely contains untranslated Chinese
+        if (chineseCount >= 5)
+            return true;
+
+        // Or if Chinese characters make up more than 5% of the string
+        if (result.Length > 0 && (double)chineseCount / result.Length > 0.05)
             return true;
 
         return false;

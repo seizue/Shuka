@@ -101,7 +101,7 @@ public static class EpubBuilder
 
         WriteEntry(zip, "OEBPS/style.css",
             "body{font-family:Georgia,serif;line-height:1.8;margin:2em;padding:0;}" +
-            "h2{text-align:center;margin:1.5em 0 1em 0;font-size:1.5em;}" +
+            "h2{text-align:left;margin:1.5em 0 1em 0;font-size:1.5em;}" +
             "p{margin:0 0 0.5em 0 !important;margin-top:0 !important;margin-bottom:0.5em !important;text-indent:0 !important;line-height:1.8 !important;}");
 
         foreach (var (idx, chTitle, text) in chapters)
@@ -117,7 +117,7 @@ public static class EpubBuilder
                 "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head>" +
                 $"<title>{Escape(chTitle)}</title>" +
                 "<link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/>" +
-                "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}p{margin:0 0 0.5em 0 !important;text-indent:0 !important;line-height:1.8 !important;}</style>" +
+                "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}h2{text-align:left;}p{margin:0 0 0.5em 0 !important;text-indent:0 !important;line-height:1.8 !important;}</style>" +
                 $"</head><body><h2>{Escape(chTitle)}</h2>" +
                 string.Join("", paras) + "</body></html>");
         }

@@ -39,6 +39,9 @@ public class DownloadCard : ContentView
     private readonly View   _logSection;
     private readonly Label  _logLabel;
     private readonly Label  _logToggleIcon;
+    private readonly Border _retranslateBtn;
+    private readonly Label  _retranslateIcon;
+    private readonly Label  _retranslateLabel;
     private readonly Grid   _trackContainer;
     private bool            _logExpanded = false;
     private string? _lastStrokeKey;
@@ -91,11 +94,70 @@ public class DownloadCard : ContentView
         };
         _statusTextLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
+        _retranslateIcon = new Label
+        {
+            Text            = "\uE8BA", // sync
+            FontFamily      = "MaterialSymbols",
+            FontSize        = 13,
+            TextColor       = Color.FromArgb("#FF9F0A"),
+            VerticalOptions = LayoutOptions.Center,
+        };
+        _retranslateLabel = new Label
+        {
+            Text            = "Translate Again",
+            FontSize        = 11,
+            FontAttributes  = FontAttributes.Bold,
+            TextColor       = Color.FromArgb("#FF9F0A"),
+            VerticalOptions = LayoutOptions.Center,
+        };
+        var retransLayout = new HorizontalStackLayout
+        {
+            Spacing  = 4,
+            Children = { _retranslateIcon, _retranslateLabel }
+        };
+        _retranslateBtn = new Border
+        {
+            StrokeThickness = 1,
+            Stroke          = new SolidColorBrush(Color.FromArgb("#FF9F0A")),
+            StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
+            BackgroundColor = Color.FromArgb("#26FF9F0A"),
+            Padding         = new Thickness(8, 3),
+            Margin          = new Thickness(0, 3, 0, 0),
+            HorizontalOptions = LayoutOptions.Start,
+            Content         = retransLayout,
+            IsVisible       = false
+        };
+        _retranslateBtn.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(async () =>
+            {
+                if (_item != null && _item.HasFailedChapters && _item.Status == DownloadStatus.Completed)
+                {
+                    var page = FindParentPage();
+                    if (page != null)
+                    {
+                        string chStr = _item.FailedChapters.Count == 1
+                            ? $"Chapter {_item.FailedChapters[0]}"
+                            : $"Chapters {string.Join(", ", _item.FailedChapters.Take(4))}{(_item.FailedChapters.Count > 4 ? "..." : "")}";
+                        bool confirm = await page.DisplayAlertAsync(
+                            "Translate Again",
+                            $"'{_item.Title}' has {_item.UntranslatedCount} untranslated chapter(s) ({chStr}).\n\nTranslate again now?",
+                            "Translate Again",
+                            "Cancel");
+                        if (confirm)
+                        {
+                            DownloadManager.Instance.RetranslateFailedChapters(_item);
+                        }
+                    }
+                }
+            })
+        });
+
         var textStack = new VerticalStackLayout
         {
             Spacing         = 3,
             VerticalOptions = LayoutOptions.Center,
-            Children        = { _titleLabel, _authorLabel, _statusTextLabel }
+            Children        = { _titleLabel, _authorLabel, _statusTextLabel, _retranslateBtn }
         };
 
         // ── Log toggle button ─────────────────────────────────────────────────
@@ -378,13 +440,35 @@ public class DownloadCard : ContentView
 
         bool done    = _item.IsDone;
 
+        bool hasFailed = done && _item.HasFailedChapters;
+        if (hasFailed)
+        {
+            _statusTextLabel.TextColor = Color.FromArgb("#FF9F0A");
+        }
+        else
+        {
+            _statusTextLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
+        }
+
+        if (_retranslateBtn.IsVisible != hasFailed)
+            _retranslateBtn.IsVisible = hasFailed;
+
+        if (hasFailed)
+        {
+            _retranslateLabel.Text = _item.UntranslatedCount > 0
+                ? $"Translate {_item.UntranslatedCount} Failed Chapter{(_item.UntranslatedCount > 1 ? "s" : "")}"
+                : "Translate Again";
+        }
+
         bool progressVisible = _item.Status is DownloadStatus.Downloading or DownloadStatus.Resuming or DownloadStatus.Paused;
         if (_progressSection.IsVisible != progressVisible)
             _progressSection.IsVisible = progressVisible;
 
         UpdateProgressFill();
 
-        string strokeKey = done ? "Success" : (_item.IsFailed ? "Danger" : (_item.IsCancelled ? "Warning" : "Stroke"));
+        string strokeKey = (done && !_item.HasFailedChapters)
+            ? "Success"
+            : ((done && _item.HasFailedChapters) ? "Warning" : (_item.IsFailed ? "Danger" : (_item.IsCancelled ? "Warning" : "Stroke")));
         if (_lastStrokeKey != strokeKey)
         {
             _lastStrokeKey = strokeKey;

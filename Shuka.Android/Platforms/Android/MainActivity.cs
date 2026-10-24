@@ -22,6 +22,7 @@ public class MainActivity : MauiAppCompatActivity
 {
     public static MainActivity? Instance { get; private set; }
     public static bool PendingNavigationToDownloads = false;
+    public static string? PendingRetranslateItemId = null;
     private int _navigationRetryCount = 0;
     private int _persistentTabBarHeightPx;
     private int _systemNavBarInsetPx;
@@ -216,6 +217,12 @@ public class MainActivity : MauiAppCompatActivity
         if (intent != null && intent.GetStringExtra("navigate_to") == "DownloadsPage")
         {
             intent.RemoveExtra("navigate_to"); // Avoid re-navigating on config changes/recreation
+            string? retransId = intent.GetStringExtra("retranslate_item_id");
+            if (!string.IsNullOrEmpty(retransId))
+            {
+                intent.RemoveExtra("retranslate_item_id");
+                PendingRetranslateItemId = retransId;
+            }
             PendingNavigationToDownloads = true;
             TriggerPendingNavigationIfAny();
         }
