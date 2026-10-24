@@ -845,6 +845,7 @@ internal static class Tui
                     .AddChoices(
                         "Resume download",
                         $"Create EPUB from {savedCount} downloaded chapter(s)",
+                        "Return to main menu",
                         "Quit"));
 
             if (pausedChoice == "Resume download")
@@ -852,6 +853,11 @@ internal static class Tui
                 // Loop back — a fresh CTS will be created at the top of the while(true)
                 AnsiConsole.WriteLine();
                 continue;
+            }
+
+            if (pausedChoice == "Return to main menu")
+            {
+                return;
             }
 
             if (pausedChoice.StartsWith("Create EPUB"))
@@ -875,17 +881,25 @@ internal static class Tui
 
                 AnsiConsole.WriteLine();
 
-                // After exporting, offer to resume or quit
+                // After exporting, offer to resume, return to menu, or quit
                 var afterExport = AnsiConsole.Prompt(
                     new SelectionPrompt<string>()
                         .Title("[grey]Continue?[/]")
                         .HighlightStyle(new Style(Color.IndianRed1))
-                        .AddChoices("Resume download", "Quit"));
+                        .AddChoices(
+                            "Resume download",
+                            "Return to main menu",
+                            "Quit"));
 
                 if (afterExport == "Resume download")
                 {
                     AnsiConsole.WriteLine();
                     continue;
+                }
+
+                if (afterExport == "Return to main menu")
+                {
+                    return;
                 }
             }
 

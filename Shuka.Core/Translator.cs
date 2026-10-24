@@ -67,6 +67,15 @@ public class Translator
         }
     }
 
+    /// <summary>
+    /// Restores semaphore permits if a previous task was cancelled before release.
+    /// </summary>
+    public static void ResetSemaphores()
+    {
+        try { while (_standardSem.CurrentCount < 3) _standardSem.Release(); } catch { }
+        try { while (_throttledSem.CurrentCount < 1) _throttledSem.Release(); } catch { }
+    }
+
     public static bool IsUntranslatedChinese(string original, string result)
     {
         if (string.IsNullOrWhiteSpace(result)) return true;
@@ -123,10 +132,19 @@ public class Translator
             }
             finally
             {
-                // Adaptive cooldown: 1500ms when throttled/recovering, 200ms when healthy
-                int delayMs = IsGoogleRateLimited ? 1500 : 200;
-                await Task.Delay(delayMs, ct).ConfigureAwait(false);
-                sem.Release();
+                try
+                {
+                    if (!ct.IsCancellationRequested)
+                    {
+                        int delayMs = IsGoogleRateLimited ? 1500 : 200;
+                        await Task.Delay(delayMs, CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+                catch { }
+                finally
+                {
+                    sem.Release();
+                }
             }
         }).ToArray();
 

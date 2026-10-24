@@ -127,14 +127,17 @@ internal sealed class Downloader
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        Shuka.Core.Translator.ResetSemaphores();
 
         byte[]? coverBytes;
         string coverMime;
 
         if (translate)
         {
-            book.TitleEn  = await _translator.Translate(book.Title);
-            book.AuthorEn = await _translator.Translate(book.Author);
+            if (string.IsNullOrWhiteSpace(book.TitleEn) || book.TitleEn == book.Title)
+                book.TitleEn  = await _translator.Translate(book.Title, ct: ct);
+            if (string.IsNullOrWhiteSpace(book.AuthorEn) || book.AuthorEn == book.Author)
+                book.AuthorEn = await _translator.Translate(book.Author, ct: ct);
             var coverRes = await DownloadCoverAsync(book.CoverUrl, silent: true);
             coverBytes = coverRes.bytes;
             coverMime = coverRes.mime;
