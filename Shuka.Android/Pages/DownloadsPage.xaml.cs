@@ -409,6 +409,8 @@ public partial class DownloadsPage : ContentPage
                 : "Retranslate Failed Chapters";
         }
 
+        OptionsSheetRedownloadBtn.IsVisible = isCompleted;
+
         OptionsSheetDismissBtn.IsVisible = isCompleted || item.Status == DownloadStatus.Failed || item.Status == DownloadStatus.Cancelled;
 
         OptionsSheetCancelBtn.IsVisible = item.Status != DownloadStatus.Completed;
@@ -478,6 +480,22 @@ public partial class DownloadsPage : ContentPage
         var item = _activeOptionsItem;
         await HideOptionsSheetAsync();
         DownloadManager.Instance.RetranslateFailedChapters(item);
+    }
+
+    private async void OnOptionsSheetRedownloadTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+
+        bool confirmed = await DisplayAlertAsync(
+            "Redownload Novel",
+            $"Redownload \u201c{item.Title}\u201d from chapter 1?\nThe existing EPUB file will be replaced.",
+            "Redownload", "Cancel");
+
+        if (!confirmed) return;
+
+        await HideOptionsSheetAsync();
+        DownloadManager.Instance.Redownload(item);
     }
 
     private async void OnOptionsSheetDismissTapped(object sender, TappedEventArgs e)
@@ -964,22 +982,26 @@ public partial class DownloadsPage : ContentPage
     {
         if (_logFilterErrorsOnly)
         {
+            // "All Logs" — inactive
             LogFilterAllBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
             LogFilterAllBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
             LogFilterAllBtn.StrokeThickness = 1;
-            LogFilterAllLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
+            LogFilterAllLabel.TextColor = Color.FromRgba(255, 255, 255, 140); // dimmed white
 
+            // "Errors Only" — active (Danger background)
             LogFilterErrorsBtn.SetDynamicResource(Border.BackgroundColorProperty, "Danger");
             LogFilterErrorsBtn.StrokeThickness = 0;
-            LogFilterErrorsIcon.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
-            LogFilterErrorsLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+            LogFilterErrorsIcon.TextColor = Colors.White;
+            LogFilterErrorsLabel.TextColor = Colors.White;
         }
         else
         {
+            // "All Logs" — active (AccentLight background)
             LogFilterAllBtn.SetDynamicResource(Border.BackgroundColorProperty, "AccentLight");
             LogFilterAllBtn.StrokeThickness = 0;
-            LogFilterAllLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+            LogFilterAllLabel.TextColor = Colors.White;
 
+            // "Errors Only" — inactive
             LogFilterErrorsBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
             LogFilterErrorsBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
             LogFilterErrorsBtn.StrokeThickness = 1;

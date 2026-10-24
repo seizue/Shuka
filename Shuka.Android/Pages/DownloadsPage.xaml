@@ -223,6 +223,7 @@
                     Margin="12,0,12,16"
                     Padding="14,14,14,10"
                     VerticalOptions="End"
+                    MaximumHeightRequest="520"
                     Stroke="{DynamicResource Stroke}"
                     StrokeThickness="1"
                     StrokeShape="RoundRectangle 18"
@@ -258,7 +259,9 @@
                     </Grid>
 
                     <!-- Option Buttons -->
-                    <VerticalStackLayout Spacing="8">
+                    <ScrollView MaximumHeightRequest="400"
+                                VerticalScrollBarVisibility="Never">
+                        <VerticalStackLayout Spacing="8">
                         <!-- Open Book Option -->
                         <Border x:Name="OptionsSheetOpenBtn"
                                 BackgroundColor="{DynamicResource BgInput}"
@@ -332,6 +335,31 @@
                             </Grid>
                             <Border.GestureRecognizers>
                                 <TapGestureRecognizer Tapped="OnOptionsSheetRetranslateTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Redownload from Beginning Option -->
+                        <Border x:Name="OptionsSheetRedownloadBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE042;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Redownload from Beginning"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetRedownloadTapped" />
                             </Border.GestureRecognizers>
                         </Border>
 
@@ -595,7 +623,8 @@
                                 <TapGestureRecognizer Tapped="OnOptionsSheetMoveToBottomTapped" />
                             </Border.GestureRecognizers>
                         </Border>
-                    </VerticalStackLayout>
+                        </VerticalStackLayout>
+                    </ScrollView>
                 </VerticalStackLayout>
             </Border>
         </Grid>
@@ -1055,7 +1084,7 @@
                                    Text="All Logs"
                                    FontSize="11"
                                    FontAttributes="Bold"
-                                   TextColor="{DynamicResource TextOnAccent}" />
+                                   TextColor="White" />
                             <Border.GestureRecognizers>
                                 <TapGestureRecognizer Tapped="OnLogFilterAllTapped" />
                             </Border.GestureRecognizers>

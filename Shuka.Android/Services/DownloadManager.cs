@@ -806,6 +806,44 @@ public class DownloadManager
         MainThread.BeginInvokeOnMainThread(() => Downloads.Remove(item));
     }
 
+    /// <summary>
+    /// Redownload a completed novel from chapter 1.
+    /// Clears the checkpoint so it starts fresh, preserves the cover URL,
+    /// and forces a rebuild of the EPUB (bypasses any existing file).
+    /// </summary>
+    public void Redownload(DownloadItem item)
+    {
+        // Delete existing checkpoint so we restart from chapter 1 (not resume mid-way)
+        try
+        {
+            string cacheDir = GetCacheDirectory();
+            string? cpPath  = CheckpointService.GetCheckpointPath(cacheDir, item.Url);
+            if (cpPath != null && File.Exists(cpPath))
+                File.Delete(cpPath);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadManager.Redownload] Failed to delete checkpoint: {ex.Message}");
+        }
+
+        string preservedCover = item.CoverUrl; // remember the cover link
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            item.Cts             = new CancellationTokenSource();
+            item.ForceRebuild    = true;
+            item.ChapterFrom     = 0;
+            item.Progress        = 0;
+            item.UntranslatedCount = 0;
+            item.FailedChapters  = new List<int>();
+            item.CoverUrl        = preservedCover; // restore cover after property reset
+            item.EpubPath        = null;
+            item.StatusText      = "Queued";
+            item.Status          = DownloadStatus.Pending;
+            _ = ProcessQueueAsync();
+        });
+    }
+
     private const string PrefKeyDownloadPath    = "download_output_path";
     private const string PrefKeyDownloadTreeUri = "download_tree_uri";
 
