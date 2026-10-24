@@ -36,14 +36,11 @@ public class DownloadCard : ContentView
     private readonly BoxView _progressFill;
     private readonly Label  _pctLabel;
     private readonly View   _progressSection;
-    private readonly View   _logSection;
-    private readonly Label  _logLabel;
     private readonly Label  _logToggleIcon;
     private readonly Border _retranslateBtn;
     private readonly Label  _retranslateIcon;
     private readonly Label  _retranslateLabel;
     private readonly Grid   _trackContainer;
-    private bool            _logExpanded = false;
     private string? _lastStrokeKey;
 
     public DownloadCard(DownloadItem item)
@@ -160,10 +157,10 @@ public class DownloadCard : ContentView
             Children        = { _titleLabel, _authorLabel, _statusTextLabel, _retranslateBtn }
         };
 
-        // ── Log toggle button ─────────────────────────────────────────────────
+        // ── Log sheet button ─────────────────────────────────────────────────
         _logToggleIcon = new Label
         {
-            Text            = "\uE313", // expand_more
+            Text            = "\uE873", // description / log sheet icon
             FontFamily      = "MaterialSymbols",
             FontSize        = 20,
             VerticalOptions = LayoutOptions.Center,
@@ -184,7 +181,13 @@ public class DownloadCard : ContentView
         };
         logToggleBtn.GestureRecognizers.Add(new TapGestureRecognizer
         {
-            Command = new Command(ToggleLog)
+            Command = new Command(() =>
+            {
+                if (_item != null)
+                {
+                    FindParentPage()?.ShowLogSheetAsync(_item);
+                }
+            })
         });
 
         // ── Options button ─────────────────────────────────────────────────────
@@ -290,34 +293,10 @@ public class DownloadCard : ContentView
             Children = { progressRow }
         };
 
-        // ── Log section ───────────────────────────────────────────────────────
-        var logDivider = new BoxView
-        {
-            HeightRequest     = 1,
-            HorizontalOptions = LayoutOptions.Fill,
-            Margin            = new Thickness(18, 0)
-        };
-        logDivider.SetDynamicResource(BoxView.ColorProperty, "Divider");
-
-        _logLabel = new Label
-        {
-            FontSize      = 10,
-            FontFamily    = "Monospace",
-            LineBreakMode = LineBreakMode.WordWrap,
-            Margin        = new Thickness(18, 10, 18, 14),
-        };
-        _logLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
-
-        _logSection = new VerticalStackLayout
-        {
-            IsVisible = false,
-            Children  = { logDivider, _logLabel }
-        };
-
         // ── Card assembly ─────────────────────────────────────────────────────
         var cardInner = new VerticalStackLayout
         {
-            Children = { headerGrid, _progressSection, _logSection }
+            Children = { headerGrid, _progressSection }
         };
 
         var card = new Border
@@ -363,33 +342,6 @@ public class DownloadCard : ContentView
         }
     }
 
-    // ── Log toggle ────────────────────────────────────────────────────────────
-
-    private async void ToggleLog()
-    {
-        if (_item == null) return;
-        _logExpanded = !_logExpanded;
-
-        // Rotate the chevron icon
-        await _logToggleIcon.RotateToAsync(_logExpanded ? 180 : 0, 200, Easing.CubicOut);
-
-        if (_logExpanded)
-        {
-            // Update log text before showing
-            _logLabel.Text    = string.IsNullOrWhiteSpace(_item.LogText)
-                ? "(no log yet)"
-                : _item.LogText.TrimEnd();
-            _logSection.Opacity      = 0;
-            _logSection.IsVisible    = true;
-            await _logSection.FadeToAsync(1.0, 180, Easing.CubicOut);
-        }
-        else
-        {
-            await _logSection.FadeToAsync(0, 150, Easing.CubicIn);
-            _logSection.IsVisible = false;
-        }
-    }
-
     // ── Property change ───────────────────────────────────────────────────────
 
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -397,11 +349,6 @@ public class DownloadCard : ContentView
         MainThread.BeginInvokeOnMainThread(() =>
         {
             Refresh();
-            // Keep log text live while expanded
-            if (_logExpanded && _item != null && e.PropertyName == nameof(DownloadItem.LogText))
-                _logLabel.Text = string.IsNullOrWhiteSpace(_item.LogText)
-                    ? "(no log yet)"
-                    : _item.LogText.TrimEnd();
         });
     }
 

@@ -335,6 +335,30 @@
                             </Border.GestureRecognizers>
                         </Border>
 
+                        <!-- View Logs Option -->
+                        <Border x:Name="OptionsSheetViewLogsBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE873;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="View Download Logs"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetViewLogsTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Dismiss Option (Remove from list) -->
                         <Border x:Name="OptionsSheetDismissBtn"
                                 BackgroundColor="{DynamicResource BgInput}"
@@ -960,6 +984,190 @@
                         </Border>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- Log Viewer bottom sheet overlay -->
+        <Grid x:Name="LogSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnLogSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="LogSheet"
+                    Margin="10,0,10,12"
+                    Padding="14,12,14,12"
+                    VerticalOptions="End"
+                    HeightRequest="520"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 20"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="28"
+                    Opacity="0">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnLogSheetTapped" />
+                </Border.GestureRecognizers>
+
+                <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+                    <!-- Row 0: Header with Title, Subtitle, and Close Button -->
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Download Logs"
+                                   FontSize="16"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextPrimary}" />
+                            <Label x:Name="LogSheetNovelTitle"
+                                   FontSize="11"
+                                   LineBreakMode="TailTruncation"
+                                   MaxLines="1"
+                                   TextColor="{DynamicResource TextMuted}" />
+                        </VerticalStackLayout>
+                        <Border Grid.Column="1"
+                                BackgroundColor="Transparent"
+                                StrokeThickness="0"
+                                Padding="8,4"
+                                VerticalOptions="Center">
+                            <Label Text="&#xE5CD;"
+                                   FontFamily="MaterialSymbols"
+                                   FontSize="22"
+                                   TextColor="{DynamicResource TextMuted}" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnLogSheetCloseTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </Grid>
+
+                    <!-- Row 1: Filter bar + Action buttons (All / Errors only + Copy + Jump to bottom) -->
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="6">
+                        <!-- Filter: All -->
+                        <Border x:Name="LogFilterAllBtn"
+                                BackgroundColor="{DynamicResource AccentLight}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 12"
+                                Padding="12,6"
+                                VerticalOptions="Center">
+                            <Label x:Name="LogFilterAllLabel"
+                                   Text="All Logs"
+                                   FontSize="11"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextOnAccent}" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnLogFilterAllTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Filter: Errors Only -->
+                        <Border x:Name="LogFilterErrorsBtn"
+                                Grid.Column="1"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 12"
+                                Padding="12,6"
+                                VerticalOptions="Center">
+                            <HorizontalStackLayout Spacing="4">
+                                <Label x:Name="LogFilterErrorsIcon"
+                                       Text="&#xE002;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="12"
+                                       TextColor="{DynamicResource Danger}"
+                                       VerticalOptions="Center" />
+                                <Label x:Name="LogFilterErrorsLabel"
+                                       Text="Errors Only"
+                                       FontSize="11"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnLogFilterErrorsTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Spacer in Col 2 -->
+
+                        <!-- Copy Button -->
+                        <Border Grid.Column="3"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 12"
+                                Padding="10,6"
+                                VerticalOptions="Center">
+                            <HorizontalStackLayout Spacing="4">
+                                <Label Text="&#xE14D;"
+                                       FontFamily="MaterialSymbols"
+                                       FontSize="13"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                                <Label Text="Copy"
+                                       FontSize="11"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextSecondary}"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnLogCopyTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Scroll to Bottom Button -->
+                        <Border Grid.Column="4"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 12"
+                                Padding="8,6"
+                                VerticalOptions="Center">
+                            <Label Text="&#xE5DB;"
+                                   FontFamily="MaterialSymbols"
+                                   FontSize="14"
+                                   TextColor="{DynamicResource TextSecondary}"
+                                   VerticalOptions="Center" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnLogScrollBottomTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </Grid>
+
+                    <!-- Row 2: Scrollable Log Content Container with dark terminal style -->
+                    <Border Grid.Row="2"
+                            BackgroundColor="{DynamicResource BgInput}"
+                            Stroke="{DynamicResource Stroke}"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 14"
+                            Padding="12,10">
+                        <ScrollView x:Name="LogScrollView"
+                                    VerticalScrollBarVisibility="Default">
+                            <Label x:Name="LogContentLabel"
+                                   FontSize="11"
+                                   FontFamily="Monospace"
+                                   LineBreakMode="WordWrap"
+                                   TextColor="{DynamicResource TextSecondary}" />
+                        </ScrollView>
+                    </Border>
+
+                    <!-- Row 3: Footer status (line count & live status) -->
+                    <Grid Grid.Row="3" ColumnDefinitions="*,Auto">
+                        <Label x:Name="LogStatsLabel"
+                               Text="Showing all lines"
+                               FontSize="10"
+                               TextColor="{DynamicResource TextMuted}"
+                               VerticalOptions="Center" />
+                        <Label x:Name="LogLiveStatus"
+                               Grid.Column="1"
+                               Text="● Live"
+                               FontSize="10"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource Success}"
+                               VerticalOptions="Center" />
+                    </Grid>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

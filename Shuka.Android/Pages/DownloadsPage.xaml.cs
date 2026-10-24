@@ -25,6 +25,9 @@ public partial class DownloadsPage : ContentPage
     private bool _isPageActionsSheetOpen;
     private bool _isCategoryPickerOpen;
     private bool _isSortSheetOpen;
+    private bool _isLogSheetOpen;
+    private DownloadItem? _activeLogItem;
+    private bool _logFilterErrorsOnly;
     private System.Threading.CancellationTokenSource? _refreshCts;
     private List<Guid>? _currentFilteredIds;
 
@@ -105,6 +108,11 @@ public partial class DownloadsPage : ContentPage
         if (e.PropertyName == nameof(DownloadItem.Status))
         {
             MainThread.BeginInvokeOnMainThread(() => RefreshUI(immediate: false));
+        }
+
+        if (_isLogSheetOpen && _activeLogItem != null && ReferenceEquals(sender, _activeLogItem) && e.PropertyName == nameof(DownloadItem.LogText))
+        {
+            MainThread.BeginInvokeOnMainThread(() => UpdateLogContent(scrollToEnd: true));
         }
     }
 
@@ -827,6 +835,8 @@ public partial class DownloadsPage : ContentPage
         OptionsSheet.Margin = new Thickness(12, 0, 12, bottomInset);
         if (SortSheet != null)
             SortSheet.Margin = new Thickness(12, 0, 12, bottomInset);
+        if (LogSheet != null)
+            LogSheet.Margin = new Thickness(10, 0, 10, bottomInset);
     }
 
     private void UpdatePageSheetBottomMargins()
@@ -844,5 +854,188 @@ public partial class DownloadsPage : ContentPage
         base.OnSizeAllocated(width, height);
         UpdateSheetBottomMargins();
         UpdatePageSheetBottomMargins();
+    }
+
+    // ── Log Viewer Sheet ────────────────────────────────────────────────────────
+
+    public async Task ShowLogSheetAsync(DownloadItem item)
+    {
+        if (_isLogSheetOpen || item == null)
+            return;
+
+        _isLogSheetOpen = true;
+        _activeLogItem = item;
+        _logFilterErrorsOnly = false;
+        LogSheetNovelTitle.Text = item.Title;
+
+        UpdateLogFilterButtonsUI();
+        UpdateLogContent(scrollToEnd: true);
+
+        LogSheetOverlay.IsVisible = true;
+        LogSheetOverlay.Opacity = 0;
+        LogSheet.Opacity = 0;
+        LogSheet.TranslationY = 28;
+
+        UpdateSheetBottomMargins();
+
+        await Task.WhenAll(
+            LogSheetOverlay.FadeToAsync(1, 160, Easing.CubicOut),
+            LogSheet.FadeToAsync(1, 180, Easing.CubicOut),
+            LogSheet.TranslateToAsync(0, 0, 180, Easing.CubicOut));
+
+        await ScrollLogToBottomAsync(animated: false);
+    }
+
+    public async Task HideLogSheetAsync()
+    {
+        if (!_isLogSheetOpen)
+            return;
+
+        _isLogSheetOpen = false;
+        await Task.WhenAll(
+            LogSheet.FadeToAsync(0, 140, Easing.CubicIn),
+            LogSheet.TranslateToAsync(0, 24, 140, Easing.CubicIn),
+            LogSheetOverlay.FadeToAsync(0, 140, Easing.CubicIn));
+        LogSheetOverlay.IsVisible = false;
+        _activeLogItem = null;
+    }
+
+    private void UpdateLogContent(bool scrollToEnd = false)
+    {
+        if (_activeLogItem == null) return;
+
+        string rawLog = _activeLogItem.LogText ?? "";
+        if (string.IsNullOrWhiteSpace(rawLog))
+        {
+            LogContentLabel.Text = "(no logs recorded yet)";
+            LogStatsLabel.Text = "0 entries";
+            return;
+        }
+
+        string[] lines = rawLog.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        if (_logFilterErrorsOnly)
+        {
+            var filtered = lines.Where(line =>
+                line.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("exception", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("rate-limit", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("429", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("blocked", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("retry", StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            if (filtered.Count == 0)
+            {
+                LogContentLabel.Text = "(No error or warning entries found in this download log)";
+                LogStatsLabel.Text = $"0 of {lines.Length} lines match error filter";
+            }
+            else
+            {
+                LogContentLabel.Text = string.Join("\n", filtered);
+                LogStatsLabel.Text = $"{filtered.Count} error/warning lines (of {lines.Length} total)";
+            }
+        }
+        else
+        {
+            LogContentLabel.Text = rawLog.TrimEnd();
+            LogStatsLabel.Text = $"{lines.Length} total lines";
+        }
+
+        if (scrollToEnd)
+        {
+            _ = ScrollLogToBottomAsync(animated: false);
+        }
+    }
+
+    private async Task ScrollLogToBottomAsync(bool animated = true)
+    {
+        try
+        {
+            await Task.Delay(40);
+            await LogScrollView.ScrollToAsync(0, LogContentLabel.Height + 500, animated);
+        }
+        catch { }
+    }
+
+    private void UpdateLogFilterButtonsUI()
+    {
+        if (_logFilterErrorsOnly)
+        {
+            LogFilterAllBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+            LogFilterAllBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
+            LogFilterAllBtn.StrokeThickness = 1;
+            LogFilterAllLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
+
+            LogFilterErrorsBtn.SetDynamicResource(Border.BackgroundColorProperty, "Danger");
+            LogFilterErrorsBtn.StrokeThickness = 0;
+            LogFilterErrorsIcon.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+            LogFilterErrorsLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+        }
+        else
+        {
+            LogFilterAllBtn.SetDynamicResource(Border.BackgroundColorProperty, "AccentLight");
+            LogFilterAllBtn.StrokeThickness = 0;
+            LogFilterAllLabel.SetDynamicResource(Label.TextColorProperty, "TextOnAccent");
+
+            LogFilterErrorsBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
+            LogFilterErrorsBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
+            LogFilterErrorsBtn.StrokeThickness = 1;
+            LogFilterErrorsIcon.SetDynamicResource(Label.TextColorProperty, "Danger");
+            LogFilterErrorsLabel.SetDynamicResource(Label.TextColorProperty, "TextSecondary");
+        }
+    }
+
+    private void OnLogSheetOverlayTapped(object? sender, TappedEventArgs e) => _ = HideLogSheetAsync();
+    private void OnLogSheetTapped(object? sender, TappedEventArgs e) { /* absorb tap */ }
+    private void OnLogSheetCloseTapped(object? sender, TappedEventArgs e) => _ = HideLogSheetAsync();
+
+    private void OnLogFilterAllTapped(object? sender, TappedEventArgs e)
+    {
+        if (!_logFilterErrorsOnly) return;
+        _logFilterErrorsOnly = false;
+        UpdateLogFilterButtonsUI();
+        UpdateLogContent(scrollToEnd: true);
+    }
+
+    private void OnLogFilterErrorsTapped(object? sender, TappedEventArgs e)
+    {
+        if (_logFilterErrorsOnly) return;
+        _logFilterErrorsOnly = true;
+        UpdateLogFilterButtonsUI();
+        UpdateLogContent(scrollToEnd: true);
+    }
+
+    private async void OnLogCopyTapped(object? sender, TappedEventArgs e)
+    {
+        if (_activeLogItem == null) return;
+        string textToCopy = LogContentLabel.Text ?? "";
+        if (!string.IsNullOrEmpty(textToCopy))
+        {
+            await Clipboard.Default.SetTextAsync(textToCopy);
+            LogStatsLabel.Text = "Copied to clipboard!";
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                MainThread.BeginInvokeOnMainThread(() => UpdateLogContent(false));
+            });
+        }
+    }
+
+    private async void OnLogScrollBottomTapped(object? sender, TappedEventArgs e)
+    {
+        await ScrollLogToBottomAsync(animated: true);
+    }
+
+    private async void OnOptionsSheetViewLogsTapped(object? sender, TappedEventArgs e)
+    {
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        if (item != null)
+        {
+            await ShowLogSheetAsync(item);
+        }
     }
 }
