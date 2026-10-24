@@ -12,8 +12,8 @@
 
     <!-- App identity -->
     <ApplicationId>com.seizue.shuka</ApplicationId>
-    <ApplicationVersion>101</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.11</ApplicationDisplayVersion>
+    <ApplicationVersion>102</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.12</ApplicationDisplayVersion>
 
     <!-- Android -->
     <SupportedOSPlatformVersion>21.0</SupportedOSPlatformVersion>
