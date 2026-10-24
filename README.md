@@ -12,14 +12,13 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 [![GitHub Downloads](https://img.shields.io/github/downloads/seizue/Shuka/total)](https://github.com/seizue/Shuka/releases)
 [![GitHub Release](https://img.shields.io/github/v/tag/seizue/Shuka)](https://github.com/seizue/Shuka/releases)
 [![GitHub License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-
 </div>
+
 
 
 ## Screenshot
   <img width="1366" alt="Shuka Screenshot"
-       src="https://github.com/user-attachments/assets/eafe4296-5cd6-4b55-bc5a-f2f8497086d5" />
+       src="https://github.com/user-attachments/assets/3bf719c9-ea3a-4be2-9d19-dd7108d57566" />
 
 
 ### Supported Sites
