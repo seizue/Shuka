@@ -60,16 +60,22 @@ public class ShukuAdapter : ISiteAdapter
         string fragment = TryExtractShukuArticleBody(html) ?? html;
 
         var result = new List<string>();
-        foreach (Match m in Regex.Matches(fragment, @"<p(?:\s[^>]*)?>([^<]*(?:<(?!/p>)[^<]*)*)</p>", RegexOptions.IgnoreCase))
+        foreach (Match m in Regex.Matches(fragment, @"<p(?:\s[^>]*)?>([\s\S]*?)</p>", RegexOptions.IgnoreCase))
         {
             string inner = m.Groups[1].Value;
+            inner = Regex.Replace(inner, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
             inner = Regex.Replace(inner, @"<[^>]+>", "");
             inner = WebUtility.HtmlDecode(inner);
-            inner = inner.Replace("\u3000", " ").Trim();
-            if (inner.Length == 0 || IsShukuNoiseLine(inner))
-                continue;
-            if (Regex.IsMatch(inner, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"))
-                result.Add(inner);
+            inner = Regex.Replace(inner, @"\u3000{2,}", "\n");
+
+            foreach (string rawLine in inner.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = rawLine.Replace("\u3000", " ").Trim();
+                if (line.Length == 0 || IsShukuNoiseLine(line))
+                    continue;
+                if (Regex.IsMatch(line, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"))
+                    result.Add(line);
+            }
         }
 
         return result;

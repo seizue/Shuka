@@ -99,18 +99,25 @@ public static class EpubBuilder
         WriteEntry(zip, "OEBPS/titlepage.xhtml", titlePageContent);
         items.Add(("titlepage", "titlepage.xhtml", "Title Page"));
 
+        WriteEntry(zip, "OEBPS/style.css",
+            "body{font-family:Georgia,serif;line-height:1.8;margin:2em;padding:0;}" +
+            "h2{text-align:center;margin:1.5em 0 1em 0;font-size:1.5em;}" +
+            "p{margin:0 0 0.5em 0 !important;margin-top:0 !important;margin-bottom:0.5em !important;text-indent:0 !important;line-height:1.8 !important;}");
+
         foreach (var (idx, chTitle, text) in chapters)
         {
             string id = $"ch{idx}", fname = $"ch{idx}.xhtml";
             items.Add((id, fname, chTitle));
-            var paras = text.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l))
-                            .Select(l => $"<p>{Escape(l.Trim())}</p>");
+            var paras = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None)
+                            .Where(l => !string.IsNullOrWhiteSpace(l))
+                            .Select(l => $"<p style=\"margin:0 0 0.5em 0;text-indent:0;line-height:1.8;\">{Escape(l.Trim())}</p>");
             WriteEntry(zip, $"OEBPS/{fname}",
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
                 "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">" +
                 "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head>" +
                 $"<title>{Escape(chTitle)}</title>" +
-                "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}p{margin:0.5em 0}</style>" +
+                "<link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/>" +
+                "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}p{margin:0 0 0.5em 0 !important;text-indent:0 !important;line-height:1.8 !important;}</style>" +
                 $"</head><body><h2>{Escape(chTitle)}</h2>" +
                 string.Join("", paras) + "</body></html>");
         }
@@ -122,6 +129,7 @@ public static class EpubBuilder
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
                 "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">" +
                 "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>Locked Chapters</title>" +
+                "<link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/>" +
                 "<style>" +
                 "body{font-family:Georgia,serif;text-align:center;margin:4em 2em;color:#333;}" +
                 ".lock-icon{font-size:3em;margin-bottom:0.5em;}" +
@@ -142,7 +150,8 @@ public static class EpubBuilder
         string lang = translate ? "en" : "zh";
 
         string coverItem = $"<item id=\"{coverItemId}\" href=\"{coverImgFname}\" media-type=\"{coverMimeAttr}\" properties=\"cover-image\"/>";
-        string mf = coverItem + string.Join("", items.Select(c => $"<item id=\"{c.Id}\" href=\"{c.Fname}\" media-type=\"application/xhtml+xml\"/>"));
+        string cssItem = "<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>";
+        string mf = coverItem + cssItem + string.Join("", items.Select(c => $"<item id=\"{c.Id}\" href=\"{c.Fname}\" media-type=\"application/xhtml+xml\"/>"));
         string sp = string.Join("", items.Select(c => $"<itemref idref=\"{c.Id}\"/>"));
         string np = string.Join("", items.Select((c, i) =>
             $"<navPoint id=\"n{i+1}\" playOrder=\"{i+1}\"><navLabel><text>{Escape(c.Label)}</text></navLabel><content src=\"{c.Fname}\"/></navPoint>"));

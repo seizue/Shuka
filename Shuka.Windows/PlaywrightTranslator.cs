@@ -359,7 +359,16 @@ internal sealed class PlaywrightTranslator : IAsyncDisposable
             string? r = await page.EvaluateAsync<string?>(
                 """
                 () => {
-                    // 1. Target translated spans (jsname="W297wb") in modern Google Translate
+                    // 1. First try output container with innerText (preserves block newlines in Chromium)
+                    const outputContainer =
+                        document.querySelector('[data-language-to-translate-into]') ||
+                        document.querySelector('div[jsname="wP4q4b"]');
+                    if (outputContainer) {
+                        const t = (outputContainer.innerText || '').trim();
+                        if (t.length > 0) return t;
+                    }
+
+                    // 2. Target translated spans (jsname="W297wb") in modern Google Translate
                     const wSpans = document.querySelectorAll('span[jsname="W297wb"]');
                     if (wSpans.length > 0) {
                         const parts = [];
@@ -367,29 +376,8 @@ internal sealed class PlaywrightTranslator : IAsyncDisposable
                             const t = (el.innerText || el.textContent || '').trim();
                             if (t) parts.push(t);
                         }
-                        const joined = parts.join(' ');
+                        const joined = parts.join('\n');
                         if (joined.length > 0) return joined;
-                    }
-
-                    // 2. Output spans with lang="en"
-                    const enSpans = document.querySelectorAll('span[lang="en"]');
-                    if (enSpans.length > 0) {
-                        const parts = [];
-                        for (const el of enSpans) {
-                            const t = (el.innerText || el.textContent || '').trim();
-                            if (t) parts.push(t);
-                        }
-                        const joined = parts.join(' ');
-                        if (joined.length > 0) return joined;
-                    }
-
-                    // 3. Fallback container text
-                    const outputContainer =
-                        document.querySelector('[data-language-to-translate-into]') ||
-                        document.querySelector('div[jsname="wP4q4b"]');
-                    if (outputContainer) {
-                        const t = (outputContainer.innerText || outputContainer.textContent || '').trim();
-                        if (t.length > 0) return t;
                     }
 
                     return null;

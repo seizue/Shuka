@@ -151,9 +151,40 @@ internal sealed class LocalLlamaTranslator : IDisposable
 
     // ── Inference ─────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Translates a chunk. When the chunk contains multiple lines (paragraphs),
+    /// each line is translated individually and re-joined with <c>\n</c> so that
+    /// the paragraph structure survives — the 0.5B model tends to merge all lines
+    /// into one continuous block otherwise, producing a single wall of text in the EPUB.
+    /// </summary>
     private async Task<string> TranslateChunkAsync(string chunk, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(chunk)) return chunk;
+
+        // Multi-line chunk: translate line-by-line to guarantee \n is preserved.
+        // The small Qwen model cannot reliably keep paragraph breaks when given
+        // a block of multi-line Chinese text.
+        var lines = chunk.Split('\n');
+        if (lines.Length > 1)
+        {
+            var translated = new string[lines.Length];
+            for (int i = 0; i < lines.Length; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                translated[i] = string.IsNullOrWhiteSpace(lines[i])
+                    ? lines[i]
+                    : await TranslateSingleLineAsync(lines[i], ct);
+            }
+            return string.Join("\n", translated);
+        }
+
+        return await TranslateSingleLineAsync(chunk, ct);
+    }
+
+    /// <summary>Runs a single LLaMA inference call for one paragraph / line.</summary>
+    private async Task<string> TranslateSingleLineAsync(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
 
         // Qwen2.5-Instruct ChatML prompt format
         string prompt =
@@ -162,7 +193,7 @@ internal sealed class LocalLlamaTranslator : IDisposable
             "natural, fluent English. Output ONLY the translation with no extra comments or notes.\n" +
             "<|im_end|>\n" +
             "<|im_start|>user\n" +
-            chunk + "\n" +
+            text + "\n" +
             "<|im_end|>\n" +
             "<|im_start|>assistant\n";
 
@@ -182,7 +213,7 @@ internal sealed class LocalLlamaTranslator : IDisposable
         string result = sb.ToString().Trim();
 
         // If model returned empty or repeated the source, keep original
-        return string.IsNullOrWhiteSpace(result) ? chunk : result;
+        return string.IsNullOrWhiteSpace(result) ? text : result;
     }
 
     public void Dispose()
