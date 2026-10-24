@@ -71,25 +71,71 @@ jobs:
           $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
           if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
 
-          $commits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges -- . ":(exclude)README.md" ":(exclude)README*.md"
-          if (-not $commits) {
-            $bullets = "- Initial release"
-          } else {
-            # Prefix each line with "- " and join with Unix newlines
-            $bullets = ($commits -split "`n" | ForEach-Object { "- $_" }) -join "`n"
+          $rawCommits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges -- . ":(exclude)README.md" ":(exclude)README*.md"
+
+          $features = [System.Collections.Generic.List[string]]::new()
+          $fixes    = [System.Collections.Generic.List[string]]::new()
+          $bumps    = [System.Collections.Generic.List[string]]::new()
+          $others   = [System.Collections.Generic.List[string]]::new()
+
+          if ($rawCommits) {
+            foreach ($line in ($rawCommits -split "`n")) {
+              $msg = $line.Trim()
+              if ([string]::IsNullOrWhiteSpace($msg)) { continue }
+
+              if ($msg -match '^(Bump\b|chore\(deps\)|bump\b|.*bump version)') {
+                $bumps.Add("- $msg")
+              } elseif ($msg -match '^feat(\(.*\))?:') {
+                $features.Add("- $msg")
+              } elseif ($msg -match '^fix(\(.*\))?:') {
+                $fixes.Add("- $msg")
+              } else {
+                $others.Add("- $msg")
+              }
+            }
           }
 
-          # Write with Unix line endings so GitHub renders bullets correctly
-          $content = $bullets
-          [IO.File]::WriteAllText("changelog.txt", $content + "`n")
-          echo "FILE=changelog.txt" >> $env:GITHUB_OUTPUT
+          $sections = [System.Collections.Generic.List[string]]::new()
+
+          if ($features.Count -gt 0) {
+            $sections.Add("### Features`n" + ($features -join "`n"))
+          }
+          if ($fixes.Count -gt 0) {
+            $sections.Add("### Bug Fixes`n" + ($fixes -join "`n"))
+          }
+          if ($others.Count -gt 0) {
+            $sections.Add("### Other Changes`n" + ($others -join "`n"))
+          }
+          if ($bumps.Count -gt 0) {
+            $sections.Add("<details><summary><b>Dependency & Version Bumps ($($bumps.Count))</b></summary>`n`n" + ($bumps -join "`n") + "`n`n</details>")
+          }
+
+          $changelog = if ($sections.Count -gt 0) { $sections -join "`n`n" } else { "- Initial release" }
+
+          $body = @"
+          ## Shuka ${{ github.ref_name }}
+
+          $changelog
+
+
+          | File | Platform |
+          |------|----------|
+          | ``Shuka-Windows-${{ github.ref_name }}.exe`` | Windows installer |
+          | ``Shuka-Windows-${{ github.ref_name }}.zip`` | Windows installer in ZIP |
+          | ``Shuka-Android-${{ github.ref_name }}.apk`` | Android direct install |
+          | ``Shuka-Android-${{ github.ref_name }}.zip`` | Android APK in ZIP |
+
+          "@
+
+          [IO.File]::WriteAllText("release_body.txt", $body + "`n")
+          echo "FILE=release_body.txt" >> $env:GITHUB_OUTPUT
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           name: Shuka ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          body_path: changelog.txt
+          body_path: release_body.txt
           make_latest: true
           files: |
             ${{ steps.rename_installer.outputs.INSTALLER_PATH }}
@@ -193,19 +239,51 @@ jobs:
           $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
           if (-not $prev) { $prev = git rev-list --max-parents=0 HEAD }
 
-          $commits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges -- . ":(exclude)README.md" ":(exclude)README*.md"
-          if (-not $commits) {
-            $bullets = "- Initial release"
-          } else {
-            # Prefix each line with "- " and join with Unix newlines
-            $bullets = ($commits -split "`n" | ForEach-Object { "- $_" }) -join "`n"
+          $rawCommits = git log "$prev..HEAD" --pretty=format:"%s (%h)" --no-merges -- . ":(exclude)README.md" ":(exclude)README*.md"
+
+          $features = [System.Collections.Generic.List[string]]::new()
+          $fixes    = [System.Collections.Generic.List[string]]::new()
+          $bumps    = [System.Collections.Generic.List[string]]::new()
+          $others   = [System.Collections.Generic.List[string]]::new()
+
+          if ($rawCommits) {
+            foreach ($line in ($rawCommits -split "`n")) {
+              $msg = $line.Trim()
+              if ([string]::IsNullOrWhiteSpace($msg)) { continue }
+
+              if ($msg -match '^(Bump\b|chore\(deps\)|bump\b|.*bump version)') {
+                $bumps.Add("- $msg")
+              } elseif ($msg -match '^feat(\(.*\))?:') {
+                $features.Add("- $msg")
+              } elseif ($msg -match '^fix(\(.*\))?:') {
+                $fixes.Add("- $msg")
+              } else {
+                $others.Add("- $msg")
+              }
+            }
           }
+
+          $sections = [System.Collections.Generic.List[string]]::new()
+
+          if ($features.Count -gt 0) {
+            $sections.Add("### Features`n" + ($features -join "`n"))
+          }
+          if ($fixes.Count -gt 0) {
+            $sections.Add("### Bug Fixes`n" + ($fixes -join "`n"))
+          }
+          if ($others.Count -gt 0) {
+            $sections.Add("### Other Changes`n" + ($others -join "`n"))
+          }
+          if ($bumps.Count -gt 0) {
+            $sections.Add("<details><summary><b>Dependency & Version Bumps ($($bumps.Count))</b></summary>`n`n" + ($bumps -join "`n") + "`n`n</details>")
+          }
+
+          $changelog = if ($sections.Count -gt 0) { $sections -join "`n`n" } else { "- Initial release" }
 
           $body = @"
           ## Shuka ${{ github.ref_name }}
 
-          ### What's changed
-          $bullets
+          $changelog
 
 
           | File | Platform |
