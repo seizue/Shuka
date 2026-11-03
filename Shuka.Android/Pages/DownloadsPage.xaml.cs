@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using Shuka.Android.Behaviors;
 using Shuka.Android.Platforms.Android;
@@ -986,7 +986,7 @@ public partial class DownloadsPage : ContentPage
             LogFilterAllBtn.SetDynamicResource(Border.BackgroundColorProperty, "BgInput");
             LogFilterAllBtn.SetDynamicResource(Border.StrokeProperty, "Stroke");
             LogFilterAllBtn.StrokeThickness = 1;
-            LogFilterAllLabel.TextColor = Color.FromRgba(255, 255, 255, 140); // dimmed white
+            LogFilterAllLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted"); // theme-aware muted text
 
             // "Errors Only" — active (Danger background)
             LogFilterErrorsBtn.SetDynamicResource(Border.BackgroundColorProperty, "Danger");
