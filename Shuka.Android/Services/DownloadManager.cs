@@ -688,6 +688,11 @@ public class DownloadManager
             var service = new BookService(new WebViewCloudflareBypass());
             var book = await service.GatherBookInfo(item.Url, item.Chapters, item.CoverUrl, Log, ct, item.ChapterFrom);
 
+            // GatherBookInfo does not translate title/author — seed them from the saved item
+            // so EpubBuilder.Build does not receive null TitleEn/AuthorEn (NullReferenceException).
+            book.TitleEn  ??= !string.IsNullOrWhiteSpace(item.Title)  ? item.Title  : book.Title;
+            book.AuthorEn ??= !string.IsNullOrWhiteSpace(item.Author) ? item.Author : book.Author;
+
             var saved = checkpointPath != null
                 ? await CheckpointService.LoadAsync(checkpointPath, book.Total)
                 : null;
