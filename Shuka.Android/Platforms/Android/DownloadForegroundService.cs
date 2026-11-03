@@ -9,6 +9,11 @@ namespace Shuka.Android.Platforms.Android;
 /// <summary>
 /// A foreground service that keeps the download task alive when the app is
 /// backgrounded or the screen turns off.
+/// Note: On WAKE_LOCK
+/// On Samsung/Xiaomi/OPPO/Vivo with aggressive battery optimizers, 
+/// Users may also need to go to Settings → Battery → Shuka → and set "No restrictions" or disable "Optimize battery usage". 
+/// This is a device-level restriction that no code change can override — it's standard guidance for long-running Android apps.
+        
 /// </summary>
 [Service(ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeDataSync)]
 public class DownloadForegroundService : Service
@@ -16,6 +21,11 @@ public class DownloadForegroundService : Service
     private const string ChannelId        = "shuka_download_channel";
     private const string DoneChannelId    = "shuka_done_channel";
     private const int    NotificationId   = 1001;
+
+    // PARTIAL_WAKE_LOCK prevents the CPU from deep-sleeping while the screen
+    // is off. Without it, Task timers and HttpClient connections freeze after
+    // ~5 minutes of background use on most Android OEMs.
+    private PowerManager.WakeLock? _wakeLock;
 
     // Track active notification state for live updates
     private static int    _currentTotal   = 0;
@@ -243,13 +253,21 @@ public class DownloadForegroundService : Service
             StartForeground(NotificationId, notification);
 #pragma warning restore CA1416
 
-        // NotSticky — don't restart the service if the app is killed.
-        // The service is started explicitly by DownloadManager when a download begins.
-        return StartCommandResult.NotSticky;
+        // AcquireWakeLock so the CPU stays alive while the screen is off.
+        // Without this, .NET Tasks and HttpClient connections freeze on most OEMs
+        // when another app is in the foreground for more than ~5 minutes.
+        AcquireWakeLock();
+
+        // RedeliverIntent — if the OS kills this service under memory pressure,
+        // Android will restart it and re-deliver the last intent so the download
+        // process can be resumed from the checkpoint. NotSticky would drop the
+        // download silently.
+        return StartCommandResult.RedeliverIntent;
     }
 
     public override void OnDestroy()
     {
+        ReleaseWakeLock();
 #pragma warning disable CA1416, CA1422
         if (Build.VERSION.SdkInt >= BuildVersionCodes.N)
             StopForeground(StopForegroundFlags.Remove);
@@ -259,6 +277,31 @@ public class DownloadForegroundService : Service
         base.OnDestroy();
     }
 
+    private void AcquireWakeLock()
+    {
+        try
+        {
+            if (_wakeLock?.IsHeld == true) return;
+            var pm = (PowerManager?)GetSystemService(PowerService);
+            _wakeLock = pm?.NewWakeLock(WakeLockFlags.Partial, "shuka:download_wakelock");
+            _wakeLock?.SetReferenceCounted(false);
+            _wakeLock?.Acquire(); // held until download stops or service is destroyed
+        }
+        catch { /* never crash on wake lock */ }
+    }
+
+    private void ReleaseWakeLock()
+    {
+        try
+        {
+            if (_wakeLock?.IsHeld == true)
+                _wakeLock.Release();
+            _wakeLock = null;
+        }
+        catch { }
+    }
+
+  
     private Notification BuildNotification()
     {
         var ctx = global::Android.App.Application.Context;
