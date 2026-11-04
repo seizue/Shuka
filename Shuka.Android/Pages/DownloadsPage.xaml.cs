@@ -413,9 +413,18 @@ public partial class DownloadsPage : ContentPage
 
         OptionsSheetDismissBtn.IsVisible = isCompleted || item.Status == DownloadStatus.Failed || item.Status == DownloadStatus.Cancelled;
 
-        OptionsSheetCancelBtn.IsVisible = item.Status != DownloadStatus.Completed;
+        // Cancel should only be visible for active, pending, or paused items — not already completed, failed, or cancelled
+        OptionsSheetCancelBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming or DownloadStatus.Paused;
         OptionsSheetPauseBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming;
-        OptionsSheetResumeBtn.IsVisible = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
+
+        bool isResumeOrRetry = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
+        OptionsSheetResumeBtn.IsVisible = isResumeOrRetry;
+        if (isResumeOrRetry)
+        {
+            bool isRetry = item.Status is DownloadStatus.Failed or DownloadStatus.Cancelled;
+            OptionsSheetResumeLabel.Text = isRetry ? "Retry Download" : "Resume Download";
+            OptionsSheetResumeIcon.Text = isRetry ? "" : ""; // Refresh icon for retry, play icon for resume
+        }
 
         OptionsSheetCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalTitle);
         OptionsSheetCopyAuthorBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalAuthor);
