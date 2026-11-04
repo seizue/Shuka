@@ -24,9 +24,11 @@ internal sealed class WindowsTranslator : IAsyncDisposable
     private          LocalLlamaTranslator? _localLlama;
     private          PlaywrightTranslator? _playwright;
 
-    // Google scraper rate limit tracking
+    // Google scraper rate limit & single-probe tracking
     private bool     _googleRateLimited;
     private DateTime _googleRateLimitReset = DateTime.MinValue;
+    private readonly object _rateLimitLock = new();
+    private bool     _isProbingGoogle;
 
     private static readonly Regex SignificantChineseRegex =
         new(@"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]{8,}", RegexOptions.Compiled);
@@ -40,19 +42,34 @@ internal sealed class WindowsTranslator : IAsyncDisposable
         _google   = googleFallback;
     }
 
-    public bool IsGoogleRateLimited =>
-        _googleRateLimited && DateTime.UtcNow < _googleRateLimitReset;
+    public bool IsGoogleRateLimited
+    {
+        get
+        {
+            lock (_rateLimitLock)
+            {
+                return _googleRateLimited && DateTime.UtcNow < _googleRateLimitReset;
+            }
+        }
+    }
 
     public void MarkGoogleRateLimited(TimeSpan? duration = null)
     {
-        _googleRateLimited = true;
-        _googleRateLimitReset = DateTime.UtcNow + (duration ?? TimeSpan.FromMinutes(20));
+        lock (_rateLimitLock)
+        {
+            _googleRateLimited = true;
+            _googleRateLimitReset = DateTime.UtcNow + (duration ?? TimeSpan.FromMinutes(20));
+        }
     }
 
     public void ClearGoogleRateLimit()
     {
-        _googleRateLimited = false;
-        _googleRateLimitReset = DateTime.MinValue;
+        lock (_rateLimitLock)
+        {
+            _googleRateLimited = false;
+            _googleRateLimitReset = DateTime.MinValue;
+            _isProbingGoogle = false;
+        }
     }
 
     public LocalLlamaTranslator LocalLlama  => _localLlama ??= new LocalLlamaTranslator();
@@ -79,14 +96,45 @@ internal sealed class WindowsTranslator : IAsyncDisposable
 
     private async Task<string> TranslateViaGoogleWithFallbacks(string text, Action<string>? log, CancellationToken ct)
     {
-        // 1. Try Google scraper if not currently flagged as rate-limited
-        if (!IsGoogleRateLimited)
+        // 1. Google Circuit Breaker & Single-Probe Recovery
+        bool canTryGoogle = false;
+        bool isProbe = false;
+
+        lock (_rateLimitLock)
         {
+            if (!_googleRateLimited)
+            {
+                canTryGoogle = true;
+            }
+            else if (DateTime.UtcNow >= _googleRateLimitReset)
+            {
+                // 20-min cooldown expired: elect 1 request as single probe
+                if (!_isProbingGoogle)
+                {
+                    _isProbingGoogle = true;
+                    isProbe = true;
+                    canTryGoogle = true;
+                }
+            }
+        }
+
+        if (canTryGoogle)
+        {
+            if (isProbe)
+            {
+                log?.Invoke("[Google cooldown expired — probing with 1 chunk to verify scraper recovery...]");
+            }
+
             try
             {
                 string res = await _google.Translate(text, log, ct);
                 if (!IsUntranslatedChinese(text, res))
                 {
+                    if (isProbe)
+                    {
+                        log?.Invoke("[Google scraper probe succeeded! Google Translate is primary again]");
+                        ClearGoogleRateLimit();
+                    }
                     return res;
                 }
 
@@ -100,10 +148,28 @@ internal sealed class WindowsTranslator : IAsyncDisposable
                 MarkGoogleRateLimited();
                 log?.Invoke($"[Google API failed: {ex.Message} — auto-falling back to Browser Translate]");
             }
+            finally
+            {
+                if (isProbe)
+                {
+                    lock (_rateLimitLock)
+                    {
+                        _isProbingGoogle = false;
+                        if (_googleRateLimited)
+                        {
+                            _googleRateLimitReset = DateTime.UtcNow + TimeSpan.FromMinutes(20);
+                            log?.Invoke("[Google scraper probe did not succeed — remaining on Browser Translate for another 20 minutes]");
+                        }
+                    }
+                }
+            }
         }
         else
         {
-            log?.Invoke("[Google API is rate-limited — routing to Browser Translate]");
+            TimeSpan rem;
+            lock (_rateLimitLock) { rem = _googleRateLimitReset - DateTime.UtcNow; }
+            int remMins = Math.Max(1, (int)Math.Ceiling(rem.TotalMinutes));
+            log?.Invoke($"[Google cooldown active ({remMins}m remaining) — routing directly to Browser Translate]");
         }
 
         // 2. Auto-fallback to Browser Translate (Playwright)

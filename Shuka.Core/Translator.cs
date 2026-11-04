@@ -19,10 +19,11 @@ public class Translator
     // 800 chars — comfortable chunk size
     private const int ChunkSize = 800;
 
-    // ── Cross-chapter rate-limit tracking ─────────────────────────────────────
+    // ── Cross-chapter rate-limit & Circuit Breaker tracking ───────────────────
     private static bool _googleRateLimited;
     private static DateTime _googleRateLimitReset = DateTime.MinValue;
     private static readonly object _rateLimitLock = new();
+    private static bool _isProbingGoogle = false;
 
     // ── Bing session caching ──────────────────────────────────────────────────
     private static string? _bingIg;
@@ -54,7 +55,7 @@ public class Translator
         lock (_rateLimitLock)
         {
             _googleRateLimited = true;
-            _googleRateLimitReset = DateTime.UtcNow + (duration ?? TimeSpan.FromMinutes(15));
+            _googleRateLimitReset = DateTime.UtcNow + (duration ?? TimeSpan.FromMinutes(20));
         }
     }
 
@@ -187,9 +188,36 @@ public class Translator
         if (string.IsNullOrWhiteSpace(chunk)) return chunk;
         if (!AnyChineseRegex.IsMatch(chunk)) return chunk;
 
-        // ── 1. Google GTX GET / POST API ─────────────────────────────────────
-        if (!IsGoogleRateLimited)
+        // ── 1. Google GTX Circuit Breaker & Single-Probe Recovery ────────────
+        bool canTryGoogle = false;
+        bool isProbe = false;
+
+        lock (_rateLimitLock)
         {
+            if (!_googleRateLimited)
+            {
+                canTryGoogle = true;
+            }
+            else if (DateTime.UtcNow >= _googleRateLimitReset)
+            {
+                // Cooldown period expired (20 mins).
+                // Use a single-probe pattern so we test Google with only 1 request rather than a burst of parallel chunks.
+                if (!_isProbingGoogle)
+                {
+                    _isProbingGoogle = true;
+                    isProbe = true;
+                    canTryGoogle = true;
+                }
+            }
+        }
+
+        if (canTryGoogle)
+        {
+            if (isProbe)
+            {
+                log?.Invoke("[Google 20-min cooldown expired — probing Google with 1 chunk to verify recovery...]");
+            }
+
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -202,10 +230,17 @@ public class Translator
                     if (result != null)
                     {
                         if (!IsUntranslatedChinese(chunk, result))
+                        {
+                            if (isProbe)
+                            {
+                                log?.Invoke("[Google recovery probe succeeded! Google Translate is primary again]");
+                                ClearGoogleRateLimit();
+                            }
                             return result;
+                        }
 
-                        log?.Invoke("[Google GTX returned untranslated text — flagged rate limit]");
-                        MarkGoogleRateLimited();
+                        log?.Invoke("[Google GTX returned untranslated text — rate limit active, switching to Bing (20m cooldown)]");
+                        MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
                         break;
                     }
                 }
@@ -220,16 +255,34 @@ public class Translator
                     log?.Invoke($"[Google GTX attempt {attempt}/2 failed: {ex.Message}]");
                     if (ex.Message.Contains("429") || ex.Message.Contains("rate limit") || ex.Message.Contains("HTML"))
                     {
-                        MarkGoogleRateLimited();
+                        log?.Invoke("[Google rate limit detected (429/blocked) — switching to Bing (20m cooldown)]");
+                        MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
                         break;
                     }
                     if (attempt < 2) await Task.Delay(400 * attempt, ct);
                 }
             }
+
+            if (isProbe)
+            {
+                lock (_rateLimitLock)
+                {
+                    _isProbingGoogle = false;
+                    // If probe failed or returned untranslated, re-extend cooldown for another 20 minutes
+                    if (_googleRateLimited)
+                    {
+                        _googleRateLimitReset = DateTime.UtcNow + TimeSpan.FromMinutes(20);
+                        log?.Invoke("[Google recovery probe did not succeed — remaining on Bing for another 20 minutes]");
+                    }
+                }
+            }
         }
         else
         {
-            log?.Invoke("[Google rate-limit active — using Bing/fallbacks with throttled concurrency]");
+            TimeSpan remaining = TimeSpan.Zero;
+            lock (_rateLimitLock) { remaining = _googleRateLimitReset - DateTime.UtcNow; }
+            int remMins = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+            log?.Invoke($"[Google cooldown active ({remMins}m remaining) — translating via Bing]");
         }
 
         // ── 2. Bing Translator (independent high-quality fallback) ───────────
