@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.RegularExpressions;
 
 namespace Shuka.Core.Adapters;
@@ -98,17 +98,20 @@ public class ShukuAdapter : ISiteAdapter
             @"([\s\S]*?)<div[^>]+class\s*=\s*[""'][^""']*\bpagination2\b",
             RegexOptions.IgnoreCase);
         if (cutPager.Success)
-            return cutPager.Groups[1].Value;
+            return EnsureTrailingClosingP(cutPager.Groups[1].Value);
 
         // Older/alternate templates: promo block after <hr>
         var cutPromo = Regex.Match(inner,
             @"([\s\S]*?)<hr\s*/?>\s*(?:<p[^>]*>)?\s*哦豁",
             RegexOptions.IgnoreCase);
         if (cutPromo.Success)
-            return cutPromo.Groups[1].Value;
+            return EnsureTrailingClosingP(cutPromo.Groups[1].Value);
 
         return inner;
     }
+
+    private static string EnsureTrailingClosingP(string text) =>
+        text.TrimEnd().EndsWith("</p>", StringComparison.OrdinalIgnoreCase) ? text : text + "</p>";
 
     private static bool IsShukuNoiseLine(string t)
     {
