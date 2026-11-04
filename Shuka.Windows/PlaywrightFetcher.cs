@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Shuka.Core;
@@ -180,7 +180,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
-            await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.Load, Timeout = 45000 });
+            await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60000 });
 
             // Wait for CF/bot challenges to clear
             var deadline = DateTime.UtcNow.AddSeconds(40);
@@ -217,7 +217,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
-            await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.Load, Timeout = 45000 });
+            await page.GotoAsync(url, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60000 });
 
             // Wait for CF/bot challenges to clear
             var deadline = DateTime.UtcNow.AddSeconds(40);
@@ -238,9 +238,20 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
             ct.ThrowIfCancellationRequested();
 
             string extracted = await WaitForNoveldexHydrationAsync(page, url, ct);
-            // For chapter pages we return the extracted content directly —
-            // avoids noscript blocks that ContentAsync includes verbatim.
-            if (!string.IsNullOrEmpty(extracted)) return extracted;
+
+            // For chapter pages: WaitForNoveldexHydrationAsync has already waited for
+            // the page to fully hydrate (RSC Flight payload is loaded). Return the full
+            // ContentAsync() so NoveldexAdapter.TryDecryptXorPayload can read the RSC
+            // Flight payload and get the complete, unscrambled chapter text.
+            //
+            // The old "synthetic extracted HTML" approach only captured DOM-visible
+            // paragraphs (~half the chapter on long chapters due to virtual windowing
+            // and DOM scrambling) and discarded the RSC payload with the full text.
+            //
+            // If WaitForNoveldexHydrationAsync returned a paywall sentinel, propagate it.
+            bool isChapterPage = url.Contains("/chapter/", StringComparison.OrdinalIgnoreCase);
+            if (isChapterPage && !string.IsNullOrEmpty(extracted) && NoveldexAdapter.IsNoveldexPaywalled(extracted))
+                return extracted; // paywall sentinel â€” keep short-circuit so caller skips
 
             return await page.ContentAsync();
         }
@@ -298,12 +309,12 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         {
             // Step 1: land on home
             await warmPage.GotoAsync("https://noveldex.io",
-                new() { WaitUntil = WaitUntilState.Load, Timeout = 30000 });
+                new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 45000 });
             await Task.Delay(1500);
 
             // Step 2: navigate to the series list (simulates browsing)
             await warmPage.GotoAsync("https://noveldex.io/series?type=Light+Novel%2CWeb+Novel%2CPublished+Novel%2COriginal+Fiction%2COne+Shot%2CFanfiction%2CNovel",
-                new() { WaitUntil = WaitUntilState.Load, Timeout = 30000 });
+                new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 45000 });
             await Task.Delay(2000);
         }
         catch { /* ignore warm-up failures */ }
@@ -398,9 +409,33 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 var paragraphs = await page.EvaluateAsync<string[]>(@"
                     () => {
                         const result = [];
-                        document.querySelectorAll('p').forEach(p => {
+                        let ps = document.querySelectorAll('section[data-chapter-number] p, [class*=""reader-content""] p, [class*=""chapter-content""] p');
+                        if (!ps || ps.length < 3) {
+                            ps = document.querySelectorAll('article p, .prose p, p');
+                        }
+                        ps.forEach(p => {
+                            if (p.closest('footer, header, nav, aside, [class*=""site-footer""], [data-composer-slot], [class*=""comment""], [class*=""reader-footer""], [class*=""reader-stats""]'))
+                                return;
                             const t = (p.innerText || '').trim();
-                            if (t.length > 10) result.push(t);
+                            if (t.length >= 3) {
+                                if (/^(?:JavaScript|Cookies|Privacy|Terms|Copyright|Unlock|Sign in|Please enable|Toggle Menu)/i.test(t) ||
+                                    /^(?:First chapter|Last chapter|Next chapter|Previous chapter)$/i.test(t) ||
+                                    /(?:NovelDex\s*[-–—]\s*Your Ultimate Destination For the Best Web Novels)/i.test(t) ||
+                                    /^(?:Made by Vine|Vine)$/i.test(t) ||
+                                    /(?:RSS Feed|Privacy Policy|Terms of Service|Content Takedown Policy|Refund Policy|About Us)/i.test(t) ||
+                                    /(?:All Rights Reserved|CULTURAL COMMUNICATION|Join the conversation|Sign in to leave a comment)/i.test(t) ||
+                                    /^(?:Home|Series|Collections|Community|Library|Coins Shop|Novels|Comics|Search series)/i.test(t) ||
+                                    /^\d{1,3}(?:,\d{3})*\s+words/i.test(t) ||
+                                    /^\d{1,3}(?:,\d{3})*\s+views/i.test(t) ||
+                                    /^Report\s+Issue/i.test(t) ||
+                                    /^Like\s+\d+/i.test(t) ||
+                                    /^\d+[\s\d,]*words[\s\d,]*views/i.test(t) ||
+                                    t.indexOf('permanent access') !== -1 ||
+                                    t.indexOf('Unlocking grants') !== -1 ||
+                                    t.indexOf('requestAnimationFrame') !== -1)
+                                    return;
+                                result.push(t);
+                            }
                         });
                         return result;
                     }");
@@ -744,7 +779,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         });
 
         var page = await ctx.NewPageAsync();
-        await page.GotoAsync(targetUrl, new() { WaitUntil = WaitUntilState.Load, Timeout = 60000 });
+        await page.GotoAsync(targetUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60000 });
 
         Console.Write("Waiting for page to load");
         var cts = new CancellationTokenSource();

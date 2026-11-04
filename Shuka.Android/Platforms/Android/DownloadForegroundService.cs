@@ -1,4 +1,4 @@
-using Android.App;
+﻿using Android.App;
 using Android.Content;
 using Android.OS;
 using AndroidX.Core.App;
@@ -11,9 +11,9 @@ namespace Shuka.Android.Platforms.Android;
 /// backgrounded or the screen turns off.
 /// Note: On WAKE_LOCK
 /// On Samsung/Xiaomi/OPPO/Vivo with aggressive battery optimizers, 
-/// Users may also need to go to Settings → Battery → Shuka → and set "No restrictions" or disable "Optimize battery usage". 
+/// Users may also need to go to Settings -&gt; Battery -&gt; Shuka and set "No restrictions" or disable "Optimize battery usage".
 /// This is a device-level restriction that no code change can override — it's standard guidance for long-running Android apps.
-        
+///
 /// </summary>
 [Service(ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeDataSync)]
 public class DownloadForegroundService : Service

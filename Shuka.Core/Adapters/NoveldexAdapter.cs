@@ -361,28 +361,59 @@ public class NoveldexAdapter : ISiteAdapter
         var result = new List<string>();
 
         // ── Paywall / locked-chapter detection ─────────────────────────────────
-        // noveldex.io locked chapters show "Unlock to continue reading — N coins"
+        // noveldex.io locked chapters show "Unlock to continue reading - N coins"
         // instead of actual content. Return empty so the caller skips this chapter
         // rather than saving coin-paywall boilerplate as chapter text.
-        if (IsNoveldexPaywalled(html)) return result; // empty — chapter is paywalled
+        if (IsNoveldexPaywalled(html)) return result; // empty - chapter is paywalled
+        // Priority 0: Native C# XOR decryption from RSC Flight payload
+        // Extracts the 100% complete chapter text (all paragraphs to the very last sentence)
+        // without depending on browser hydration/scrolling or IPC truncation.
+        var decrypted = TryDecryptXorPayload(html);
+        if (decrypted.Count > 0) return decrypted;
+
+        // If content was extracted directly into #shuka-extracted by Playwright/WebView,
+        // extract only those paragraphs to avoid any site navigation, header, or footer.
+        int shukaIdx = html.IndexOf("id=\"shuka-extracted\"", StringComparison.OrdinalIgnoreCase);
+        if (shukaIdx < 0)
+            shukaIdx = html.IndexOf("id='shuka-extracted'", StringComparison.OrdinalIgnoreCase);
+
+        if (shukaIdx >= 0)
+        {
+            int closeDiv = html.IndexOf("</div>", shukaIdx, StringComparison.OrdinalIgnoreCase);
+            string block = closeDiv > shukaIdx ? html[shukaIdx..closeDiv] : html[shukaIdx..];
+            foreach (Match pm in Regex.Matches(block, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
+            {
+                string text = System.Net.WebUtility.HtmlDecode(Regex.Replace(pm.Groups[1].Value, @"<[^>]+>", "").Trim());
+                if (text.Length >= 3 && !IsBoilerplateOrFooter(text))
+                    result.Add(text);
+            }
+            if (result.Count > 0) return result;
+        }
+
+        // Clean out header, footer, navigation, and sidebar containers so site boilerplate
+        // (e.g. RSS Feed, Privacy Policy, Terms of Service, About Us, Copyright, Comments)
+        // is never matched as story paragraphs.
+        string cleanHtml = html;
+        cleanHtml = Regex.Replace(cleanHtml, @"<header[\s\S]*?</header>", "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<footer[\s\S]*?</footer>", "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<nav[\s\S]*?</nav>",       "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<aside[\s\S]*?</aside>",   "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<noscript[\s\S]*?</noscript>", "", RegexOptions.IgnoreCase);
 
         // ── Strategy 1: Paragraph (<p>) tags from rendered DOM ─────────────────
-        foreach (Match pm in Regex.Matches(html, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
+        foreach (Match pm in Regex.Matches(cleanHtml, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
         {
             string raw = pm.Groups[1].Value;
             if (raw.Contains("<img", StringComparison.OrdinalIgnoreCase)) continue;
             string text = Regex.Replace(raw, @"<[^>]+>", "").Trim();
             text = System.Net.WebUtility.HtmlDecode(text);
-            if (text.Length >= 10 &&
-                !Regex.IsMatch(text, @"^(?:JavaScript|Cookies|Privacy|Terms|Copyright|Unlock|Sign in|Please enable)", RegexOptions.IgnoreCase) &&
-                !text.Contains("permanent access", StringComparison.OrdinalIgnoreCase) &&
-                !text.Contains("Unlocking grants",  StringComparison.OrdinalIgnoreCase))
+            if (text.Length >= 10 && !IsBoilerplateOrFooter(text))
                 result.Add(text);
         }
         if (result.Count > 0) return result;
 
         // ── Strategy 2: __NEXT_DATA__ JSON (reliable, present before hydration) ──
-        var nextDataM = Regex.Match(html,
+        var nextDataM = Regex.Match(cleanHtml,
             @"<script[^>]+id=[""']__NEXT_DATA__[""'][^>]*>\s*(\{[\s\S]*?\})\s*</script>",
             RegexOptions.IgnoreCase);
         if (nextDataM.Success)
@@ -392,18 +423,15 @@ public class NoveldexAdapter : ISiteAdapter
         }
 
         // ── Strategy 3: hydrated DOM fallback ─────────────────────────────────
-        if (html.Contains("JavaScript is required to view this content",
+        if (cleanHtml.Contains("JavaScript is required to view this content",
                 StringComparison.OrdinalIgnoreCase) &&
-            !html.Contains("</p>", StringComparison.OrdinalIgnoreCase))
+            !cleanHtml.Contains("</p>", StringComparison.OrdinalIgnoreCase))
         {
             return new List<string>();
         }
 
-        html = Regex.Replace(html, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
-        html = Regex.Replace(html, @"<style[\s\S]*?</style>",   "", RegexOptions.IgnoreCase);
-        html = Regex.Replace(html, @"<nav[\s\S]*?</nav>",       "", RegexOptions.IgnoreCase);
-        html = Regex.Replace(html, @"<header[\s\S]*?</header>", "", RegexOptions.IgnoreCase);
-        html = Regex.Replace(html, @"<footer[\s\S]*?</footer>", "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
+        cleanHtml = Regex.Replace(cleanHtml, @"<style[\s\S]*?</style>",   "", RegexOptions.IgnoreCase);
 
         string? content = null;
         foreach (string pattern in new[]
@@ -415,7 +443,7 @@ public class NoveldexAdapter : ISiteAdapter
             @"<div[^>]+id=[""']content[""'][^>]*>([\s\S]+?)</div>",
         })
         {
-            var m = Regex.Match(html, pattern, RegexOptions.IgnoreCase);
+            var m = Regex.Match(cleanHtml, pattern, RegexOptions.IgnoreCase);
             if (m.Success && m.Groups[1].Value.Length > 200)
             {
                 content = m.Groups[1].Value;
@@ -423,7 +451,7 @@ public class NoveldexAdapter : ISiteAdapter
             }
         }
 
-        content ??= html;
+        content ??= cleanHtml;
         content = Regex.Replace(content, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
         content = Regex.Replace(content, @"<p[^>]*>",  "\n", RegexOptions.IgnoreCase);
         content = Regex.Replace(content, @"<[^>]+>",   "");
@@ -433,7 +461,7 @@ public class NoveldexAdapter : ISiteAdapter
         foreach (string line in content.Split('\n'))
         {
             string trimmed = line.Trim();
-            if (trimmed.Length < 3) continue;
+            if (trimmed.Length < 3 || IsBoilerplateOrFooter(trimmed)) continue;
             if (Regex.IsMatch(trimmed, @"^(?:prev(?:ious)?|next|←|→|\d+\s*/\s*\d+)$", RegexOptions.IgnoreCase))
                 continue;
             lines.Add(trimmed);
@@ -441,11 +469,34 @@ public class NoveldexAdapter : ISiteAdapter
         return lines;
     }
 
-    /// <summary>
-    /// Extracts chapter text paragraphs from the Next.js <c>__NEXT_DATA__</c> JSON blob.
-    /// Walks the entire JSON looking for the longest string value that looks like
-    /// chapter content (HTML or plain text with multiple lines / long sentences).
-    /// </summary>
+    private static bool IsBoilerplateOrFooter(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return true;
+
+        if (Regex.IsMatch(text, @"^(?:JavaScript|Cookies|Privacy|Terms|Copyright|Unlock|Sign in|Please enable|Toggle Menu)", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^(?:Home|Series|Collections|Community|Library|Coins Shop|Novels|Comics|Search series)", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^(?:First chapter|Last chapter|Next chapter|Previous chapter)$", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"(?:NovelDex\s*[-–—]\s*Your Ultimate Destination For the Best Web Novels)", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^(?:Made by Vine|Vine)$", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"(?:RSS Feed|Privacy Policy|Terms of Service|Content Takedown Policy|Refund Policy|About Us)", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"(?:All Rights Reserved|CULTURAL COMMUNICATION|Join the conversation|Sign in to leave a comment)", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^\d{1,3}(?:,\d{3})*\s+words", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^\d{1,3}(?:,\d{3})*\s+views", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^Report\s+Issue", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^Like\s+\d+", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"^\d+[\s\d,]*words[\s\d,]*views", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"words.*views.*Report Issue", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(text, @"Report Issue.*First chapter", RegexOptions.IgnoreCase) ||
+            text.Contains("permanent access", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("Unlocking grants",  StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("requestAnimationFrame", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private static List<string> ExtractFromNextData(string json)
     {
         var result = new List<string>();
@@ -485,6 +536,109 @@ public class NoveldexAdapter : ISiteAdapter
             if (Regex.IsMatch(trimmed, @"^(?:prev(?:ious)?|next|←|→|\d+\s*/\s*\d+)$", RegexOptions.IgnoreCase))
                 continue;
             result.Add(trimmed);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Decrypts chapter text directly from the RSC Flight payload or HTML using
+    /// Noveldex client-side XOR decryption algorithm.
+    /// This gives 100% full, unabridged chapter content without any browser DOM truncations.
+    /// </summary>
+    private static List<string> TryDecryptXorPayload(string html)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(html)) return result;
+
+        try
+        {
+            // 1. Locate xorEncryption configuration JSON
+            const string searchKey = "xorEncryption";
+            int idx = html.IndexOf(searchKey, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return result;
+
+            int openBrace = html.IndexOf('{', idx);
+            if (openBrace < 0) return result;
+            int closeBrace = html.IndexOf('}', openBrace);
+            if (closeBrace < 0) return result;
+
+            string rawJson = html.Substring(openBrace, closeBrace - openBrace + 1).Replace("\\\"", "\"");
+            using var doc = System.Text.Json.JsonDocument.Parse(rawJson);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("encryptedBase64", out var encProp) ||
+                !root.TryGetProperty("partialKeyHint", out var hintProp) ||
+                !root.TryGetProperty("timestamp", out var timeProp) ||
+                !root.TryGetProperty("clientNonce", out var nonceProp))
+            {
+                return result;
+            }
+
+            string slotRef = encProp.GetString() ?? "";
+            string slot = slotRef.TrimStart('$');
+            string hint = hintProp.GetString() ?? "";
+            long timestamp = timeProp.GetInt64();
+            string nonce = nonceProp.GetString() ?? "";
+
+            if (string.IsNullOrEmpty(slot) || string.IsNullOrEmpty(hint)) return result;
+
+            // 2. Find the encrypted binary in RSC flight slot: `<slot>:T<hex_length>,<base64>`
+            string marker = slot + ":T";
+            int slotIdx = html.IndexOf(marker, StringComparison.Ordinal);
+            if (slotIdx < 0) return result;
+
+            int commaIdx = html.IndexOf(',', slotIdx);
+            if (commaIdx < 0) return result;
+
+            string hexLen = html.Substring(slotIdx + marker.Length, commaIdx - (slotIdx + marker.Length));
+            if (!int.TryParse(hexLen, System.Globalization.NumberStyles.HexNumber, null, out int len) || len <= 0)
+                return result;
+
+            if (commaIdx + 1 + len > html.Length) return result;
+            string base64Str = html.Substring(commaIdx + 1, len);
+
+            // 3. Key derivation (FNV-1a based):
+            string seed = $"{hint}|{timestamp}|{nonce}";
+            byte[] key = new byte[32];
+            uint h = 0x811c9dc5;
+            for (int i = 0; i < seed.Length; i++)
+            {
+                h ^= seed[i];
+                h = unchecked(h * 0x1000193);
+            }
+            for (int i = 0; i < 32; i++)
+            {
+                h ^= unchecked((uint)i * 0x9e3779b9);
+                h = unchecked(h * 0x1000193);
+                key[i] = unchecked((byte)(0xff & h));
+            }
+
+            // 4. XOR decryption
+            byte[] ciphertext = Convert.FromBase64String(base64Str);
+            byte[] plaintext = new byte[ciphertext.Length];
+            for (int i = 0; i < ciphertext.Length; i++)
+            {
+                plaintext[i] = unchecked((byte)(ciphertext[i] ^ key[i % 32]));
+            }
+
+            string decryptedHtml = System.Text.Encoding.UTF8.GetString(plaintext);
+            if (string.IsNullOrWhiteSpace(decryptedHtml)) return result;
+
+            // 5. Parse paragraphs from decrypted HTML
+            foreach (Match pm in Regex.Matches(decryptedHtml, @"<p[^>]*>([\s\S]+?)</p>", RegexOptions.IgnoreCase))
+            {
+                string text = System.Net.WebUtility.HtmlDecode(Regex.Replace(pm.Groups[1].Value, @"<[^>]+>", "").Trim());
+                if (text.Length >= 3 && !IsBoilerplateOrFooter(text))
+                {
+                    result.Add(text);
+                }
+            }
+        }
+        catch
+        {
+            // If XOR decryption encounters any unexpected structure, safely return empty
+            // to allow DOM/fallback strategies to proceed.
         }
 
         return result;

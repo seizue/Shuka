@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Shuka.Core;
 
 namespace Shuka.Android.Platform;
@@ -162,6 +162,11 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 await WaitForNoveldexChapterAsync(_persistentWebView, ct);
                 ct.ThrowIfCancellationRequested();
                 html = await GetPageHtmlAsync(_persistentWebView);
+                if (string.IsNullOrEmpty(html) || !html.Contains("xorEncryption"))
+                {
+                    string? noveldexHtml = await ExtractNoveldexChapterHtmlAsync(_persistentWebView);
+                    if (!string.IsNullOrEmpty(noveldexHtml)) html = noveldexHtml;
+                }
 
                 tcs.TrySetResult(html ?? "");
             }
@@ -278,6 +283,11 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     await WaitForNoveldexChapterAsync(webView, ct);
                     ct.ThrowIfCancellationRequested();
                     html = await GetPageHtmlAsync(webView);
+                    if (string.IsNullOrEmpty(html) || !html.Contains("xorEncryption"))
+                    {
+                        string? noveldexHtml = await ExtractNoveldexChapterHtmlAsync(webView);
+                        if (!string.IsNullOrEmpty(noveldexHtml)) html = noveldexHtml;
+                    }
                 }
 
                 // For noveldex.io series index pages, wait for series title and chapter list to hydrate
@@ -432,22 +442,33 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 return; // Locked chapter — exit poll immediately
             }
 
-            // Check if Next.js hydration completed (glitch-loader gone and story text present)
+            // Wait for actual story paragraphs from the XOR-decrypted content.
+            // Noveldex encrypts chapter text client-side; we poll until >=3 long paragraphs
+            // appear inside section[data-chapter-number] (post-React-hydration),
+            // not just any body text (which fires early from the unencrypted stats bar).
             string? js = await webView.EvaluateJavaScriptAsync(
                 "(function(){ " +
-                "  var loader = document.querySelector('.glitch-loader'); " +
+                "  var loader = document.querySelector('.glitch-loader, [class*=\"skeleton\"]'); " +
                 "  if (loader) return '0'; " +
-                "  var ps = document.querySelectorAll('p, .prose, article, [class*=\"chapter\"]'); " +
-                "  var len = 0; " +
-                "  for (var i = 0; i < ps.length; i++) { len += (ps[i].innerText || '').length; } " +
-                "  var bodyText = (document.body ? document.body.innerText : ''); " +
-                "  if (bodyText.indexOf('LOADING') !== -1 && len < 200) return '0'; " +
-                "  return Math.max(len, bodyText.length).toString(); " +
+                "  var count = 0; " +
+                "  var ps = document.querySelectorAll(" +
+                "    'section[data-chapter-number] p, " +
+                "     [class*=\"reader-content\"] p, " +
+                "     [class*=\"chapter-content\"] p, " +
+                "     article p, .prose p'" +
+                "  ); " +
+                "  for (var i = 0; i < ps.length; i++) { " +
+                "    var el = ps[i]; " +
+                "    if (el.closest('[class*=\"reader-footer\"], [class*=\"reader-stats\"], footer, [data-composer-slot], aside, nav')) continue; " +
+                "    var t = (el.innerText || '').trim(); " +
+                "    if (t.length > 60) count++; " +
+                "  } " +
+                "  return count.toString(); " +
                 "})()");
 
-            if (int.TryParse(js?.Trim('"'), out int textLen) && textLen > 200)
+            if (int.TryParse(js?.Trim('"'), out int paraCount) && paraCount >= 3)
             {
-                await Task.Delay(400, ct);
+                await Task.Delay(600, ct);
                 return;
             }
         }
@@ -575,6 +596,120 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     /// quotes, backslashes, and Unicode. We base64-encode in JS and decode in C#.
     /// Uses chunked extraction to handle large pages without timing out.
     /// </summary>
+    /// <summary>
+    /// Evaluates JS inside the WebView to extract only chapter paragraphs,
+    /// wrapping them into &lt;div id=&quot;shuka-extracted&quot;&gt; and completely omitting
+    /// page headers, navbars, and footers (RSS, comments, about us).
+    /// </summary>
+    private static async Task<string?> ExtractNoveldexChapterHtmlAsync(WebView webView)
+    {
+        try
+        {
+            // Step 1: execute extraction in JS and encode result to base64 in window.__shukaChapterB64
+            const string initJs = @"
+                (function() {
+                    try {
+                        var ps = document.querySelectorAll('section[data-chapter-number] p, [class*=""reader-content""] p, [class*=""chapter-content""] p');
+                        if (!ps || ps.length < 3) {
+                            ps = document.querySelectorAll('article p, .prose p, p');
+                        }
+                        var result = [];
+                        for (var i = 0; i < ps.length; i++) {
+                            var p = ps[i];
+                            // Exclude header, footer, nav, stats bar, and comment sections
+                            if (p.closest('footer, header, nav, aside, [class*=""site-footer""], [data-composer-slot], [class*=""comment""], [class*=""reader-footer""], [class*=""reader-stats""]'))
+                                continue;
+                            var t = (p.innerText || '').trim();
+                            if (t.length >= 3) {
+                                // Filter out boilerplate
+                                if (/^(?:JavaScript|Cookies|Privacy|Terms|Copyright|Unlock|Sign in|Please enable|Toggle Menu)/i.test(t) ||
+                                    /^(?:First chapter|Last chapter|Next chapter|Previous chapter)$/i.test(t) ||
+                                    /(?:NovelDex\s*[-–—]\s*Your Ultimate Destination For the Best Web Novels)/i.test(t) ||
+                                    /^(?:Made by Vine|Vine)$/i.test(t) ||
+                                    /(?:RSS Feed|Privacy Policy|Terms of Service|Content Takedown Policy|Refund Policy|About Us)/i.test(t) ||
+                                    /(?:All Rights Reserved|CULTURAL COMMUNICATION|Join the conversation|Sign in to leave a comment)/i.test(t) ||
+                                    /^(?:Home|Series|Collections|Community|Library|Coins Shop|Novels|Comics|Search series)/i.test(t) ||
+                                    /^\d{1,3}(?:,\d{3})*\s+words/i.test(t) ||
+                                    /^\d{1,3}(?:,\d{3})*\s+views/i.test(t) ||
+                                    /^Report\s+Issue/i.test(t) ||
+                                    /^Like\s+\d+/i.test(t) ||
+                                    /^\d+[\s\d,]*words[\s\d,]*views/i.test(t) ||
+                                    t.indexOf('permanent access') !== -1 ||
+                                    t.indexOf('Unlocking grants') !== -1 ||
+                                    t.indexOf('requestAnimationFrame') !== -1)
+                                    continue;
+                                result.push(t);
+                            }
+                        }
+                        if (result.length === 0) {
+                            window.__shukaChapterB64 = '';
+                            return '0';
+                        }
+                        var json = JSON.stringify(result);
+                        var enc = new TextEncoder();
+                        var u8 = enc.encode(json);
+                        var bin = '';
+                        var chunkSize = 1024;
+                        for (var i = 0; i < u8.length; i += chunkSize) {
+                            var chunk = u8.subarray(i, Math.min(i + chunkSize, u8.length));
+                            for (var j = 0; j < chunk.length; j++) {
+                                bin += String.fromCharCode(chunk[j]);
+                            }
+                        }
+                        window.__shukaChapterB64 = btoa(bin);
+                        return window.__shukaChapterB64.length.toString();
+                    } catch(e) {
+                        window.__shukaChapterB64 = '';
+                        return '0';
+                    }
+                })()";
+
+            string? lenStr = await webView.EvaluateJavaScriptAsync(initJs);
+            lenStr = lenStr?.Trim('"');
+            if (!int.TryParse(lenStr, out int totalLen) || totalLen == 0) return null;
+
+            // Step 2: read chunked base64
+            const int chunkSize = 50000;
+            var sbB64 = new System.Text.StringBuilder(totalLen);
+            int offset = 0;
+            while (offset < totalLen)
+            {
+                int end = Math.Min(offset + chunkSize, totalLen);
+                string chunkJs = $"window.__shukaChapterB64.substring({offset},{end})";
+                string? chunk = await webView.EvaluateJavaScriptAsync(chunkJs);
+                if (chunk == null) break;
+                chunk = chunk.Trim('"');
+                sbB64.Append(chunk);
+                offset = end;
+            }
+
+            // Step 3: clean up global
+            await webView.EvaluateJavaScriptAsync("delete window.__shukaChapterB64");
+
+            string b64 = sbB64.ToString();
+            if (string.IsNullOrEmpty(b64)) return null;
+
+            byte[] bytes = Convert.FromBase64String(b64);
+            string decodedJson = System.Text.Encoding.UTF8.GetString(bytes);
+
+            var paragraphs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(decodedJson);
+            if (paragraphs == null || paragraphs.Count == 0) return null;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("<html><body><div id=\"shuka-extracted\">");
+            foreach (var para in paragraphs)
+            {
+                string escaped = System.Security.SecurityElement.Escape(para);
+                sb.Append("<p>").Append(escaped).Append("</p>");
+            }
+            sb.Append("</div></body></html>");
+            return sb.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
     private static async Task<string?> GetPageHtmlAsync(WebView webView)
     {
         // Step 1: store the base64 in a JS global and get the total length safely
