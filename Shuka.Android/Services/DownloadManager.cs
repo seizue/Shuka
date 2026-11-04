@@ -744,8 +744,13 @@ public class DownloadManager
                     string finalName = SanitizeFileName(rawTitle);
                     if (string.IsNullOrWhiteSpace(finalName)) finalName = $"novel_{item.Id:N8}";
 
-                    string finalPath = await CopyToOutputAsync(tempPath, finalName, ct);
-                    item.EpubPath = finalPath;
+                    // Only copy to output if the EPUB was actually rebuilt (resolved > 0).
+                    // When resolved == 0 the temp file was never created by RetranslateFailedChaptersAsync.
+                    string finalPath = resolved > 0 && File.Exists(tempPath)
+                        ? await CopyToOutputAsync(tempPath, finalName, ct, overwrite: true)
+                        : item.EpubPath ?? "";
+                    if (!string.IsNullOrEmpty(finalPath))
+                        item.EpubPath = finalPath;
                     item.UntranslatedCount = remaining;
                     item.FailedChapters = new List<int>(service.LastTranslationFailures);
 
@@ -1236,7 +1241,7 @@ public class DownloadManager
     /// Returns the final file path (or content URI string on Android SAF).
     /// </summary>
     private static async Task<string> CopyToOutputAsync(
-        string sourcePath, string baseName, CancellationToken ct)
+        string sourcePath, string baseName, CancellationToken ct, bool overwrite = false)
     {
 #if ANDROID
         string treeUriStr = Preferences.Default.Get(PrefKeyDownloadTreeUri, "");
@@ -1250,20 +1255,38 @@ public class DownloadManager
 
                 string fileName = baseName + ".epub";
 
-                // Reuse an existing on-disk copy before creating a new SAF document.
-                foreach (string searchDir in Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
+                if (!overwrite)
                 {
-                    string fsPath = Path.Combine(searchDir, fileName);
-                    if (File.Exists(fsPath))
+                    // Reuse an existing on-disk copy before creating a new SAF document.
+                    foreach (string searchDir in Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[DownloadManager] EPUB already on disk — reusing: {fsPath}");
-                        try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
-                        return fsPath;
+                        string fsPath = Path.Combine(searchDir, fileName);
+                        if (File.Exists(fsPath))
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[DownloadManager] EPUB already on disk \u2014 reusing: {fsPath}");
+                            try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
+                            return fsPath;
+                        }
+                    }
+                }
+                else
+                {
+                    // Overwrite mode (retranslate): overwrite existing on-disk copy directly.
+                    foreach (string searchDir in Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
+                    {
+                        string fsPath = Path.Combine(searchDir, fileName);
+                        if (File.Exists(fsPath))
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[DownloadManager] Overwriting existing EPUB on disk: {fsPath}");
+                            File.Move(sourcePath, fsPath, overwrite: true);
+                            return fsPath;
+                        }
                     }
                 }
 
-                // Try to find existing file first — pass the original tree URI
+                // Try to find existing file first \u2014 pass the original tree URI
                 var docUri = FindFileInSafTree(cr, treeUri, fileName);
 
                 if (docUri == null)
@@ -1280,13 +1303,14 @@ public class DownloadManager
                 if (docUri == null)
                     throw new Exception("Could not create document in selected folder.");
 
-                // Stream the file into the SAF URI
+                // Stream the file into the SAF URI (mode "wt" truncates before writing)
                 await using var src  = File.OpenRead(sourcePath);
                 await using var dest = cr.OpenOutputStream(docUri, "wt")
                     ?? throw new Exception("Could not open output stream for SAF URI.");
 
                 await src.CopyToAsync(dest, ct);
 
+                try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
                 return docUri.ToString()!;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1295,37 +1319,56 @@ public class DownloadManager
             }
         }
 #endif
-        // Plain file copy — guard against creating a duplicate if the EPUB already
-        // exists at the destination (e.g. the earlier FindExistingEpub check missed
-        // it because of a transient SAF permission issue).
         string dir       = GetOutputDirectory();
         string finalPath = Path.Combine(dir, baseName + ".epub");
-        if (File.Exists(finalPath))
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"[DownloadManager] EPUB already exists at destination — discarding temp and reusing: {finalPath}");
-            try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
-            return finalPath;
-        }
 
-        // Also check default Shuka folder when output dir differs (e.g. custom path changed)
-        string defaultDir = GetDefaultOutputDirectory();
-        if (!string.Equals(dir, defaultDir, StringComparison.OrdinalIgnoreCase))
+        if (!overwrite)
         {
-            string defaultPath = Path.Combine(defaultDir, baseName + ".epub");
-            if (File.Exists(defaultPath))
+            // Guard against creating a duplicate if the EPUB already
+            // exists at the destination (e.g. the earlier FindExistingEpub check missed
+            // it because of a transient SAF permission issue).
+            if (File.Exists(finalPath))
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[DownloadManager] EPUB found in default folder — reusing: {defaultPath}");
+                    $"[DownloadManager] EPUB already exists at destination \u2014 discarding temp and reusing: {finalPath}");
                 try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
-                return defaultPath;
+                return finalPath;
+            }
+
+            // Also check default Shuka folder when output dir differs (e.g. custom path changed)
+            string defaultDir = GetDefaultOutputDirectory();
+            if (!string.Equals(dir, defaultDir, StringComparison.OrdinalIgnoreCase))
+            {
+                string defaultPath = Path.Combine(defaultDir, baseName + ".epub");
+                if (File.Exists(defaultPath))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager] EPUB found in default folder \u2014 reusing: {defaultPath}");
+                    try { if (File.Exists(sourcePath)) File.Delete(sourcePath); } catch { }
+                    return defaultPath;
+                }
+            }
+        }
+        else
+        {
+            // Overwrite mode (retranslate): also check the default Shuka folder.
+            string defaultDir2 = GetDefaultOutputDirectory();
+            if (!string.Equals(dir, defaultDir2, StringComparison.OrdinalIgnoreCase))
+            {
+                string defaultPath2 = Path.Combine(defaultDir2, baseName + ".epub");
+                if (File.Exists(defaultPath2))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DownloadManager] Overwriting EPUB in default folder: {defaultPath2}");
+                    File.Move(sourcePath, defaultPath2, overwrite: true);
+                    return defaultPath2;
+                }
             }
         }
 
         File.Move(sourcePath, finalPath, overwrite: true);
         return finalPath;
     }
-
     private static global::Android.Net.Uri? FindFileInSafTree(global::Android.Content.ContentResolver cr, global::Android.Net.Uri treeUri, string fileName)
     {
         try
