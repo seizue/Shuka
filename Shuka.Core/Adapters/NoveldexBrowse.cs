@@ -32,13 +32,19 @@ public class NoveldexBrowse : IBrowsableAdapter
     public string HomeUrl => $"https://noveldex.io/series?{AllTypes}&sort=recently-updated";
 
     public string GetRecentUrl(int page = 1) =>
-        $"https://noveldex.io/series?{AllTypes}&sort=recently-updated";
+        page <= 1
+            ? $"https://noveldex.io/series?{AllTypes}&sort=recently-updated"
+            : $"https://noveldex.io/series?{AllTypes}&sort=recently-updated&page={page}";
 
     public string GetPopularUrl(int page = 1) =>
-        $"https://noveldex.io/series?{AllTypes}&sort=most-bookmarked";
+        page <= 1
+            ? $"https://noveldex.io/series?{AllTypes}&sort=most-bookmarked"
+            : $"https://noveldex.io/series?{AllTypes}&sort=most-bookmarked&page={page}";
 
     public string GetSearchUrl(string query, int page = 1) =>
-        $"https://noveldex.io/series?{AllTypes}&q={Uri.EscapeDataString(query)}";
+        page <= 1
+            ? $"https://noveldex.io/series?{AllTypes}&q={Uri.EscapeDataString(query)}"
+            : $"https://noveldex.io/series?{AllTypes}&q={Uri.EscapeDataString(query)}&page={page}";
 
     public ListingPage ParseListing(string html, string pageUrl)
     {
@@ -183,7 +189,13 @@ public class NoveldexBrowse : IBrowsableAdapter
             novels.Add(new NovelEntry(title, null, url, cover, null, tags, chapterCount, chapterText));
         }
 
-        // noveldex uses infinite scroll — no meaningful next-page URL in the HTML
-        return new ListingPage(novels, false, 1);
+        int currentPage = 1;
+        var mPage = Regex.Match(pageUrl, @"[?&]page=(\d+)", RegexOptions.IgnoreCase);
+        if (mPage.Success && int.TryParse(mPage.Groups[1].Value, out int cp))
+            currentPage = cp;
+
+        // noveldex returns 24 novels per page. If 20 or more were parsed, there is likely a next page.
+        bool hasNext = novels.Count >= 20;
+        return new ListingPage(novels, hasNext, currentPage);
     }
 }

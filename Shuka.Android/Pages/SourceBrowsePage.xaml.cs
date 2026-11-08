@@ -109,6 +109,7 @@ public partial class SourceBrowsePage : ContentPage
         RefreshPills();
         RefreshViewToggle();
         RefreshTranslateToggle();
+        ListScroll.Scrolled += OnListScrolled;
         _ = LoadPageAsync(reset: true);
     }
 
@@ -1129,6 +1130,19 @@ public partial class SourceBrowsePage : ContentPage
         }
     }
 
+    private void OnListScrolled(object? sender, ScrolledEventArgs e)
+    {
+        if (_loading || !_hasMore) return;
+
+        // Auto-load next page when user scrolls near the bottom (within 400px)
+        double scrollBottom = e.ScrollY + ListScroll.Height;
+        double contentHeight = ListScroll.ContentSize.Height;
+        if (contentHeight > 0 && scrollBottom >= contentHeight - 400)
+        {
+            _ = LoadPageAsync(reset: false);
+        }
+    }
+
     private View BuildLoadMoreButton()
     {
         var lbl = new Label
@@ -1143,6 +1157,7 @@ public partial class SourceBrowsePage : ContentPage
 
         var btn = new Border
         {
+            AutomationId      = "LoadMoreBtn",
             StrokeThickness   = 1,
             StrokeShape       = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
             HeightRequest     = 44,
