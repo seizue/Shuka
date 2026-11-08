@@ -12,6 +12,7 @@ internal sealed class Downloader
     private readonly WindowsTranslator _translator;
     private readonly HttpClient        _http;
 
+    public PlaywrightFetcher Fetcher => _fetcher;
     public WindowsTranslator Translator => _translator;
 
     public Downloader(PlaywrightFetcher fetcher, WindowsTranslator translator, HttpClient http)

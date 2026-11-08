@@ -833,12 +833,38 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         };
     }
 
+    /// <summary>
+    /// Closes and disposes active browser contexts so that external/interactive
+    /// processes can access the browser-profile folder, and fresh cookies will be
+    /// picked up on the next fetch.
+    /// </summary>
+    public async Task ResetBrowserContextAsync()
+    {
+        if (_noveldexWarmPage is not null)
+        {
+            try { await _noveldexWarmPage.CloseAsync(); } catch { }
+            _noveldexWarmPage = null;
+        }
+        if (_noveldexContext is not null)
+        {
+            try { await _noveldexContext.CloseAsync(); } catch { }
+            _noveldexContext = null;
+        }
+        if (_context is not null)
+        {
+            try { await _context.CloseAsync(); } catch { }
+            _context = null;
+        }
+        if (_playwright is not null)
+        {
+            try { _playwright.Dispose(); } catch { }
+            _playwright = null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
-        if (_noveldexWarmPage is not null) try { await _noveldexWarmPage.CloseAsync(); } catch { }
-        if (_noveldexContext is not null) await _noveldexContext.CloseAsync();
-        if (_context is not null) await _context.CloseAsync();
-        _playwright?.Dispose();
+        await ResetBrowserContextAsync();
     }
 }
 

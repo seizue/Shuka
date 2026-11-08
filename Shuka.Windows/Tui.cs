@@ -50,7 +50,7 @@ internal static class Tui
                     await RunSampleAsync(downloader, defaultTranslate);
                     break;
                 case "Fix Cloudflare (--solve-cf)":
-                    await RunSolveCfAsync();
+                    await RunSolveCfAsync(downloader);
                     AnsiConsole.MarkupLine("\n[grey]Press any key to return to menu...[/]");
                     Console.ReadKey(intercept: true);
                     break;
@@ -422,7 +422,7 @@ internal static class Tui
 
     // ── Solve CF ──────────────────────────────────────────────────────────────
 
-    private static async Task RunSolveCfAsync()
+    private static async Task RunSolveCfAsync(Downloader? downloader = null)
     {
         AnsiConsole.Clear();
         RenderHeader();
@@ -440,6 +440,9 @@ internal static class Tui
 
         string url = AnsiConsole.Ask<string>("[cyan]Site URL[/] [dim](e.g. https://www.69shuba.com)[/]:").Trim();
         if (string.IsNullOrWhiteSpace(url)) return;
+
+        if (downloader != null)
+            await downloader.Fetcher.ResetBrowserContextAsync();
 
         await PlaywrightFetcher.SolveCfInteractiveAsync(url);
         AnsiConsole.MarkupLine("\n[green]✓ Cloudflare cookies saved. Downloads should now work.[/]");
@@ -800,17 +803,83 @@ internal static class Tui
 
                     if (cfFix.StartsWith("Open browser"))
                     {
+                        bool cfSolved = false;
                         try
                         {
                             AnsiConsole.MarkupLine($"\n  [dim]Opening browser... complete the challenge then press Enter here.[/]\n");
+                            await downloader.Fetcher.ResetBrowserContextAsync();
                             await PlaywrightFetcher.SolveCfInteractiveAsync(siteOrigin);
                             AnsiConsole.MarkupLine("\n  [green]✓ CF cookies saved![/]");
-                            AnsiConsole.MarkupLine("  [grey]Re-run your download — it should now bypass Cloudflare automatically.[/]");
+                            cfSolved = true;
                         }
                         catch (Exception solveEx)
                         {
                             AnsiConsole.MarkupLine($"\n  [red]✗ Browser failed: {Markup.Escape(solveEx.Message)}[/]");
                             AnsiConsole.MarkupLine("  [dim]Try using 'Fix Cloudflare (--solve-cf)' from the main menu instead.[/]");
+                        }
+
+                        if (cfSolved)
+                        {
+                            while (Console.KeyAvailable) Console.ReadKey(intercept: true);
+
+                            string cacheDir = Path.Combine(Path.GetTempPath(), "ShukaCache");
+                            int cfSavedCount = CheckpointService.CountSaved(
+                                CheckpointService.GetCheckpointPath(cacheDir, book.IndexUrl));
+
+                            var choices = new List<string> { "Resume download" };
+                            if (cfSavedCount > 0)
+                            {
+                                choices.Add($"Create EPUB from {cfSavedCount} downloaded chapter(s)");
+                            }
+                            choices.Add("Return to main menu");
+
+                            AnsiConsole.WriteLine();
+                            var resumeChoice = AnsiConsole.Prompt(
+                                new SelectionPrompt<string>()
+                                    .Title("[grey]Cloudflare challenge resolved. What would you like to do?[/]")
+                                    .HighlightStyle(new Style(Color.IndianRed1))
+                                    .AddChoices(choices));
+
+                            if (resumeChoice == "Resume download")
+                            {
+                                AnsiConsole.WriteLine();
+                                continue;
+                            }
+
+                            if (resumeChoice.StartsWith("Create EPUB"))
+                            {
+                                AnsiConsole.WriteLine();
+                                AnsiConsole.MarkupLine($"  [grey]Generating EPUB from {cfSavedCount} chapter(s)...[/]");
+                                try
+                                {
+                                    string? epubPath = await downloader.GenerateSampleEpubAsync(
+                                        book.IndexUrl, null, translate);
+
+                                    if (epubPath != null)
+                                        AnsiConsole.MarkupLine($"\n  [bold green]✓ EPUB created![/] [cyan]{Markup.Escape(epubPath)}[/]");
+                                    else
+                                        AnsiConsole.MarkupLine("\n  [red]No checkpoint data found — cannot export.[/]");
+                                }
+                                catch (Exception ex)
+                                {
+                                    AnsiConsole.MarkupLine($"\n  [bold red]✗ Export failed:[/] {Markup.Escape(ex.Message)}");
+                                }
+
+                                AnsiConsole.WriteLine();
+                                var afterExport = AnsiConsole.Prompt(
+                                    new SelectionPrompt<string>()
+                                        .Title("[grey]What would you like to do next?[/]")
+                                        .HighlightStyle(new Style(Color.IndianRed1))
+                                        .AddChoices("Resume download", "Return to main menu", "Quit"));
+
+                                if (afterExport == "Resume download")
+                                {
+                                    AnsiConsole.WriteLine();
+                                    continue;
+                                }
+
+                                return;
+                            }
                         }
                     }
                     else
