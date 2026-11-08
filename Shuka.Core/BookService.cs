@@ -446,13 +446,19 @@ public class BookService
                 {
                     if (fetchAttempt == 5)
                     {
-                        log?.Invoke($"[fetch failed ch{i + 1} after 5 attempts] {ex.Message}");
+                        if (Translator.IsConnectionAbortedByOs(ex))
+                            log?.Invoke($"[fetch failed ch{i + 1} after 5 attempts: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted']");
+                        else
+                            log?.Invoke($"[fetch failed ch{i + 1} after 5 attempts] {ex.Message}");
                         html = "";
                     }
                     else
                     {
                         int delaySec = Math.Min(fetchAttempt * 2, 10);
-                        log?.Invoke($"[fetch retry {fetchAttempt}/5 ch{i + 1}] {ex.Message} — waiting {delaySec}s");
+                        if (Translator.IsConnectionAbortedByOs(ex))
+                            log?.Invoke($"[fetch retry {fetchAttempt}/5 ch{i + 1}] Connection severed by OS background power saving — waiting {delaySec}s");
+                        else
+                            log?.Invoke($"[fetch retry {fetchAttempt}/5 ch{i + 1}] {ex.Message} — waiting {delaySec}s");
                         await Task.Delay(delaySec * 1000, ct);
                     }
                 }
@@ -535,7 +541,10 @@ public class BookService
                         {
                             if (transAttempt == maxAttempts)
                             {
-                                log?.Invoke($"[translate failed ch{i + 1} after {maxAttempts} attempts] {ex.Message} — keeping original");
+                                if (Translator.IsConnectionAbortedByOs(ex))
+                                    log?.Invoke($"[translate failed ch{i + 1}: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted'] — keeping original");
+                                else
+                                    log?.Invoke($"[translate failed ch{i + 1} after {maxAttempts} attempts] {ex.Message} — keeping original");
                                 chapterTitle      = ch.Title;
                                 text              = string.Join("\n", paras);
                                 translationFailed = true;

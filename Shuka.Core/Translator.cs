@@ -114,6 +114,31 @@ public class Translator
         return false;
     }
 
+    /// <summary>
+    /// Detects if an exception was caused by the OS terminating or aborting network sockets,
+    /// which happens on Android when switching apps or entering battery power save (ECONNABORTED).
+    /// </summary>
+    public static bool IsConnectionAbortedByOs(Exception ex)
+    {
+        for (Exception? cur = ex; cur != null; cur = cur.InnerException)
+        {
+            if (cur is System.Net.Sockets.SocketException se &&
+                (se.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionAborted ||
+                 se.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionReset ||
+                 se.NativeErrorCode == 103 || se.NativeErrorCode == 10053))
+            {
+                return true;
+            }
+            if (cur.Message.Contains("Software caused connection abort", StringComparison.OrdinalIgnoreCase) ||
+                cur.Message.Contains("connection abort", StringComparison.OrdinalIgnoreCase) ||
+                cur.Message.Contains("ECONNABORTED", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public Translator(HttpClient http)
     {
         _http = http;
@@ -252,7 +277,11 @@ public class Translator
                 }
                 catch (Exception ex)
                 {
-                    log?.Invoke($"[Google GTX attempt {attempt}/2 failed: {ex.Message}]");
+                    if (IsConnectionAbortedByOs(ex))
+                        log?.Invoke($"[Google failed: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted']");
+                    else
+                        log?.Invoke($"[Google GTX attempt {attempt}/2 failed: {ex.Message}]");
+
                     if (ex.Message.Contains("429") || ex.Message.Contains("rate limit") || ex.Message.Contains("HTML"))
                     {
                         log?.Invoke("[Google rate limit detected (429/blocked) — switching to Bing (20m cooldown)]");
@@ -307,7 +336,10 @@ public class Translator
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            log?.Invoke($"[Bing failed: {ex.Message}]");
+            if (IsConnectionAbortedByOs(ex))
+                log?.Invoke($"[Bing failed: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted' in phone settings]");
+            else
+                log?.Invoke($"[Bing failed: {ex.Message}]");
         }
 
         // ── 3. MyMemory API ───────────────────────────────────────────────────
@@ -323,7 +355,10 @@ public class Translator
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            log?.Invoke($"[MyMemory failed: {ex.Message}]");
+            if (IsConnectionAbortedByOs(ex))
+                log?.Invoke($"[MyMemory failed: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted']");
+            else
+                log?.Invoke($"[MyMemory failed: {ex.Message}]");
         }
 
         // ── 4. Google Mobile Web scraper ─────────────────────────────────────

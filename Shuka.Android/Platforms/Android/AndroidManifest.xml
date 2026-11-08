@@ -17,6 +17,7 @@
     <!-- WAKE_LOCK: required for PowerManager.WakeLock (PARTIAL_WAKE_LOCK) -->
     <!-- Prevents the CPU from deep-sleeping while downloading in the background. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Broad storage access on Android 11+ for custom paths -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />

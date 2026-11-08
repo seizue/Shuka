@@ -1,4 +1,4 @@
-﻿using Android.App;
+using Android.App;
 using Android.Content;
 using Android.OS;
 using AndroidX.Core.App;
@@ -26,6 +26,9 @@ public class DownloadForegroundService : Service
     // is off. Without it, Task timers and HttpClient connections freeze after
     // ~5 minutes of background use on most Android OEMs.
     private PowerManager.WakeLock? _wakeLock;
+    // WIFI_MODE_FULL_HIGH_PERF prevents the Wi-Fi radio from entering low-power
+    // sleep mode while downloads run in the background with other apps open.
+    private global::Android.Net.Wifi.WifiManager.WifiLock? _wifiLock;
 
     // Track active notification state for live updates
     private static int    _currentTotal   = 0;
@@ -257,6 +260,7 @@ public class DownloadForegroundService : Service
         // Without this, .NET Tasks and HttpClient connections freeze on most OEMs
         // when another app is in the foreground for more than ~5 minutes.
         AcquireWakeLock();
+        AcquireWifiLock();
 
         // RedeliverIntent — if the OS kills this service under memory pressure,
         // Android will restart it and re-deliver the last intent so the download
@@ -268,6 +272,7 @@ public class DownloadForegroundService : Service
     public override void OnDestroy()
     {
         ReleaseWakeLock();
+        ReleaseWifiLock();
 #pragma warning disable CA1416, CA1422
         if (Build.VERSION.SdkInt >= BuildVersionCodes.N)
             StopForeground(StopForegroundFlags.Remove);
@@ -297,6 +302,30 @@ public class DownloadForegroundService : Service
             if (_wakeLock?.IsHeld == true)
                 _wakeLock.Release();
             _wakeLock = null;
+        }
+        catch { }
+    }
+
+    private void AcquireWifiLock()
+    {
+        try
+        {
+            if (_wifiLock?.IsHeld == true) return;
+            var wm = (global::Android.Net.Wifi.WifiManager?)GetSystemService(WifiService);
+            _wifiLock = wm?.CreateWifiLock(global::Android.Net.WifiMode.FullHighPerf, "shuka:download_wifilock");
+            _wifiLock?.SetReferenceCounted(false);
+            _wifiLock?.Acquire(); // held until download stops or service is destroyed
+        }
+        catch { /* never crash on wifi lock */ }
+    }
+
+    private void ReleaseWifiLock()
+    {
+        try
+        {
+            if (_wifiLock?.IsHeld == true)
+                _wifiLock.Release();
+            _wifiLock = null;
         }
         catch { }
     }
