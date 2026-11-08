@@ -1125,6 +1125,10 @@ internal static class Tui
             "[cyan]shubaow.net[/]",
             "[dim]https://www.shubaow.net/book/1669.html[/]",
             "");
+        table.AddRow(
+            "[cyan]sto9.com[/]",
+            "[dim]https://sto9.com/book/17758.html[/]",
+            "");
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();

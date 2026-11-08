@@ -25,7 +25,7 @@ public class BookService
     public string? LastOutputPath { get; private set; }
 
     public static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter(), new Sto9Adapter()];
 
     /// <summary>English-only sources (noveldex.io) should never be translated during download.</summary>
     public static bool ShouldTranslate(string url, bool translate) =>
@@ -98,6 +98,27 @@ public class BookService
 
         string html = await _fetcher.Fetch(indexUrl, log: log, ct: ct, forceBypass: adapter.RequiresCfBypass);
         var info = adapter.ParseIndex(html, indexUrl);
+
+        // If the adapter specifies a separate full chapter list URL (e.g. Sto9Adapter loads
+        // chapters dynamically via an ajax endpoint), fetch it to get all chapters
+        if (!string.IsNullOrEmpty(info.ChapterListUrl))
+        {
+            try
+            {
+                log?.Invoke($"Fetching complete chapter list: {info.ChapterListUrl}");
+                string listHtml = await _fetcher.Fetch(info.ChapterListUrl, log: log, ct: ct,
+                    forceBypass: adapter.RequiresCfBypass);
+                var fullChapters = adapter.ParseChapterList(listHtml, info.ChapterListUrl);
+                if (fullChapters.Count > 0)
+                {
+                    info = info with { ChapterUrls = fullChapters };
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[Warning] Failed to fetch complete chapter list ({ex.Message}), using initial chapters.");
+            }
+        }
 
         // Apply from/to range
         // chapterFrom is 1-based (1 = first chapter); 0 means start from beginning

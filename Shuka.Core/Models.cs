@@ -14,11 +14,12 @@ public interface ISiteAdapter
     /// instead of waiting for 3 consecutive locked chapters.
     /// </summary>
     bool StopOnFirstLockedChapter => false;
+    List<ChapterRef> ParseChapterList(string html, string listUrl) => [];
 }
 
 // Parsed index result from an adapter
 public record IndexInfo(string Title, string Author, List<ChapterRef> ChapterUrls, string? CoverUrl,
-    string? CoverHintUrl = null);
+    string? CoverHintUrl = null, string? ChapterListUrl = null);
 
 // A chapter reference (URL + optional display title)
 public record ChapterRef(string Url, string Title);

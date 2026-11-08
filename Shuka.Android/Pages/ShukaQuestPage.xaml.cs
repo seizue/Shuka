@@ -74,6 +74,10 @@ public partial class ShukaQuestPage : ContentPage
         // shubaow.net: /book/{numericId}.html or /{category}/{numericId}/
         ["shubaow.net"] = url => System.Text.RegularExpressions.Regex.IsMatch(
             url, @"shubaow\.net/(?:book/\d+\.html|\d+/\d+/?)(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+
+        // sto9.com: /book/{numericId}.html or /book/{numericId}/index.html
+        ["sto9.com"] = url => System.Text.RegularExpressions.Regex.IsMatch(
+            url, @"sto9\.com/book/\d+(?:\.html|/index\.html)/?(?:[?#]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
     };
 
     /// <summary>Returns true if the URL is a valid novel index page for its site.</summary>
@@ -2498,6 +2502,8 @@ public partial class ShukaQuestPage : ContentPage
         ["52shuku.net"] = "e.g. https://www.52shuku.net/xiandaidushi/08_b/bkdKE.html",
         ["situu.cc"] = "e.g. https://www.situu.cc/5_5792/",
         ["yamibo.com"] = "e.g. https://www.yamibo.com/novel/267137",
+        ["shubaow.net"] = "e.g. https://www.shubaow.net/book/12345.html",
+        ["sto9.com"] = "e.g. https://sto9.com/book/17758.html",
     };
 
     // Static counter to ensure unique instances

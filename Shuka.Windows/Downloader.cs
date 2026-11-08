@@ -47,6 +47,24 @@ internal sealed class Downloader
         string html = await _fetcher.FetchAsync(indexUrl);
         var info    = adapter.ParseIndex(html, indexUrl);
 
+        if (!string.IsNullOrEmpty(info.ChapterListUrl))
+        {
+            try
+            {
+                Console.WriteLine($"  Fetching complete chapter list: {info.ChapterListUrl}");
+                string listHtml = await _fetcher.FetchAsync(info.ChapterListUrl);
+                var fullChapters = adapter.ParseChapterList(listHtml, info.ChapterListUrl);
+                if (fullChapters.Count > 0)
+                {
+                    info = info with { ChapterUrls = fullChapters };
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  [Warning] Failed to fetch complete chapter list ({ex.Message}), using initial chapters.");
+            }
+        }
+
         int from = chapterFrom > 0 ? chapterFrom - 1 : 0;
         var rangedUrls = chapterLimit > 0
             ? info.ChapterUrls.Skip(from).Take(chapterLimit).ToList()
@@ -660,11 +678,12 @@ internal sealed class Downloader
             new Shuka.Core.Adapters.ZhenhunAdapter(),
             new Shuka.Core.Adapters.NoveldexAdapter(),
             new Shuka.Core.Adapters.ShubaowAdapter(),
+            new Shuka.Core.Adapters.Sto9Adapter(),
         ];
         return adapters.FirstOrDefault(a => a.Matches(url))
             ?? throw new Exception(
                 $"No supported adapter for URL: {url}\n" +
-                "Supported sites: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net");
+                "Supported sites: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net, sto9.com");
     }
 
     private static string? TryExtractCover(string html, string baseUrl)

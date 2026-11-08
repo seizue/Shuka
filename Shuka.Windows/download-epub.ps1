@@ -1,5 +1,5 @@
 # Shuka EPUB Downloader
-# Supported sites: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net
+# Supported sites: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net, sto9.com
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 

@@ -21,6 +21,7 @@ public class DiscoverService
         new YamiboBrowse(),
         new NoveldexBrowse(),  // English web novels — JS-rendered, uses WebView
         new ShubaowBrowse(),
+        new Sto9Browse(),
     ];
 
     public DiscoverService(ICloudflareBypass? cfBypass = null)
@@ -213,6 +214,16 @@ public class DiscoverService
             string normalized = adapter.NormalizeUrl(indexUrl);
             string html = await _fetcher.Fetch(normalized, ct: ct, forceBypass: adapter.RequiresCfBypass);
             var info = adapter.ParseIndex(html, normalized);
+            if (!string.IsNullOrEmpty(info.ChapterListUrl))
+            {
+                try
+                {
+                    string listHtml = await _fetcher.Fetch(info.ChapterListUrl, ct: ct, forceBypass: adapter.RequiresCfBypass);
+                    var full = adapter.ParseChapterList(listHtml, info.ChapterListUrl);
+                    if (full.Count > 0) return full.Count;
+                }
+                catch { }
+            }
             return info.ChapterUrls.Count;
         }
         catch { return 0; }
