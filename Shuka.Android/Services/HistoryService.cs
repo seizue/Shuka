@@ -422,12 +422,19 @@ public class HistoryService
         try
         {
             string fetchUrl = NoveldexAdapter.NormalizeCoverUrl(url) ?? url;
-            string ext  = Path.GetExtension(new Uri(fetchUrl).AbsolutePath).ToLowerInvariant();
-            if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".jpg";
             Directory.CreateDirectory(CoversDir);
-            string path = Path.Combine(CoversDir, $"{id:N}{ext}");
 
-            if (File.Exists(path)) return path;
+            // Do NOT use the URL path extension for cover file naming — CDN script URLs
+            // like jjwxc.net's authorimagespace.php return a JPEG despite having a .php
+            // extension, and Android's ImageSource can't load a .php file.
+            // We download first, detect the real MIME from magic bytes, then save with
+            // the correct extension.  An existing cached file with the right extension
+            // is returned immediately (avoid re-downloading on every history AddAsync).
+            foreach (string candidate in new[] { $"{id:N}.jpg", $"{id:N}.jpeg", $"{id:N}.png", $"{id:N}.gif", $"{id:N}.webp" })
+            {
+                string candidatePath = Path.Combine(CoversDir, candidate);
+                if (File.Exists(candidatePath)) return candidatePath;
+            }
 
             using var req = new HttpRequestMessage(HttpMethod.Get, fetchUrl);
             string? referer = NoveldexAdapter.GetCoverReferer(fetchUrl);
@@ -439,6 +446,18 @@ public class HistoryService
             using var resp = await _http.SendAsync(req);
             resp.EnsureSuccessStatusCode();
             byte[] bytes = await resp.Content.ReadAsByteArrayAsync();
+
+            // Determine real extension from magic bytes, not URL
+            string ext = ".jpg";
+            if (bytes.Length >= 4)
+            {
+                if      (bytes[0] == 0x89 && bytes[1] == 0x50) ext = ".png";
+                else if (bytes[0] == 0x47 && bytes[1] == 0x49) ext = ".gif";
+                else if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46) ext = ".webp";
+                // 0xFF 0xD8 → JPEG → ".jpg" (default)
+            }
+
+            string path = Path.Combine(CoversDir, $"{id:N}{ext}");
             await File.WriteAllBytesAsync(path, bytes);
             return path;
         }

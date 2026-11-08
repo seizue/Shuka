@@ -11,6 +11,7 @@ public class BookService
 {
     private readonly HttpFetcher _fetcher;
     private readonly HttpClient _gtClient;
+    private readonly HttpClient _coverClient; // dedicated, isolated from the translator's client
     private readonly Translator _translator;
 
     /// <summary>Chapter numbers (1-based) that could not be translated due to rate limits or network errors.</summary>
@@ -67,6 +68,20 @@ public class BookService
         _gtClient.DefaultRequestHeaders.Add("User-Agent",
             "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
         _gtClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7");
+
+        // Separate HttpClient for cover downloads so translator traffic on _gtClient
+        // (concurrent Google/Bing requests with their own per-request CTSes) can never
+        // interfere with the cover fetch or cause its linked token to misbehave.
+        var ch = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5
+        };
+        _coverClient = new HttpClient(ch) { Timeout = TimeSpan.FromSeconds(60) };
+        _coverClient.DefaultRequestHeaders.Add("User-Agent",
+            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+        _coverClient.DefaultRequestHeaders.Add("Accept", "image/*,*/*;q=0.8");
 
         _translator = new Translator(_gtClient);
     }
@@ -552,54 +567,76 @@ public class BookService
     {
         if (string.IsNullOrWhiteSpace(coverUrl)) return (null, "image/jpeg");
         log?.Invoke("Downloading cover...");
+
+        // Strip Next.js image optimization parameters to get original quality
+        string cleanUrl = NoveldexAdapter.NormalizeCoverUrl(coverUrl) ?? coverUrl;
+
+        // Build Referer once — derived from the cover host so CDN hotlink checks pass.
+        // jjwxc.net static servers block when Referer is an unrelated site (403),
+        // but accept their own host or no Referer. media.noveldex.io requires noveldex.io/.
+        string? referer = null;
         try
         {
-            // 30-second hard cap per attempt so a stalled CDN (e.g. jjwxc.net) can't
-            // freeze the entire download pipeline. Also linked to the user's ct so
-            // pausing/cancelling during the cover fetch works immediately.
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(30));
+            referer = NoveldexAdapter.GetCoverReferer(cleanUrl)
+                ?? $"{new Uri(cleanUrl).Scheme}://{new Uri(cleanUrl).Host}/";
+        }
+        catch { /* malformed URL — skip Referer */ }
 
-            // Strip Next.js image optimization parameters to get original quality
-            string cleanUrl = NoveldexAdapter.NormalizeCoverUrl(coverUrl) ?? coverUrl;
-
-            using var req = new HttpRequestMessage(HttpMethod.Get, cleanUrl);
-            // Add a Referer derived from the cover URL's host so CDNs that check it
-            // (e.g. jjwxc.net static servers) don't block or stall the request.
-            // media.noveldex.io requires Referer: https://noveldex.io/
+        // Use _coverClient (isolated from the translator's _gtClient) so concurrent
+        // Google/Bing translation requests and their own per-request CTSes cannot
+        // interfere with the cover fetch or cause its linked token to be cancelled.
+        // Up to 3 attempts — covers transient CDN hiccups on long (140+ chapter) runs.
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
             try
             {
-                string referer = NoveldexAdapter.GetCoverReferer(cleanUrl)
-                    ?? $"{new Uri(cleanUrl).Scheme}://{new Uri(cleanUrl).Host}/";
-                req.Headers.Add("Referer", referer);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                using var req = new HttpRequestMessage(HttpMethod.Get, cleanUrl);
+                if (referer != null)
+                {
+                    try { req.Headers.Add("Referer", referer); } catch { }
+                }
+
+                using var resp = await _coverClient.SendAsync(req, cts.Token);
+                resp.EnsureSuccessStatusCode();
+                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+
+                // Detect MIME from magic bytes — do not trust URL extension for PHP/CDN
+                // script URLs (e.g. authorimagespace.php returns a JPEG despite .php ext).
+                string mime = "image/jpeg";
+                if (bytes.Length >= 4)
+                {
+                    if      (bytes[0] == 0x89 && bytes[1] == 0x50) mime = "image/png";
+                    else if (bytes[0] == 0xFF && bytes[1] == 0xD8) mime = "image/jpeg";
+                    else if (bytes[0] == 0x47 && bytes[1] == 0x49) mime = "image/gif";
+                    else if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46) mime = "image/webp"; // RIFF
+                    else if (bytes.Length >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) mime = "image/avif";
+                }
+
+                if (attempt > 1) log?.Invoke($"Cover OK on attempt {attempt} ({bytes.Length / 1024}KB, {mime})");
+                else log?.Invoke($"Cover OK ({bytes.Length / 1024}KB, {mime})");
+                return (bytes, mime);
             }
-            catch { /* malformed URL — skip Referer */ }
-
-            using var resp = await _gtClient.SendAsync(req, cts.Token);
-            resp.EnsureSuccessStatusCode();
-            byte[] bytes = await resp.Content.ReadAsByteArrayAsync(cts.Token);
-
-            string ext = Path.GetExtension(new Uri(coverUrl).AbsolutePath).ToLowerInvariant();
-            string mime = ext switch { ".png" => "image/png", ".gif" => "image/gif", ".webp" => "image/webp", ".avif" => "image/avif", _ => "image/jpeg" };
-            if (bytes.Length >= 4)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                if (bytes[0] == 0x89 && bytes[1] == 0x50) mime = "image/png";
-                else if (bytes[0] == 0xFF && bytes[1] == 0xD8) mime = "image/jpeg";
-                else if (bytes[0] == 0x47 && bytes[1] == 0x49) mime = "image/gif";
-                else if (bytes.Length >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) mime = "image/avif"; // ftyp
+                throw; // user cancelled — propagate
             }
-            log?.Invoke($"Cover OK ({bytes.Length / 1024}KB, {mime})");
-            return (bytes, mime);
+            catch (Exception ex) when (attempt < 3)
+            {
+                log?.Invoke($"[Cover attempt {attempt}/3 failed: {ex.Message} — retrying...]");
+                await Task.Delay(1500 * attempt, ct);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"Cover failed after 3 attempts: {ex.Message} (using generated cover)");
+                return (null, "image/jpeg");
+            }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw; // user cancelled — propagate
-        }
-        catch (Exception ex)
-        {
-            log?.Invoke($"Cover failed: {ex.Message} (using generated cover)");
-            return (null, "image/jpeg");
-        }
+
+        return (null, "image/jpeg"); // unreachable but satisfies compiler
     }
 
     private static ISiteAdapter DetectAdapter(string url) =>
