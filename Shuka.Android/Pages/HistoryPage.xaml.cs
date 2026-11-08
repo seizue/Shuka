@@ -59,6 +59,10 @@ public partial class HistoryPage : ContentPage
         MainActivity.Instance?.SetTabBarVisible(true);
         TabTransition.Prepare(RootGrid, myTabIndex: 2);
         await TabTransition.SlideInAsync(RootGrid);
+
+        // Refresh history cards to ensure newly completed or redownloaded novels appear immediately
+        _cards.Clear();
+        await LoadInitialBatch();
     }
 
     private async Task AnimateIn()

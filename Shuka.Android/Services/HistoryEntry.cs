@@ -14,7 +14,7 @@ public class HistoryEntry
     public string?  CoverLocalPath { get; set; }  // cached local image path
     public string?  CoverUrl       { get; init; } // original remote URL
     public int      ChapterCount   { get; set; }
-    public DateTime CompletedAt    { get; init; } = DateTime.Now;
+    public DateTime CompletedAt    { get; set; }  = DateTime.Now;
 
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsFileAvailable { get; set; }

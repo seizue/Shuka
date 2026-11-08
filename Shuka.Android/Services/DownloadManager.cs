@@ -781,6 +781,9 @@ public class DownloadManager
 #endif
 
                     Log($"Retranslation complete: {resolved} resolved, {remaining} remaining.");
+
+                    // Keep persistent history entry updated with latest EPUB and completion state
+                    await HistoryService.Instance.AddAsync(item);
                     return;
                 }
             }

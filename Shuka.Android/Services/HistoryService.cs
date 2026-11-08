@@ -89,14 +89,49 @@ public class HistoryService
 
         if (existing != null)
         {
-            // Update in-place: refresh the path and timestamp, but keep cover/id
+            // Update existing entry with latest details, path, and completion timestamp
             System.Diagnostics.Debug.WriteLine(
                 $"[HistoryService] Updating existing entry for '{existing.Title}' (path: {item.EpubPath})");
 
-            bool pathChanged = existing.EpubPath != item.EpubPath;
+            existing.Title           = !string.IsNullOrWhiteSpace(item.Title) ? item.Title : existing.Title;
+            existing.Author          = !string.IsNullOrWhiteSpace(item.Author) ? item.Author : existing.Author;
             existing.EpubPath        = item.EpubPath;
+            existing.ChapterCount    = item.TotalChapters > 0 ? item.TotalChapters : (item.Chapters > 0 ? item.Chapters : existing.ChapterCount);
+            existing.CompletedAt     = DateTime.Now;
             existing.IsFileAvailable = IsEpubAccessible(existing.EpubPath);
-            // Note: CompletedAt is init-only — we intentionally keep the original date.
+
+            // Re-check or update cover if remote cover became available
+            if (string.IsNullOrWhiteSpace(existing.CoverLocalPath) || !File.Exists(existing.CoverLocalPath))
+            {
+                string? coverToUse = !string.IsNullOrWhiteSpace(item.CoverUrl) ? item.CoverUrl : existing.CoverUrl;
+                if (!string.IsNullOrWhiteSpace(coverToUse))
+                    existing.CoverLocalPath = await CacheCoverAsync(existing.Id, coverToUse);
+
+                if (string.IsNullOrWhiteSpace(existing.CoverLocalPath) || !File.Exists(existing.CoverLocalPath))
+                    existing.CoverLocalPath = TryExtractCoverFromEpub(existing.EpubPath, existing.Id);
+
+                existing.IsCoverAvailable = !string.IsNullOrWhiteSpace(existing.CoverLocalPath) && File.Exists(existing.CoverLocalPath);
+            }
+
+            // Move updated entry to the front of the list so it appears first in history
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                int currentIndex = Entries.IndexOf(existing);
+                if (currentIndex > 0)
+                {
+                    Entries.Move(currentIndex, 0);
+                }
+                else if (currentIndex < 0)
+                {
+                    Entries.Insert(0, existing);
+                }
+                else
+                {
+                    // Item was already at index 0, but trigger a collection reset or re-sort so UI refreshes cards
+                    Entries.RemoveAt(0);
+                    Entries.Insert(0, existing);
+                }
+            });
 
             await SaveAsync();
             return;
