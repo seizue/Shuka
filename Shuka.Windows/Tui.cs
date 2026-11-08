@@ -1108,7 +1108,7 @@ internal static class Tui
         table.AddRow(
             "[cyan]situu.cc[/]",
             "[dim]https://www.situu.cc/5_5792/[/]",
-            "");
+            "[red]Down[/]");
         table.AddRow(
             "[cyan]yamibo.com[/]",
             "[dim]https://www.yamibo.com/novel/267137[/]",

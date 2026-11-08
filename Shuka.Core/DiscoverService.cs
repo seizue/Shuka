@@ -17,7 +17,7 @@ public class DiscoverService
         new ShubaBrowse(),
         new DmxsBrowse(),
         new ShukuBrowse(),
-        new SituuBrowse(),
+        // new SituuBrowse(),  // Hidden: situu.cc is temporarily down
         new YamiboBrowse(),
         new NoveldexBrowse(),  // English web novels — JS-rendered, uses WebView
         new ShubaowBrowse(),
