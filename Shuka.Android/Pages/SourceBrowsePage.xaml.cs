@@ -544,22 +544,31 @@ public partial class SourceBrowsePage : ContentPage
 
         try
         {
-            // For CF-protected sources, wrap the fetch in a timeout that is much shorter
-            // than the hidden-WebView's internal 20 s ceiling.  If the cookie-first path
-            // in WebViewCloudflareBypass succeeds the response arrives in <2 s; if it
-            // falls through to the hidden WebView and CF still challenges (managed/Turnstile),
-            // we surface the WebView-only prompt after ~8 s instead of making the user wait.
-            using var browseCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            // For CF-protected browse sources (RequiresCfBypass = true), apply a 30 s timeout
+            // so the WebView-only prompt surfaces quickly when CF Managed Challenge fires.
+            // For non-CF sources (e.g. 69shuba browse), use a longer 90 s ceiling — enough
+            // time to wait through the WebView semaphore if chapter downloads are holding it,
+            // while still guaranteeing the spinner doesn't hang indefinitely.
+            int timeoutSec = _source.RequiresCfBypass ? 30 : 90;
+            using var browseCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
 
-            ListingPage result = _mode switch
+            ListingPage result;
+            try
             {
-                BrowseMode.Popular => await _service.GetPopularAsync(_source, _page, ct: browseCts.Token),
-                BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
-                BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page, ct: browseCts.Token),
-                _                  => _activeFilter != null
-                                        ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page), ct: browseCts.Token)
-                                        : await _service.GetRecentAsync(_source, _page, ct: browseCts.Token),
-            };
+                result = _mode switch
+                {
+                    BrowseMode.Popular => await _service.GetPopularAsync(_source, _page, ct: browseCts.Token),
+                    BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
+                    BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page, ct: browseCts.Token),
+                    _                  => _activeFilter != null
+                                            ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page), ct: browseCts.Token)
+                                            : await _service.GetRecentAsync(_source, _page, ct: browseCts.Token),
+                };
+            }
+            finally
+            {
+                // browseCts disposed by using statement — no extra work needed here
+            }
 
             _hasMore = result.HasNextPage;
             _page++;

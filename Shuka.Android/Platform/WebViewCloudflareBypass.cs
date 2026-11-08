@@ -122,7 +122,13 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             bool isNoveldexChapter = Regex.IsMatch(url,
                 @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase);
 
-            if (isNoveldexChapter)
+            // 69shuba chapter pages: also reuse a persistent WebView.
+            // Spinning up a new hidden WebView per chapter (200+ chapters) exhausts Android's
+            // WebKit memory and causes all subsequent WebViews to hang for the full 20 s timeout.
+            bool is69shubaChapter = Regex.IsMatch(url,
+                @"69shuba\.com/txt/\d+/\d+", RegexOptions.IgnoreCase);
+
+            if (isNoveldexChapter || is69shubaChapter)
                 return await FetchWithPersistentWebViewAsync(url, ct);
 
             return await FetchInternalAsync(url, ct);
@@ -295,8 +301,9 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
     /// <summary>
     /// Navigates the persistent singleton WebView to a new URL and waits for content.
-    /// The same WebView instance is reused across all Noveldex chapter fetches, so
-    /// WebKit never accumulates stale DOM trees from hundreds of separate instances.
+    /// The same WebView instance is reused across chapter fetches for sites that download
+    /// many chapters (e.g. Noveldex, 69shuba), so WebKit never accumulates stale DOM trees
+    /// from hundreds of separate instances.
     /// </summary>
     private Task<string> FetchWithPersistentWebViewAsync(string url, CancellationToken ct)
     {
@@ -344,13 +351,24 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     (_persistentHost, _persistentOverlay) = AttachWebView(_persistentWebView);
                 }
 
-                // Navigate to the new chapter URL
+                // Navigate to the new chapter URL.
+                // First navigate to about:blank to flush the previous page's DOM — this
+                // prevents GetPageHtmlAsync from returning stale content from the last chapter
+                // during the initial settle period before the new page finishes loading.
+                _persistentWebView.Source = new UrlWebViewSource { Url = "about:blank" };
+                await Task.Delay(300, ct);
                 _persistentWebView.Source = new UrlWebViewSource { Url = url };
 
                 using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
 
+                // Parse the target host+path so we can verify the WebView has actually
+                // navigated away from about:blank / the previous chapter.
+                Uri targetUri;
+                try { targetUri = new Uri(url); } catch { targetUri = new Uri("about:blank"); }
+                string targetHost = targetUri.Host;
+
                 // Brief settle delay then poll
-                await Task.Delay(1200, ct);
+                await Task.Delay(1500, ct);
 
                 string? html = null;
                 int waited = 0;
@@ -372,19 +390,54 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     ct.ThrowIfCancellationRequested();
                     if (html == null || html.Length < 300) continue;
 
+                    // Guard against stale content: verify the WebView has navigated to
+                    // the target host. If the page still shows about:blank or the previous
+                    // chapter's domain, skip this poll cycle and keep waiting.
+                    string? currentHref = await _persistentWebView.EvaluateJavaScriptAsync(
+                        "window.location.href");
+                    currentHref = currentHref?.Trim('"');
+                    if (!string.IsNullOrEmpty(targetHost) &&
+                        !string.IsNullOrEmpty(currentHref) &&
+                        !currentHref.Contains(targetHost, StringComparison.OrdinalIgnoreCase))
+                    {
+                        html = null;
+                        continue;
+                    }
+
                     bool isChallenge = IsCloudflareChallenge(html);
 
                     if (!isChallenge) break;
                 }
 
-                // Wait for Next.js chapter content to hydrate
-                await WaitForNoveldexChapterAsync(_persistentWebView, ct);
-                ct.ThrowIfCancellationRequested();
-                html = await GetPageHtmlAsync(_persistentWebView);
-                if (string.IsNullOrEmpty(html) || !html.Contains("xorEncryption"))
+                // Noveldex-only: wait for Next.js SPA hydration and extract chapter text
+                bool isNoveldex = Regex.IsMatch(url,
+                    @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase);
+                if (isNoveldex)
                 {
-                    string? noveldexHtml = await ExtractNoveldexChapterHtmlAsync(_persistentWebView);
-                    if (!string.IsNullOrEmpty(noveldexHtml)) html = noveldexHtml;
+                    await WaitForNoveldexChapterAsync(_persistentWebView, ct);
+                    ct.ThrowIfCancellationRequested();
+                    html = await GetPageHtmlAsync(_persistentWebView);
+                    if (string.IsNullOrEmpty(html) || !html.Contains("xorEncryption"))
+                    {
+                        string? noveldexHtml = await ExtractNoveldexChapterHtmlAsync(_persistentWebView);
+                        if (!string.IsNullOrEmpty(noveldexHtml)) html = noveldexHtml;
+                    }
+                }
+
+                // 69shuba-only: wait for server-rendered .txtnav content to appear.
+                // The initial HTML snapshot may load before the chapter text renders
+                // (some chapters have a brief JS-driven load delay). Poll for up to 8 s.
+                bool is69shuba = url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase);
+                if (is69shuba && (string.IsNullOrEmpty(html) || !html.Contains("txtnav", StringComparison.OrdinalIgnoreCase)))
+                {
+                    for (int extra = 0; extra < 8; extra++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        await Task.Delay(1000, ct);
+                        html = await GetPageHtmlAsync(_persistentWebView);
+                        if (!string.IsNullOrEmpty(html) && html.Contains("txtnav", StringComparison.OrdinalIgnoreCase))
+                            break;
+                    }
                 }
 
                 tcs.TrySetResult(html ?? "");
