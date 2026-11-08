@@ -1100,10 +1100,18 @@ public class DownloadManager
             if (string.IsNullOrWhiteSpace(finalName))
                 finalName = $"novel_{item.Id:N8}";
 
-            // Copy from cache to the user's chosen output folder via SAF
-            string finalPath = await CopyToOutputAsync(epubPath, finalName, ct);
+            // Copy from cache to the user's chosen output folder via SAF.
+            // Always overwrite so a re-download with more chapters replaces any stale incomplete file.
+            string finalPath = await CopyToOutputAsync(epubPath, finalName, ct, overwrite: true);
 
             Log($"Saved: {finalPath}");
+
+            // Update TotalChapters to reflect actual chapters downloaded (not website total).
+            int actualChapterCount = service.LastChapters?.Count ?? 0;
+            if (actualChapterCount > 0)
+            {
+                MainThread.BeginInvokeOnMainThread(() => item.TotalChapters = actualChapterCount);
+            }
 
             int untranslatedCount = service.LastTranslationFailures.Count;
             var failedList = new List<int>(service.LastTranslationFailures);

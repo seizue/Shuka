@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Shuka.Core;
 
 namespace Shuka.Android.Platform;
@@ -108,7 +108,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                                 awv.Settings.DatabaseEnabled    = true;
                                 awv.Settings.SetSupportMultipleWindows(false);
                                 awv.Settings.JavaScriptCanOpenWindowsAutomatically = false;
-                                awv.Settings.UserAgentString    = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+                                awv.Settings.UserAgentString    = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
                                 awv.OnResume();
                                 awv.ResumeTimers();
                             }
@@ -148,12 +148,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     ct.ThrowIfCancellationRequested();
                     if (html == null || html.Length < 300) continue;
 
-                    bool isChallenge =
-                        html.Contains("cf-chl-opt") ||
-                        html.Contains("cf-browser-verification") ||
-                        html.Contains("jschl-answer") ||
-                        html.Contains("challenge-form") ||
-                        (html.Contains("cloudflare") && html.Contains("checking"));
+                    bool isChallenge = IsCloudflareChallenge(html);
 
                     if (!isChallenge) break;
                 }
@@ -213,7 +208,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                         settings.DatabaseEnabled = true;
                         settings.SetSupportMultipleWindows(false);
                         settings.JavaScriptCanOpenWindowsAutomatically = false;
-                        settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+                        settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
                         androidWebView.OnResume();
                         androidWebView.ResumeTimers();
                     }
@@ -265,12 +260,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     if (html == null || html.Length < 300) continue;
 
                     // Still on a CF challenge page — keep waiting
-                    bool isChallenge =
-                        html.Contains("cf-chl-opt") ||
-                        html.Contains("cf-browser-verification") ||
-                        html.Contains("jschl-answer") ||
-                        html.Contains("challenge-form") ||
-                        (html.Contains("cloudflare") && html.Contains("checking"));
+                    bool isChallenge = IsCloudflareChallenge(html);
 
                     if (!isChallenge) break;
 
@@ -309,10 +299,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 }
 
                 // ONLY throw CloudflareExpiredException if real Cloudflare challenge markers are present
-                bool hasCfChallenge = html != null && (
-                    html.Contains("cf-chl-opt") ||
-                    html.Contains("cf-browser-verification") ||
-                    (html.Contains("cloudflare") && html.Contains("checking")));
+                bool hasCfChallenge = IsCloudflareChallenge(html);
 
                 if (hasCfChallenge)
                 {
@@ -890,5 +877,18 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         }
 
         return null;
+    }
+
+    private static bool IsCloudflareChallenge(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        return html.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("jschl-answer", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("challenge-form", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("challenges.cloudflare.com", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("cf-turnstile", StringComparison.OrdinalIgnoreCase) ||
+               (html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase) && html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase)) ||
+               (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) && html.Contains("checking", StringComparison.OrdinalIgnoreCase));
     }
 }

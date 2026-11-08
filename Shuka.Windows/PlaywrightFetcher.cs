@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Shuka.Core;
@@ -57,8 +57,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
     public async Task<string> FetchAsync(string url, int retries = 4, CancellationToken ct = default)
     {
         // Known JS-rendered sites — skip HTTP entirely and use Playwright
-        if (url.Contains("69shuba.com",  StringComparison.OrdinalIgnoreCase) ||
-            url.Contains("noveldex.io",  StringComparison.OrdinalIgnoreCase))
+        if (url.Contains("69shuba.com",  StringComparison.OrdinalIgnoreCase))
             return await FetchWithPlaywrightVerified(url, ct: ct);
 
         int delay = 1000;
@@ -282,14 +281,14 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
 
         string userDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Shuka", "browser-profile-noveldex");
+            "Shuka", "browser-profile");
         Directory.CreateDirectory(userDataDir);
 
         _noveldexContext = await _playwright!.Chromium.LaunchPersistentContextAsync(userDataDir, new()
         {
             Headless = false,
             Args     = ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-            UserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            UserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             ViewportSize      = new() { Width = 1280, Height = 800 },
             JavaScriptEnabled = true,
             IgnoreHTTPSErrors = true,
@@ -605,13 +604,10 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--allow-running-insecure-content",
                 "--disable-setuid-sandbox",
                 "--ignore-certificate-errors",
             ],
-            UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             ExtraHTTPHeaders = new Dictionary<string, string>
             {
                 ["Accept-Language"] = "en-US,en;q=0.9",
@@ -774,7 +770,7 @@ internal sealed class PlaywrightFetcher : ICloudflareBypass, IAsyncDisposable
         {
             Headless  = false,
             Args      = ["--disable-blink-features=AutomationControlled"],
-            UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             ViewportSize = new() { Width = 1280, Height = 800 },
         });
 

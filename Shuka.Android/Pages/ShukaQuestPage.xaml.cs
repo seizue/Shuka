@@ -1621,7 +1621,7 @@ public partial class ShukaQuestPage : ContentPage
             {
                 // Enable proper user agent for better compatibility with JJWXC and other Chinese sites
                 var settings = androidWebView.Settings;
-                settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+                settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
                 settings.DomStorageEnabled = true;
                 settings.DatabaseEnabled = true;
                 settings.JavaScriptEnabled = true;

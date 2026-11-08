@@ -104,7 +104,7 @@ if (args.Length >= 2 && args[0] == "--dump-html")
     var sh = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
     using var sc = new HttpClient(sh);
     sc.DefaultRequestHeaders.Add("User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
     await using var dbgFetcher = new PlaywrightFetcher(sc);
     Console.WriteLine($"Fetching: {args[1]}");
     string dumpHtml = await dbgFetcher.FetchAsync(args[1]);
@@ -119,14 +119,14 @@ if (args.Length >= 2 && args[0] == "--dump-html")
 var siteHandler = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
 using var siteClient = new HttpClient(siteHandler) { Timeout = TimeSpan.FromSeconds(30) };
 siteClient.DefaultRequestHeaders.Add("User-Agent",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
 siteClient.DefaultRequestHeaders.Add("Accept-Language", "zh-TW,zh;q=0.9,zh-CN;q=0.8");
 siteClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 
 var httpHandler = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All };
 using var httpClient = new HttpClient(httpHandler) { Timeout = TimeSpan.FromSeconds(45) };
 httpClient.DefaultRequestHeaders.Add("User-Agent",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
 
 await using var fetcher    = new PlaywrightFetcher(siteClient);
 var             googleCli  = new Translator(httpClient);

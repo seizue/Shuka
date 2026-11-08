@@ -377,6 +377,9 @@ public class BookService
         // Semaphore to serialize checkpoint writes
         var writeLock = new SemaphoreSlim(1, 1);
 
+        int consecutiveLockedCount = 0;
+        int firstLockedChapterNumber = 0;
+
         for (int i = 0; i < total; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -393,15 +396,29 @@ public class BookService
                     LastTranslationFailures.Add(i + 1);
                 }
 
-                // If adapter signals stop-on-first-locked and this checkpoint entry is empty, stop now
-                if (book.Adapter.StopOnFirstLockedChapter && string.IsNullOrWhiteSpace(savedText))
+                bool isSavedEmpty = string.IsNullOrWhiteSpace(savedText);
+                if (isSavedEmpty)
                 {
-                    string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
+                    consecutiveLockedCount++;
+                    if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+                }
+                else
+                {
+                    consecutiveLockedCount = 0;
+                }
+
+                if (consecutiveLockedCount >= 3)
+                {
+                    int lastUnlocked = firstLockedChapterNumber - 1;
+                    if (book.Adapter.StopOnFirstLockedChapter)
+                        lockedFromChapter = firstLockedChapterNumber;
+                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                     log?.Invoke(statusMsg);
-                    progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
-                    lockedFromChapter = i + 1;
+                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
                     break;
                 }
+
+                if (isSavedEmpty) continue;
 
                 results.Add((i + 1, savedTitle, savedText));
                 progress?.Report(new ProgressEventArgs
@@ -443,15 +460,31 @@ public class BookService
 
             var paras = book.Adapter.ExtractChapterText(html);
 
-            // If this chapter is empty and the adapter says stop on first locked, end download now
-            if (paras.Count == 0 && book.Adapter.StopOnFirstLockedChapter)
+            // Track consecutive empty (locked) chapters — only stop after 3 in a row
+            // to guard against transient fetch failures aborting the whole download.
+            bool isLocked = paras.Count == 0;
+            if (isLocked)
             {
-                string statusMsg = $"Chapter {i + 1} is locked in {book.Adapter.SiteName}. Finished download at chapter {i}.";
+                consecutiveLockedCount++;
+                if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+            }
+            else
+            {
+                consecutiveLockedCount = 0;
+            }
+
+            if (consecutiveLockedCount >= 3)
+            {
+                int lastUnlocked = firstLockedChapterNumber - 1;
+                if (book.Adapter.StopOnFirstLockedChapter)
+                    lockedFromChapter = firstLockedChapterNumber;
+                string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
                 log?.Invoke(statusMsg);
-                progress?.Report(new ProgressEventArgs { Current = i, Total = total, Message = statusMsg });
-                lockedFromChapter = i + 1;
+                progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
                 break;
             }
+
+            if (isLocked) continue;
 
             string chapterTitle = ch.Title;
             string text = "";
@@ -557,6 +590,11 @@ public class BookService
                     await Task.Delay(chDelayMs, ct);
                 }
             }
+        }
+
+        if (lockedFromChapter == null && consecutiveLockedCount > 0 && book.Adapter.StopOnFirstLockedChapter)
+        {
+            lockedFromChapter = firstLockedChapterNumber;
         }
 
         return (results, lockedFromChapter);
