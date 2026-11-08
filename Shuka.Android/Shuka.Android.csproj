@@ -61,6 +61,7 @@
     or pass them on the command line. Without the keystore the debug key is used.
   -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release' And Exists('$(MSBuildThisFileDirectory)..\shuka.keystore')">
+    <AndroidKeyStore>true</AndroidKeyStore>
     <AndroidSigningKeyStore>$(MSBuildThisFileDirectory)..\shuka.keystore</AndroidSigningKeyStore>
     <AndroidSigningKeyAlias>$(SHUKA_KEY_ALIAS)</AndroidSigningKeyAlias>
     <AndroidSigningKeyPass>$(SHUKA_KEY_PASS)</AndroidSigningKeyPass>

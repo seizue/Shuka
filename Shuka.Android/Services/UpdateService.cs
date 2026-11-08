@@ -168,6 +168,22 @@ public static class UpdateService
 #if ANDROID
     private static void InstallApk(global::Android.Content.Context ctx, string apkPath)
     {
+        // On Android 8.0+, prompt user to grant "Install unknown apps" if not yet permitted
+#pragma warning disable CA1416
+        if (global::Android.OS.Build.VERSION.SdkInt >= global::Android.OS.BuildVersionCodes.O)
+        {
+            if (ctx.PackageManager?.CanRequestPackageInstalls() == false)
+            {
+                var settingsIntent = new global::Android.Content.Intent(
+                    global::Android.Provider.Settings.ActionManageUnknownAppSources,
+                    global::Android.Net.Uri.Parse($"package:{ctx.PackageName}"));
+                settingsIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask);
+                ctx.StartActivity(settingsIntent);
+                return;
+            }
+        }
+#pragma warning restore CA1416
+
         // Use FileProvider on Android 7+ to share the file securely
         var apkFile = new Java.IO.File(apkPath);
         global::Android.Net.Uri uri;
