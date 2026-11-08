@@ -47,32 +47,29 @@ public class HistoryService
     private static string CoversDir =>
         Path.Combine(FileSystem.AppDataDirectory, "covers");
 
-    public static string? GetExternalBackupDir()
+    /// <summary>
+    /// Returns all directories where EPUBs and backups can be stored
+    /// (including user custom folder, SAF tree directory, and default Download/Shuka).
+    /// </summary>
+    public static IEnumerable<string> GetExternalBackupDirs()
     {
+        var dirs = new List<string>();
 #if ANDROID
         try
         {
-            var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
-                global::Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
-            if (!string.IsNullOrWhiteSpace(downloads))
+            foreach (string dir in Shuka.Android.Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
             {
-                string shukaDir = Path.Combine(downloads, "Shuka");
-                Directory.CreateDirectory(shukaDir);
-                return shukaDir;
+                if (!string.IsNullOrWhiteSpace(dir))
+                {
+                    try { Directory.CreateDirectory(dir); } catch { }
+                    if (Directory.Exists(dir))
+                        dirs.Add(dir);
+                }
             }
         }
         catch { }
 #endif
-        return null;
-    }
-
-    private static string? ExternalHistoryBackupFile
-    {
-        get
-        {
-            string? dir = GetExternalBackupDir();
-            return dir != null ? Path.Combine(dir, ".shuka_history_backup.json") : null;
-        }
+        return dirs;
     }
 
     private static readonly HttpClient _http = new(new HttpClientHandler
@@ -252,14 +249,21 @@ public class HistoryService
             }
             else
             {
-                // Restore from external backup (e.g. after reinstalling or updating)
-                string? backupPath = ExternalHistoryBackupFile;
-                if (backupPath != null && File.Exists(backupPath))
+                // Restore from external backup across any known download directory (custom or default)
+                foreach (string dir in GetExternalBackupDirs())
                 {
                     try
                     {
-                        json = await File.ReadAllTextAsync(backupPath);
-                        await File.WriteAllTextAsync(HistoryFile, json);
+                        string backupPath = Path.Combine(dir, ".shuka_history_backup.json");
+                        if (File.Exists(backupPath))
+                        {
+                            json = await File.ReadAllTextAsync(backupPath);
+                            if (!string.IsNullOrWhiteSpace(json))
+                            {
+                                await File.WriteAllTextAsync(HistoryFile, json);
+                                break;
+                            }
+                        }
                     }
                     catch { }
                 }
@@ -407,16 +411,20 @@ public class HistoryService
                 new JsonSerializerOptions { WriteIndented = false });
             await File.WriteAllTextAsync(HistoryFile, json);
 
-            // Also mirror backup in Download/Shuka so history survives app uninstalls / updates
+            // Also mirror backup across all known download directories (custom and default) so history survives app uninstalls / updates
             try
             {
-                string? backupPath = ExternalHistoryBackupFile;
-                if (backupPath != null)
+                foreach (string dir in GetExternalBackupDirs())
                 {
-                    if (list.Count > 0)
-                        await File.WriteAllTextAsync(backupPath, json);
-                    else if (File.Exists(backupPath))
-                        File.Delete(backupPath);
+                    try
+                    {
+                        string backupPath = Path.Combine(dir, ".shuka_history_backup.json");
+                        if (list.Count > 0)
+                            await File.WriteAllTextAsync(backupPath, json);
+                        else if (File.Exists(backupPath))
+                            File.Delete(backupPath);
+                    }
+                    catch { }
                 }
             }
             catch { }

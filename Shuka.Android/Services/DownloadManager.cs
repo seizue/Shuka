@@ -66,17 +66,20 @@ public class DownloadManager
             string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
             await File.WriteAllTextAsync(path, json);
 
-            // Also keep an external backup in Download/Shuka so downloads state survives app uninstalls / updates
+            // Also keep an external backup across all download directories (custom and default) so downloads state survives app uninstalls / updates
             try
             {
-                string? extDir = HistoryService.GetExternalBackupDir();
-                if (extDir != null)
+                foreach (string extDir in HistoryService.GetExternalBackupDirs())
                 {
-                    string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
-                    if (list.Count > 0)
-                        await File.WriteAllTextAsync(backupPath, json);
-                    else if (File.Exists(backupPath))
-                        File.Delete(backupPath);
+                    try
+                    {
+                        string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
+                        if (list.Count > 0)
+                            await File.WriteAllTextAsync(backupPath, json);
+                        else if (File.Exists(backupPath))
+                            File.Delete(backupPath);
+                    }
+                    catch { }
                 }
             }
             catch { }
@@ -150,20 +153,23 @@ public class DownloadManager
             }
             else
             {
-                // Restore from external backup if local file is missing
-                string? extDir = HistoryService.GetExternalBackupDir();
-                if (extDir != null)
+                // Restore from external backup across any known download directory (custom or default)
+                foreach (string extDir in HistoryService.GetExternalBackupDirs())
                 {
-                    string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
-                    if (File.Exists(backupPath))
+                    try
                     {
-                        try
+                        string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
+                        if (File.Exists(backupPath))
                         {
                             json = await File.ReadAllTextAsync(backupPath);
-                            await File.WriteAllTextAsync(path, json);
+                            if (!string.IsNullOrWhiteSpace(json))
+                            {
+                                await File.WriteAllTextAsync(path, json);
+                                break;
+                            }
                         }
-                        catch { }
                     }
+                    catch { }
                 }
             }
 
