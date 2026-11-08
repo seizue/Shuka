@@ -183,6 +183,7 @@
                         <Label Text=".NET MAUI  ·  Microsoft" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
                         <Label Text="HtmlAgilityPack  ·  Simon Mourier" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
                         <Label Text="Google Translate API  (unofficial)" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
+                        <Label Text="Microsoft Bing Translator API" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
                         <Label Text="MyMemory Translation API" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
                         <Label Text="Material Symbols  ·  Google" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
                         <Label Text="Nord Color Palette  ·  Arctic Ice Studio" FontSize="13" TextColor="{DynamicResource TextSecondary}" />
