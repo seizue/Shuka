@@ -1,4 +1,4 @@
-﻿using System.Collections.Specialized;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Shuka.Android.Behaviors;
 using Shuka.Android.Platforms.Android;
@@ -419,6 +419,7 @@ public partial class DownloadsPage : ContentPage
 
         bool isResumeOrRetry = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
         OptionsSheetResumeBtn.IsVisible = isResumeOrRetry;
+        OptionsSheetOpenInBrowserBtn.IsVisible = !string.IsNullOrWhiteSpace(item.Url);
         if (isResumeOrRetry)
         {
             bool isRetry = item.Status is DownloadStatus.Failed or DownloadStatus.Cancelled;
@@ -577,6 +578,28 @@ public partial class DownloadsPage : ContentPage
         var item = _activeOptionsItem;
         await HideOptionsSheetAsync();
         DownloadManager.Instance.Resume(item);
+    }
+
+    private async void OnOptionsSheetOpenInBrowserTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsItem == null) return;
+        var item = _activeOptionsItem;
+        await HideOptionsSheetAsync();
+        if (string.IsNullOrWhiteSpace(item.Url)) return;
+
+        try
+        {
+            var nav = Shell.Current?.Navigation;
+            if (nav != null)
+            {
+                var webPage = new WebBrowsePage(item.Url);
+                await nav.PushAsync(webPage, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Open in browser error: {ex.Message}");
+        }
     }
 
     private async void OnOptionsSheetMoveToTopTapped(object sender, TappedEventArgs e)

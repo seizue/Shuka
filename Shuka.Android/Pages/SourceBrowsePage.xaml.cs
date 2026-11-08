@@ -544,14 +544,21 @@ public partial class SourceBrowsePage : ContentPage
 
         try
         {
+            // For CF-protected sources, wrap the fetch in a timeout that is much shorter
+            // than the hidden-WebView's internal 20 s ceiling.  If the cookie-first path
+            // in WebViewCloudflareBypass succeeds the response arrives in <2 s; if it
+            // falls through to the hidden WebView and CF still challenges (managed/Turnstile),
+            // we surface the WebView-only prompt after ~8 s instead of making the user wait.
+            using var browseCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
             ListingPage result = _mode switch
             {
-                BrowseMode.Popular => await _service.GetPopularAsync(_source, _page),
+                BrowseMode.Popular => await _service.GetPopularAsync(_source, _page, ct: browseCts.Token),
                 BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
-                BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page),
+                BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page, ct: browseCts.Token),
                 _                  => _activeFilter != null
-                                        ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page))
-                                        : await _service.GetRecentAsync(_source, _page),
+                                        ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page), ct: browseCts.Token)
+                                        : await _service.GetRecentAsync(_source, _page, ct: browseCts.Token),
             };
 
             _hasMore = result.HasNextPage;
@@ -563,15 +570,7 @@ public partial class SourceBrowsePage : ContentPage
 
                 if (result.Novels.Count == 0 && reset)
                 {
-                    // CF-protected or parse-failure sources get a WebView-only prompt
-                    if (_source.RequiresCfBypass)
-                    {
-                        ShowWebViewOnlyState();
-                    }
-                    else
-                    {
-                        EmptyState.IsVisible = true;
-                    }
+                    EmptyState.IsVisible = true;
                     ListScroll.IsVisible = false;
                     return;
                 }
@@ -601,8 +600,8 @@ public partial class SourceBrowsePage : ContentPage
             {
                 LoadingState.IsVisible = false;
 
-                // For CF-protected sources, show WebView-only state on error
-                if (_source.RequiresCfBypass && NovelList.Children.Count == 0)
+                // Only show WebView prompt if a real Cloudflare challenge was detected
+                if (ex is CloudflareExpiredException && NovelList.Children.Count == 0)
                 {
                     ShowWebViewOnlyState();
                     return;
@@ -674,7 +673,9 @@ public partial class SourceBrowsePage : ContentPage
 
         var sub = new Label
         {
-            Text = $"{_source.SiteName} requires a real browser session.\nTap below to open it in WebView.",
+            Text = $"{_source.SiteName} is protected by Cloudflare.\n" +
+                   "Open it in WebView to pass the security check,\n" +
+                   "then tap Retry to load the browse list.",
             FontSize = 13,
             HorizontalOptions = LayoutOptions.Center,
             HorizontalTextAlignment = TextAlignment.Center,
@@ -726,13 +727,45 @@ public partial class SourceBrowsePage : ContentPage
             })
         });
 
+        // Retry button — re-attempt browse load after the user has established a CF session
+        var retryBtnLabel = new Label
+        {
+            Text = "Retry",
+            FontSize = 13,
+            FontAttributes = FontAttributes.Bold,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        retryBtnLabel.SetDynamicResource(Label.TextColorProperty, "Accent");
+
+        var retryBtn = new Border
+        {
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
+            HeightRequest = 46,
+            Padding = new Thickness(24, 0),
+            HorizontalOptions = LayoutOptions.Center,
+            BackgroundColor = Colors.Transparent,
+            Content = retryBtnLabel,
+        };
+        retryBtn.SetDynamicResource(Border.StrokeProperty, "Accent");
+        retryBtn.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command(async () =>
+            {
+                await retryBtn.ScaleToAsync(0.95, 60, Easing.CubicOut);
+                await retryBtn.ScaleToAsync(1.0, 60, Easing.SpringOut);
+                await LoadPageAsync(reset: true);
+            })
+        });
+
         var stack = new VerticalStackLayout
         {
             Spacing = 14,
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
             Margin = new Thickness(24, 60),
-            Children = { icon, heading, sub, openBtn },
+            Children = { icon, heading, sub, openBtn, retryBtn },
         };
         NovelList.Children.Add(stack);
     }

@@ -6,6 +6,9 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Register extended encodings (GBK, GB2312, Big5, etc.) for Chinese novel sources
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

@@ -485,6 +485,31 @@
                             </Border.GestureRecognizers>
                         </Border>
 
+                        <!-- Open in In-App Browser (Fix Cloudflare) Option -->
+                        <Border x:Name="OptionsSheetOpenInBrowserBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12"
+                                IsVisible="False">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE894;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Text="Open in In-App Browser (Fix Cloudflare)"
+                                       Grid.Column="1"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetOpenInBrowserTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Resume Download Option -->
                         <Border x:Name="OptionsSheetResumeBtn"
                                 BackgroundColor="{DynamicResource BgInput}"

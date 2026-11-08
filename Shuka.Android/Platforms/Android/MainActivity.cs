@@ -214,7 +214,29 @@ public class MainActivity : MauiAppCompatActivity
 
     private void HandleNotificationIntent(Intent? intent)
     {
-        if (intent != null && intent.GetStringExtra("navigate_to") == "DownloadsPage")
+        if (intent == null) return;
+
+        string? openUrl = intent.GetStringExtra("open_webview_url");
+        if (!string.IsNullOrEmpty(openUrl))
+        {
+            intent.RemoveExtra("open_webview_url");
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                try
+                {
+                    var nav = Microsoft.Maui.Controls.Shell.Current?.Navigation;
+                    if (nav != null)
+                    {
+                        var webPage = new Pages.WebBrowsePage(openUrl);
+                        await nav.PushAsync(webPage, true);
+                    }
+                }
+                catch { }
+            });
+            return;
+        }
+
+        if (intent.GetStringExtra("navigate_to") == "DownloadsPage")
         {
             intent.RemoveExtra("navigate_to"); // Avoid re-navigating on config changes/recreation
             string? retransId = intent.GetStringExtra("retranslate_item_id");

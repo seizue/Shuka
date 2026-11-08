@@ -130,20 +130,33 @@ public class HttpFetcher : IDisposable
                         throw new Exception("Cloudflare/login wall detected and no bypass is configured.");
                     }
 
-                    // Detect charset from HTTP Content-Type header first (most reliable),
-                    // then fall back to the HTML meta tag declaration.
-                    string charset = "utf-8";
-                    string? ctHeader = resp.Content.Headers.ContentType?.CharSet;
-                    if (!string.IsNullOrWhiteSpace(ctHeader))
+                    // Detect charset: prioritize HTML meta tag for CJK encodings (CDNs like Cloudflare often inject false UTF-8 headers)
+                    string head = latin1[..Math.Min(latin1.Length, 4096)];
+                    var cm = Regex.Match(head, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
+
+                    string charset;
+                    if (cm.Success && (cm.Groups[1].Value.Equals("gbk", StringComparison.OrdinalIgnoreCase) ||
+                                       cm.Groups[1].Value.Equals("gb2312", StringComparison.OrdinalIgnoreCase) ||
+                                       cm.Groups[1].Value.Equals("big5", StringComparison.OrdinalIgnoreCase) ||
+                                       cm.Groups[1].Value.Equals("gb18030", StringComparison.OrdinalIgnoreCase)))
                     {
-                        charset = ctHeader.Trim().Trim('"');
+                        charset = cm.Groups[1].Value.Trim();
+                    }
+                    else if (url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        charset = "gbk";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(resp.Content.Headers.ContentType?.CharSet))
+                    {
+                        charset = resp.Content.Headers.ContentType.CharSet.Trim().Trim('"');
+                    }
+                    else if (cm.Success)
+                    {
+                        charset = cm.Groups[1].Value.Trim();
                     }
                     else
                     {
-                        // Scan only the first 4KB — charset is always in <head>
-                        string head = latin1[..Math.Min(latin1.Length, 4096)];
-                        var cm = Regex.Match(head, @"charset\s*=\s*[""']?\s*([\w-]+)", RegexOptions.IgnoreCase);
-                        if (cm.Success) charset = cm.Groups[1].Value.Trim();
+                        charset = "utf-8";
                     }
 
                     // Normalize common aliases that .NET may not recognise by name
@@ -157,7 +170,23 @@ public class HttpFetcher : IDisposable
                     Encoding enc;
                     try { enc = Encoding.GetEncoding(charset); }
                     catch { enc = Encoding.UTF8; }
-                    return enc.GetString(rawBytes);
+
+                    string decoded = enc.GetString(rawBytes);
+
+                    // If decoded as UTF-8 but contains replacement character markers, retry with GBK
+                    if (enc == Encoding.UTF8 && decoded.Contains('\uFFFD'))
+                    {
+                        try
+                        {
+                            var gbkEnc = Encoding.GetEncoding("gbk");
+                            string gbkDecoded = gbkEnc.GetString(rawBytes);
+                            if (!gbkDecoded.Contains('\uFFFD'))
+                                decoded = gbkDecoded;
+                        }
+                        catch { }
+                    }
+
+                    return decoded;
                 }
 
                 resp.EnsureSuccessStatusCode(); // throws for non-success

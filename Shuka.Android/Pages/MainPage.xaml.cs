@@ -481,14 +481,21 @@ public partial class MainPage : ContentPage
         };
         descLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
-        // CF bypass badge — only shown when the source needs it
+        // CF bypass badge — shown when the source is Cloudflare-protected
+        bool isCfProtected = source.RequiresCfBypass ||
+                             source.SiteName.Contains("69shuba", StringComparison.OrdinalIgnoreCase) ||
+                             source.SiteName.Contains("czbooks", StringComparison.OrdinalIgnoreCase) ||
+                             source.SiteName.Contains("yamibo", StringComparison.OrdinalIgnoreCase) ||
+                             source.Description.Contains("CF", StringComparison.OrdinalIgnoreCase) ||
+                             source.Description.Contains("Cloudflare", StringComparison.OrdinalIgnoreCase);
+
         var cfBadge = new Border
         {
             StrokeThickness = 0,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
             Padding = new Thickness(6, 2),
             HorizontalOptions = LayoutOptions.Start,
-            IsVisible = source.RequiresCfBypass,
+            IsVisible = isCfProtected,
         };
         cfBadge.SetDynamicResource(Border.BackgroundColorProperty, "AccentContainer");
         var cfLabel = new Label

@@ -455,6 +455,15 @@ public partial class WebBrowsePage : ContentPage
                 {
                     try
                     {
+                        // Flush cookies to disk BEFORE destroying the WebView so that any
+                        // CF clearance cookies set during this session are immediately
+                        // readable by WebViewCloudflareBypass.GetCookiesForUrl().
+                        global::Android.Webkit.CookieManager.Instance?.Flush();
+                    }
+                    catch { }
+
+                    try
+                    {
                         // Stop loading any content
                         androidWebView.StopLoading();
 
@@ -1811,6 +1820,10 @@ public partial class WebBrowsePage : ContentPage
         {
             if (_webViewCleanedUp)
                 return;
+
+#if ANDROID
+            try { global::Android.Webkit.CookieManager.Instance?.Flush(); } catch { }
+#endif
 
             _isLoading = false;
             LoadingBar.IsVisible = false;

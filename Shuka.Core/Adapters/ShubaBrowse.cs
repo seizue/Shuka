@@ -17,7 +17,7 @@ public class ShubaBrowse : IBrowsableAdapter
     public string SiteName         => "69shuba.com";
     public string Description      => "Chinese novels · fantasy & urban · CF";
     public string IconGlyph        => "\uE894"; // language (globe)
-    public bool   RequiresCfBypass => true;
+    public bool   RequiresCfBypass => false;
 
     public string HomeUrl => "https://www.69shuba.com/novels/monthvisit_0_0_1.htm";
 

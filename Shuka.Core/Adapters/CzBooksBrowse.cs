@@ -19,7 +19,7 @@ public class CzBooksBrowse : IBrowsableAdapter
     public string SiteName => "czbooks.net";
     public string Description => "Chinese novels · Cloudflare protected";
     public string IconGlyph => "\uE894"; // language (globe)
-    public bool RequiresCfBypass => true;
+    public bool RequiresCfBypass => false;
 
     public string HomeUrl => "https://czbooks.net/c/baihe";
 

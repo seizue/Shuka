@@ -1,3 +1,5 @@
+using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
 using Shuka.Core;
 
@@ -8,12 +10,44 @@ namespace Shuka.Android.Platform;
 /// Uses a hidden MAUI WebView to load pages and extract rendered HTML
 /// after Cloudflare's JS challenge completes or Next.js SPA hydrates.
 /// Handles Shell navigation, tab pages, and direct ContentPages.
+///
+/// Strategy (in priority order):
+///   1. Cookie-first HTTP path: if Android CookieManager already has CF clearance
+///      cookies from a prior user session, make a direct HttpClient fetch with those
+///      cookies — fast, no WebView spin-up needed.
+///   2. Hidden WebView: spin up a background WebView and wait up to 20 s for the CF
+///      JS challenge to auto-resolve (works for old-style JS challenges but NOT for
+///      CF Managed Challenge / Turnstile which require real user interaction).
+///   3. Fail-fast: if the WebView is still showing a CF challenge page at the end
+///      of the wait window, throw CloudflareExpiredException immediately so callers
+///      (SourceBrowsePage, DownloadManager) can surface a "open in WebView" prompt
+///      to the user instead of hanging.
 /// </summary>
 public class WebViewCloudflareBypass : ICloudflareBypass
 {
-    // Max time to wait for CF challenge + real page to load
-    private const int MaxWaitMs   = 35000;
+    // Max time to wait for a hidden-WebView CF challenge to auto-resolve.
+    // Lowered from 35 s to 20 s — managed challenges can never auto-resolve so
+    // there is no value in waiting longer; old-style JS challenges resolve in <10 s.
+    private const int MaxWaitMs   = 20000;
     private const int PollMs      = 1000;
+
+    // Register extended encodings (GBK, Big5, etc.) once
+    static WebViewCloudflareBypass()
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+    }
+
+    // Shared HttpClient for the cookie-first fast path.
+    // AllowAutoRedirect = false ensures sensitive Cookie headers are not stripped on redirect.
+    private static readonly HttpClient _http = new(
+        new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            AllowAutoRedirect = false
+        })
+    {
+        Timeout = TimeSpan.FromSeconds(15)
+    };
 
     // Serialize all WebView fetches — CF cookie must be established before
     // the next fetch starts. Multiple concurrent WebViews cause CF to re-challenge.
@@ -40,8 +74,13 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             var cm = global::Android.Webkit.CookieManager.Instance;
             if (cm == null) return null;
 
-            // CookieManager.GetCookie takes a URL string, not just a hostname
-            string? cookies = cm.GetCookie($"https://{host}");
+            // Try full origin with trailing slash, plain origin, and non-www
+            string? cookies = cm.GetCookie($"https://{host}/");
+            if (string.IsNullOrWhiteSpace(cookies))
+                cookies = cm.GetCookie($"https://{host}");
+            if (string.IsNullOrWhiteSpace(cookies) && host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                cookies = cm.GetCookie($"https://{host[4..]}/");
+
             if (string.IsNullOrWhiteSpace(cookies)) return null;
             return cookies;
         }
@@ -53,6 +92,29 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
+        // ── Fast path: use existing CF clearance cookies from CookieManager ──────
+        // If the user has previously visited this site in WebView (ShukaQuestPage /
+        // WebBrowsePage), Android's CookieManager will hold cf_clearance + other
+        // session cookies. Reuse them via a plain HttpClient request — no hidden
+        // WebView spin-up, no 20 s wait, no semaphore held.
+        try
+        {
+            string? existingCookies = GetCookiesForUrl(url);
+            if (!string.IsNullOrEmpty(existingCookies))
+            {
+                string? fastHtml = await TryHttpWithCookiesAsync(url, existingCookies, ct);
+                if (!string.IsNullOrEmpty(fastHtml) &&
+                    fastHtml.Length > 500 &&
+                    !IsCloudflareChallenge(fastHtml))
+                {
+                    return fastHtml;
+                }
+                // Cookies exist but are expired/invalid — fall through to WebView path
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* ignore fast-path errors; fall through to WebView */ }
+
         await _sem.WaitAsync(ct);
         try
         {
@@ -69,6 +131,166 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         {
             _sem.Release();
         }
+    }
+
+    /// <summary>
+    /// Returns CF+session cookies for <paramref name="url"/> from Android's CookieManager,
+    /// or null if no cookies are stored for that host.
+    /// </summary>
+    private static string? GetCookiesForUrl(string url)
+    {
+#if ANDROID
+        try
+        {
+            var cm = global::Android.Webkit.CookieManager.Instance;
+            if (cm == null) return null;
+
+            string? cookies = cm.GetCookie(url);
+            if (string.IsNullOrWhiteSpace(cookies))
+            {
+                var uri = new Uri(url);
+                cookies = cm.GetCookie($"{uri.Scheme}://{uri.Host}/");
+                if (string.IsNullOrWhiteSpace(cookies) && uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                {
+                    cookies = cm.GetCookie($"{uri.Scheme}://{uri.Host[4..]}/");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(cookies)) return null;
+            return cookies;
+        }
+        catch { return null; }
+#else
+        return null;
+#endif
+    }
+
+    /// <summary>
+    /// Makes an HttpClient GET with the given cookie header.
+    /// Handles redirects up to 4 hops while preserving the Cookie header.
+    /// Returns null on any error or if the response is still a CF challenge.
+    /// </summary>
+    private static async Task<string?> TryHttpWithCookiesAsync(
+        string url, string cookies, CancellationToken ct)
+    {
+        try
+        {
+            string currentUrl = url;
+            HttpResponseMessage? resp = null;
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+            for (int r = 0; r < 4; r++)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, currentUrl);
+                var uri = new Uri(currentUrl);
+                req.Headers.TryAddWithoutValidation("Cookie", cookies);
+                req.Headers.TryAddWithoutValidation("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36");
+                string referer = $"{uri.Scheme}://{uri.Host}/";
+                var bookIdMatch = System.Text.RegularExpressions.Regex.Match(currentUrl, @"/txt/(\d+)/");
+                if (bookIdMatch.Success)
+                    referer = $"{uri.Scheme}://{uri.Host}/book/{bookIdMatch.Groups[1].Value}/";
+                req.Headers.TryAddWithoutValidation("Referer", referer);
+                req.Headers.TryAddWithoutValidation("Accept-Language", "zh-TW,zh;q=0.9,zh-CN;q=0.8");
+                req.Headers.TryAddWithoutValidation("Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua",
+                    "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?1");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Android\"");
+                req.Headers.TryAddWithoutValidation("sec-fetch-dest", "document");
+                req.Headers.TryAddWithoutValidation("sec-fetch-mode", "navigate");
+                req.Headers.TryAddWithoutValidation("sec-fetch-site", "same-origin");
+                req.Headers.TryAddWithoutValidation("sec-fetch-user", "?1");
+                req.Headers.TryAddWithoutValidation("upgrade-insecure-requests", "1");
+
+                resp = await _http.SendAsync(req, linked.Token);
+
+                if ((int)resp.StatusCode is 301 or 302 or 303 or 307 or 308 && resp.Headers.Location != null)
+                {
+                    var nextUri = new Uri(uri, resp.Headers.Location);
+                    currentUrl = nextUri.ToString();
+                    resp.Dispose();
+                    resp = null;
+                    continue;
+                }
+                break;
+            }
+
+            if (resp == null || !resp.IsSuccessStatusCode)
+            {
+                resp?.Dispose();
+                return null;
+            }
+
+            using (resp)
+            {
+                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(linked.Token);
+                string latin1 = Encoding.Latin1.GetString(bytes);
+
+                // Detect charset: prioritize HTML meta tag for CJK encodings (Cloudflare often injects false UTF-8 header)
+                string head = latin1[..Math.Min(latin1.Length, 4096)];
+                var cm = System.Text.RegularExpressions.Regex.Match(
+                    head, @"charset\s*=\s*[""']?\s*([\w-]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                string charset;
+                if (cm.Success && (cm.Groups[1].Value.Equals("gbk", StringComparison.OrdinalIgnoreCase) ||
+                                   cm.Groups[1].Value.Equals("gb2312", StringComparison.OrdinalIgnoreCase) ||
+                                   cm.Groups[1].Value.Equals("big5", StringComparison.OrdinalIgnoreCase) ||
+                                   cm.Groups[1].Value.Equals("gb18030", StringComparison.OrdinalIgnoreCase)))
+                {
+                    charset = cm.Groups[1].Value.Trim();
+                }
+                else if (url.Contains("69shuba.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    charset = "gbk";
+                }
+                else if (!string.IsNullOrWhiteSpace(resp.Content.Headers.ContentType?.CharSet))
+                {
+                    charset = resp.Content.Headers.ContentType.CharSet.Trim().Trim('"');
+                }
+                else if (cm.Success)
+                {
+                    charset = cm.Groups[1].Value.Trim();
+                }
+                else
+                {
+                    charset = "utf-8";
+                }
+
+                charset = charset.ToLowerInvariant() switch
+                {
+                    "gb2312" or "gb_2312" or "csgb2312" or "x-gbk" or "chinese" => "gbk",
+                    "big5"   or "csbig5"  or "x-x-big5"                         => "big5",
+                    _                                                             => charset
+                };
+
+                Encoding enc;
+                try   { enc = Encoding.GetEncoding(charset); }
+                catch { enc = Encoding.UTF8; }
+
+                string decoded = enc.GetString(bytes);
+
+                // If decoded as UTF-8 but contains replacement characters, retry with GBK
+                if (enc == Encoding.UTF8 && decoded.Contains('\uFFFD'))
+                {
+                    try
+                    {
+                        var gbkEnc = Encoding.GetEncoding("gbk");
+                        string gbkDecoded = gbkEnc.GetString(bytes);
+                        if (!gbkDecoded.Contains('\uFFFD'))
+                            decoded = gbkDecoded;
+                    }
+                    catch { }
+                }
+
+                return decoded;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return null; }
     }
 
     /// <summary>
@@ -89,11 +311,11 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 {
                     _persistentWebView = new WebView
                     {
-                        IsVisible        = true,
-                        Opacity          = 0.01,
-                        InputTransparent = true,
-                        WidthRequest     = 1,
-                        HeightRequest    = 1,
+                        IsVisible         = true,
+                        Opacity           = 0.01,
+                        InputTransparent  = true,
+                        HorizontalOptions = LayoutOptions.Fill,
+                        VerticalOptions   = LayoutOptions.Fill,
                     };
 
 #if ANDROID
@@ -106,6 +328,8 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                                 awv.Settings.JavaScriptEnabled  = true;
                                 awv.Settings.DomStorageEnabled  = true;
                                 awv.Settings.DatabaseEnabled    = true;
+                                awv.Settings.UseWideViewPort    = true;
+                                awv.Settings.LoadWithOverviewMode = true;
                                 awv.Settings.SetSupportMultipleWindows(false);
                                 awv.Settings.JavaScriptCanOpenWindowsAutomatically = false;
                                 awv.Settings.UserAgentString    = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
@@ -187,12 +411,12 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         {
             var webView = new WebView
             {
-                IsVisible        = true,
-                Opacity          = 0.01,
-                InputTransparent = true,
-                WidthRequest     = 1,
-                HeightRequest    = 1,
-                Source           = new UrlWebViewSource { Url = url }
+                IsVisible         = true,
+                Opacity           = 0.01,
+                InputTransparent  = true,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions   = LayoutOptions.Fill,
+                Source            = new UrlWebViewSource { Url = url }
             };
 
 #if ANDROID
@@ -206,6 +430,8 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                         settings.JavaScriptEnabled = true;
                         settings.DomStorageEnabled = true;
                         settings.DatabaseEnabled = true;
+                        settings.UseWideViewPort = true;
+                        settings.LoadWithOverviewMode = true;
                         settings.SetSupportMultipleWindows(false);
                         settings.JavaScriptCanOpenWindowsAutomatically = false;
                         settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
@@ -778,10 +1004,8 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             IsVisible         = true,
             Opacity           = 0.01,
             InputTransparent  = true,
-            WidthRequest      = 1,
-            HeightRequest     = 1,
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions   = LayoutOptions.End,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions   = LayoutOptions.Fill,
             ZIndex            = -9999
         };
         overlay.Add(webView);
@@ -882,13 +1106,25 @@ public class WebViewCloudflareBypass : ICloudflareBypass
     private static bool IsCloudflareChallenge(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) return false;
-        return html.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
+
+        // If the page contains real novel content or chapter list, it is NOT a challenge page
+        if (html.Length > 2000 &&
+            (html.Contains("bookname", StringComparison.OrdinalIgnoreCase) ||
+             html.Contains("mybox", StringComparison.OrdinalIgnoreCase) ||
+             html.Contains("/txt/", StringComparison.OrdinalIgnoreCase) ||
+             html.Contains("yuedu", StringComparison.OrdinalIgnoreCase) ||
+             (html.Contains("<h1", StringComparison.OrdinalIgnoreCase) && html.Contains("chapter", StringComparison.OrdinalIgnoreCase))))
+        {
+            return false;
+        }
+
+        // True Cloudflare challenge indicators
+        return html.Contains("<title>Just a moment", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("<title>Attention Required!", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("id=\"challenge-form\"", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("id=\"challenge-running\"", StringComparison.OrdinalIgnoreCase) ||
+               html.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
                html.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("jschl-answer", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("challenge-form", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("challenges.cloudflare.com", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("cf-turnstile", StringComparison.OrdinalIgnoreCase) ||
-               (html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase) && html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase)) ||
-               (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) && html.Contains("checking", StringComparison.OrdinalIgnoreCase));
+               (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) && html.Contains("checking your browser", StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -409,13 +409,19 @@ public class BookService
 
                 if (consecutiveLockedCount >= 3)
                 {
-                    int lastUnlocked = firstLockedChapterNumber - 1;
                     if (book.Adapter.StopOnFirstLockedChapter)
+                    {
+                        int lastUnlocked = firstLockedChapterNumber - 1;
                         lockedFromChapter = firstLockedChapterNumber;
-                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
-                    log?.Invoke(statusMsg);
-                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
-                    break;
+                        string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                        log?.Invoke(statusMsg);
+                        progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                        break;
+                    }
+                    else
+                    {
+                        consecutiveLockedCount = 0;
+                    }
                 }
 
                 if (isSavedEmpty) continue;
@@ -442,6 +448,13 @@ public class BookService
                     break;
                 }
                 catch (OperationCanceledException) { throw; }
+                catch (CloudflareExpiredException)
+                {
+                    // CF challenge cannot be auto-solved — propagate immediately so the
+                    // download is paused (not retried 5× for 100s and then mis-counted
+                    // as locked/paywalled chapters).
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     if (fetchAttempt == 5)
@@ -473,6 +486,15 @@ public class BookService
             {
                 consecutiveLockedCount++;
                 if (consecutiveLockedCount == 1) firstLockedChapterNumber = i + 1;
+
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    log?.Invoke($"[Warning] Chapter {i + 1} HTML was empty — skipping...");
+                }
+                else if (!book.Adapter.StopOnFirstLockedChapter)
+                {
+                    log?.Invoke($"[Notice] Chapter {i + 1} had no readable content ({html.Length}b HTML) — skipping...");
+                }
             }
             else
             {
@@ -481,13 +503,19 @@ public class BookService
 
             if (consecutiveLockedCount >= 3)
             {
-                int lastUnlocked = firstLockedChapterNumber - 1;
                 if (book.Adapter.StopOnFirstLockedChapter)
+                {
+                    int lastUnlocked = firstLockedChapterNumber - 1;
                     lockedFromChapter = firstLockedChapterNumber;
-                string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
-                log?.Invoke(statusMsg);
-                progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
-                break;
+                    string statusMsg = $"Chapter {firstLockedChapterNumber} is locked in {book.Adapter.SiteName}. Finished download at chapter {lastUnlocked}.";
+                    log?.Invoke(statusMsg);
+                    progress?.Report(new ProgressEventArgs { Current = lastUnlocked, Total = total, Message = statusMsg });
+                    break;
+                }
+                else
+                {
+                    consecutiveLockedCount = 0;
+                }
             }
 
             if (isLocked) continue;

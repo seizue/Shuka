@@ -23,7 +23,7 @@ public class YamiboBrowse : IBrowsableAdapter
     public string SiteName         => "yamibo.com";
     public string Description      => "百合会 · Yuri / GL original novels";
     public string IconGlyph        => "\uE894"; // language (globe)
-    public bool   RequiresCfBypass => true;
+    public bool   RequiresCfBypass => false;
 
     public string GetRecentUrl(int page = 1) =>
         page == 1

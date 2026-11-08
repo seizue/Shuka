@@ -147,6 +147,9 @@ public class ShubaAdapter : ISiteAdapter
 
     public List<string> ExtractChapterText(string html)
     {
+        if (string.IsNullOrWhiteSpace(html))
+            return new List<string>();
+
         // Remove noise blocks first
         html = Regex.Replace(html, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
         html = Regex.Replace(html, @"<style[\s\S]*?</style>",   "", RegexOptions.IgnoreCase);
@@ -154,52 +157,130 @@ public class ShubaAdapter : ISiteAdapter
         html = Regex.Replace(html, @"<header[\s\S]*?</header>", "", RegexOptions.IgnoreCase);
         html = Regex.Replace(html, @"<footer[\s\S]*?</footer>", "", RegexOptions.IgnoreCase);
 
-        // 69shuba chapter content patterns (try largest content block):
-        // 1. <div class="txtnav"> — main chapter text wrapper
-        // 2. <div id="content"> or <div class="content">
-        // 3. Largest <p>-dense block as fallback
+        // 69shuba chapter content:
+        // Main container is <div class="txtnav">.
+        // Inside .txtnav, the layout is:
+        //   1. <div class="txtinfo hide720">...</div> (breadcrumb navigation)
+        //   2. <div class="txtright" id="txtright">...</div> (font/bookmark buttons)
+        //   3. <h1>Chapter Title</h1>
+        //   4. <div class="contentadv">...</div> (ad banner)
+        //   5. [Novel paragraphs separated by <br><br> or <p>]
+        //   6. <div class="page1">...</div> (bottom prev/next chapter navigation)
         string? content = null;
 
-        // Try each container — use a wide match that captures everything until the next
-        // same-level closing tag by looking for the largest matching block
-        foreach (var pattern in new[]
+        var txtNavMatch = Regex.Match(html, @"<div[^>]+class=""[^""]*txtnav[^""]*""[^>]*>([\s\S]+)", RegexOptions.IgnoreCase);
+        if (txtNavMatch.Success)
         {
-            @"<div[^>]+class=""[^""]*txtnav[^""]*""[^>]*>([\s\S]+?)<div[^>]+class=""[^""]*txtright",
-            @"<div[^>]+class=""[^""]*txtnav[^""]*""[^>]*>([\s\S]+)",
-            @"<div[^>]+id=""content""[^>]*>([\s\S]+?)</div>\s*</div>",
-            @"<div[^>]+id=""content""[^>]*>([\s\S]+)",
-            @"<div[^>]+class=""[^""]*\bcontent\b[^""]*""[^>]*>([\s\S]+)",
-            @"<article[^>]*>([\s\S]+?)</article>",
-        })
-        {
-            var m = Regex.Match(html, pattern, RegexOptions.IgnoreCase);
-            if (m.Success && m.Groups[1].Value.Length > 200)
+            string raw = txtNavMatch.Groups[1].Value;
+
+            // Cut off at the bottom pagination / tools / footer
+            var endMatch = Regex.Match(raw, @"<div[^>]+class=""[^""]*(?:page1|bottom-ad|txtbottom|bottom_tools)[^""]*""", RegexOptions.IgnoreCase);
+            if (endMatch.Success)
             {
-                content = m.Groups[1].Value;
-                break;
+                raw = raw[..endMatch.Index];
+            }
+            else
+            {
+                var closeMatch = Regex.Match(raw, @"</div>\s*</div>", RegexOptions.IgnoreCase);
+                if (closeMatch.Success && closeMatch.Index > 200)
+                    raw = raw[..closeMatch.Index];
+            }
+
+            // In 69shuba, <h1> is placed directly above the story text (below txtinfo and txtright).
+            // Taking everything after </h1> eliminates all header and navigation noise cleanly.
+            int h1End = raw.IndexOf("</h1>", StringComparison.OrdinalIgnoreCase);
+            if (h1End >= 0 && (raw.Length - h1End) > 200)
+            {
+                content = raw[(h1End + 5)..];
+            }
+            else
+            {
+                content = raw;
+            }
+        }
+
+        // Secondary / fallback containers if .txtnav was not matched
+        if (content == null)
+        {
+            foreach (var pattern in new[]
+            {
+                @"<div[^>]+id=""content""[^>]*>([\s\S]+?)</div>\s*</div>",
+                @"<div[^>]+id=""content""[^>]*>([\s\S]+)",
+                @"<div[^>]+class=""[^""]*\bcontent\b[^""]*""[^>]*>([\s\S]+)",
+                @"<div[^>]+class=""[^""]*read_content[^""]*""[^>]*>([\s\S]+)",
+                @"<div[^>]+id=""htmlContent""[^>]*>([\s\S]+)",
+                @"<div[^>]+id=""txt""[^>]*>([\s\S]+)",
+                @"<article[^>]*>([\s\S]+?)</article>",
+            })
+            {
+                var m = Regex.Match(html, pattern, RegexOptions.IgnoreCase);
+                if (m.Success && m.Groups[1].Value.Length > 200)
+                {
+                    content = m.Groups[1].Value;
+                    break;
+                }
             }
         }
 
         content ??= html;
 
+        // Clean out any embedded UI/ad containers (run multiple passes to collapse nested divs)
+        for (int pass = 0; pass < 3; pass++)
+        {
+            content = Regex.Replace(content, @"<div[^>]+class=""[^""]*txtinfo[^""]*""[^>]*>[\s\S]*?</div>", "", RegexOptions.IgnoreCase);
+            content = Regex.Replace(content, @"<div[^>]+class=""[^""]*hide720[^""]*""[^>]*>[\s\S]*?</div>", "", RegexOptions.IgnoreCase);
+            content = Regex.Replace(content, @"<div[^>]+(?:class=""[^""]*txtright[^""]*""|id=""txtright"")[^>]*>[\s\S]*?</div>", "", RegexOptions.IgnoreCase);
+            content = Regex.Replace(content, @"<div[^>]+class=""[^""]*(?:contentadv|bottom-ad|err_tips|page1|txtbottom|bottom_tools)[^""]*""[^>]*>[\s\S]*?</div>", "", RegexOptions.IgnoreCase);
+        }
+        content = Regex.Replace(content, @"<h1[^>]*>[\s\S]*?</h1>", "", RegexOptions.IgnoreCase);
+
         // Convert <br> and <p> to newlines, strip remaining tags
         content = Regex.Replace(content, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
-        content = Regex.Replace(content, @"<p[^>]*>",  "\n", RegexOptions.IgnoreCase);
+        content = Regex.Replace(content, @"</?p[^>]*>",  "\n", RegexOptions.IgnoreCase);
+        content = Regex.Replace(content, @"</?div[^>]*>", "\n", RegexOptions.IgnoreCase);
         content = Regex.Replace(content, @"<[^>]+>",   "");
         content = System.Net.WebUtility.HtmlDecode(content);
 
         var result = new List<string>();
         foreach (var line in content.Split('\n'))
         {
-            string trimmed = line.Trim().TrimStart('\u3000').Trim();
-            // Keep lines with CJK characters, skip lines with URLs or site watermarks
-            if (trimmed.Length > 0 &&
-                Regex.IsMatch(trimmed, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]") &&
-                !trimmed.Contains("69shuba") &&
-                !trimmed.Contains("www.") &&
-                !Regex.IsMatch(trimmed, @"https?://"))
+            string trimmed = line.Trim('\r', ' ', '\t', '\u3000', '\u00A0', '\u2002', '\u2003', '\u2009', '\uFEFF');
+            if (trimmed.Length == 0) continue;
+
+            // Filter out common site watermarks and URLs
+            if (trimmed.Contains("69shuba", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("69shu", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("www.", StringComparison.OrdinalIgnoreCase) ||
+                Regex.IsMatch(trimmed, @"https?://", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            // Keep lines with CJK characters or Chinese dialogue/punctuation
+            if (Regex.IsMatch(trimmed, @"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]") ||
+                (trimmed.Length >= 2 && Regex.IsMatch(trimmed, @"^[""“”'‘’（(].*[""“”'‘’）)…?!？！~]$")))
+            {
                 result.Add(trimmed);
+            }
         }
+
+        // Fallback: if CJK filter yielded 0 lines, keep non-watermark prose lines > 15 chars
+        if (result.Count == 0)
+        {
+            foreach (var line in content.Split('\n'))
+            {
+                string trimmed = line.Trim('\r', ' ', '\t', '\u3000', '\u00A0', '\u2002', '\u2003', '\u2009', '\uFEFF');
+                if (trimmed.Length > 15 &&
+                    !trimmed.Contains("69shuba", StringComparison.OrdinalIgnoreCase) &&
+                    !trimmed.Contains("69shu", StringComparison.OrdinalIgnoreCase) &&
+                    !trimmed.Contains("www.", StringComparison.OrdinalIgnoreCase) &&
+                    !Regex.IsMatch(trimmed, @"https?://", RegexOptions.IgnoreCase))
+                {
+                    result.Add(trimmed);
+                }
+            }
+        }
+
         return result;
     }
 }

@@ -33,7 +33,7 @@ public class DiscoverService
         Action<string>? log = null, CancellationToken ct = default)
     {
         string url = source.GetRecentUrl(page);
-        string html = await _fetcher.Fetch(url, log: log, ct: ct, forceBypass: source.RequiresCfBypass);
+        string html = await _fetcher.Fetch(url, log: log, ct: ct);
         return source.ParseListing(html, url);
     }
 
@@ -42,7 +42,7 @@ public class DiscoverService
         Action<string>? log = null, CancellationToken ct = default)
     {
         string url = source.GetPopularUrl(page);
-        string html = await _fetcher.Fetch(url, log: log, ct: ct, forceBypass: source.RequiresCfBypass);
+        string html = await _fetcher.Fetch(url, log: log, ct: ct);
         return source.ParseListing(html, url);
     }
 
@@ -50,7 +50,7 @@ public class DiscoverService
         IBrowsableAdapter source, string url,
         Action<string>? log = null, CancellationToken ct = default)
     {
-        string html = await _fetcher.Fetch(url, log: log, ct: ct, forceBypass: source.RequiresCfBypass);
+        string html = await _fetcher.Fetch(url, log: log, ct: ct);
         return source.ParseListing(html, url);
     }
 
@@ -63,7 +63,7 @@ public class DiscoverService
 
         string html = postInfo.HasValue
             ? await _fetcher.FetchPost(url, postInfo.Value.postBody, postInfo.Value.charset, log: log, ct: ct)
-            : await _fetcher.Fetch(url, log: log, ct: ct, forceBypass: source.RequiresCfBypass);
+            : await _fetcher.Fetch(url, log: log, ct: ct);
 
         return source.ParseListing(html, url);
     }

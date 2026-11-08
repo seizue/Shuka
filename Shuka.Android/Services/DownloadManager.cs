@@ -1285,11 +1285,11 @@ public class DownloadManager
         }
         catch (Shuka.Core.CloudflareExpiredException ex)
         {
-            Log($"Cloudflare cookie expired for {ex.SiteUrl}.");
+            Log($"Cloudflare verification required for {ex.SiteUrl}. Pausing download — open the site in WebView to pass the check, then Resume.");
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                item.StatusText = "Failed: Cloudflare cookie expired";
-                item.Status     = DownloadStatus.Failed;
+                item.StatusText = "Paused — Cloudflare check needed (tap Resume after fixing)";
+                item.Status     = DownloadStatus.Paused;
             });
             NotifyCloudflareCookieExpired(ex.SiteUrl);
         }
@@ -1534,11 +1534,12 @@ public class DownloadManager
 #pragma warning restore CA1416
         }
 
-        // Intent: open the site in the browser so the user can solve the challenge
-        var browserIntent = new global::Android.Content.Intent(
-            global::Android.Content.Intent.ActionView,
-            global::Android.Net.Uri.Parse($"https://{siteHost}"));
-        browserIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask);
+        // Intent: open the site in the app's internal WebBrowsePage so cookies are captured
+        var browserIntent = new global::Android.Content.Intent(ctx, typeof(MainActivity));
+        browserIntent.SetAction(global::Android.Content.Intent.ActionMain);
+        browserIntent.AddCategory(global::Android.Content.Intent.CategoryLauncher);
+        browserIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask | global::Android.Content.ActivityFlags.SingleTop);
+        browserIntent.PutExtra("open_webview_url", $"https://{siteHost}/");
 
 #pragma warning disable CA1416
         var pendingFlags = global::Android.OS.Build.VERSION.SdkInt >=
@@ -1556,7 +1557,7 @@ public class DownloadManager
 #pragma warning disable CS8602
         var notification = new AndroidX.Core.App.NotificationCompat.Builder(ctx, ChannelId)
             .SetContentTitle("Cloudflare verification needed")
-            .SetContentText($"Tap to open {siteHost} in your browser and complete the check, then retry the download.")
+            .SetContentText($"Tap to open {siteHost} in WebView to pass the check, then resume.")
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysWarning)
             .SetAutoCancel(true)
             .SetContentIntent(pi)
