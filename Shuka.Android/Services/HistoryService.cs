@@ -47,6 +47,34 @@ public class HistoryService
     private static string CoversDir =>
         Path.Combine(FileSystem.AppDataDirectory, "covers");
 
+    public static string? GetExternalBackupDir()
+    {
+#if ANDROID
+        try
+        {
+            var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+                global::Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+            if (!string.IsNullOrWhiteSpace(downloads))
+            {
+                string shukaDir = Path.Combine(downloads, "Shuka");
+                Directory.CreateDirectory(shukaDir);
+                return shukaDir;
+            }
+        }
+        catch { }
+#endif
+        return null;
+    }
+
+    private static string? ExternalHistoryBackupFile
+    {
+        get
+        {
+            string? dir = GetExternalBackupDir();
+            return dir != null ? Path.Combine(dir, ".shuka_history_backup.json") : null;
+        }
+    }
+
     private static readonly HttpClient _http = new(new HttpClientHandler
     {
         AutomaticDecompression = System.Net.DecompressionMethods.All,
@@ -216,22 +244,50 @@ public class HistoryService
         try
         {
             Directory.CreateDirectory(CoversDir);
-            if (!File.Exists(HistoryFile))
+
+            string? json = null;
+            if (File.Exists(HistoryFile))
             {
-                _loadedTcs.TrySetResult(); // no file — signal immediately
-                return;
+                json = await File.ReadAllTextAsync(HistoryFile);
+            }
+            else
+            {
+                // Restore from external backup (e.g. after reinstalling or updating)
+                string? backupPath = ExternalHistoryBackupFile;
+                if (backupPath != null && File.Exists(backupPath))
+                {
+                    try
+                    {
+                        json = await File.ReadAllTextAsync(backupPath);
+                        await File.WriteAllTextAsync(HistoryFile, json);
+                    }
+                    catch { }
+                }
             }
 
-            string json = await File.ReadAllTextAsync(HistoryFile);
-            var list = JsonSerializer.Deserialize<List<HistoryEntry>>(json);
-            if (list == null)
+            List<HistoryEntry>? list = null;
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                try { list = JsonSerializer.Deserialize<List<HistoryEntry>>(json); } catch { }
+            }
+
+            bool needsSave = false;
+
+            // Fallback: If still no entries, scan download directories for existing EPUBs to auto-reconstruct history
+            if (list == null || list.Count == 0)
+            {
+                list = ReconstructHistoryFromEpubFiles();
+                if (list.Count > 0)
+                    needsSave = true;
+            }
+
+            if (list == null || list.Count == 0)
             {
                 _loadedTcs.TrySetResult();
                 return;
             }
 
             // ── Fast pass: set file/cover availability (no ZIP reads) ──────────
-            bool needsSave = false;
             foreach (var entry in list)
             {
                 string? resolved = Shuka.Android.Platforms.Android.EpubOpener
@@ -350,9 +406,88 @@ public class HistoryService
             string json = JsonSerializer.Serialize(list,
                 new JsonSerializerOptions { WriteIndented = false });
             await File.WriteAllTextAsync(HistoryFile, json);
+
+            // Also mirror backup in Download/Shuka so history survives app uninstalls / updates
+            try
+            {
+                string? backupPath = ExternalHistoryBackupFile;
+                if (backupPath != null)
+                {
+                    if (list.Count > 0)
+                        await File.WriteAllTextAsync(backupPath, json);
+                    else if (File.Exists(backupPath))
+                        File.Delete(backupPath);
+                }
+            }
+            catch { }
         }
         catch { }
         finally { _saveLock.Release(); }
+    }
+
+    /// <summary>
+    /// If history was wiped (e.g. clean install or uninstall), scans all known EPUB
+    /// download folders and automatically reconstructs history records from existing EPUB files.
+    /// </summary>
+    private static List<HistoryEntry> ReconstructHistoryFromEpubFiles()
+    {
+        var recovered = new List<HistoryEntry>();
+        try
+        {
+            foreach (string dir in Shuka.Android.Platforms.Android.EpubOpener.EnumerateDownloadDirectories())
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (string file in Directory.EnumerateFiles(dir, "*.epub"))
+                {
+                    try
+                    {
+                        string fileName = Path.GetFileNameWithoutExtension(file);
+                        if (fileName.StartsWith("_sample_", StringComparison.OrdinalIgnoreCase)) continue;
+
+                        string title = fileName.Replace('_', ' ');
+                        string author = "Unknown";
+                        int chapterCount = TryCountChaptersFromEpub(file);
+
+                        // Try extracting OPF title/creator from the EPUB package
+                        try
+                        {
+                            using var stream = File.OpenRead(file);
+                            using var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+                            var opf = archive.GetEntry("OEBPS/content.opf");
+                            if (opf != null)
+                            {
+                                using var reader = new StreamReader(opf.Open());
+                                string opfText = reader.ReadToEnd();
+                                var tMatch = System.Text.RegularExpressions.Regex.Match(opfText, @"<dc:title[^>]*>(.*?)</dc:title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                                if (tMatch.Success && !string.IsNullOrWhiteSpace(tMatch.Groups[1].Value))
+                                    title = System.Net.WebUtility.HtmlDecode(tMatch.Groups[1].Value.Trim());
+
+                                var aMatch = System.Text.RegularExpressions.Regex.Match(opfText, @"<dc:creator[^>]*>(.*?)</dc:creator>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                                if (aMatch.Success && !string.IsNullOrWhiteSpace(aMatch.Groups[1].Value))
+                                    author = System.Net.WebUtility.HtmlDecode(aMatch.Groups[1].Value.Trim());
+                            }
+                        }
+                        catch { }
+
+                        var entry = new HistoryEntry
+                        {
+                            Id = Guid.NewGuid(),
+                            Title = title,
+                            Author = author,
+                            Url = "",
+                            EpubPath = file,
+                            ChapterCount = chapterCount,
+                            CompletedAt = File.GetLastWriteTime(file),
+                            IsFileAvailable = true
+                        };
+                        recovered.Add(entry);
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { }
+        return recovered;
     }
 
     // ── Cover caching & extraction ───────────────────────────────────────────

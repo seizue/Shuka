@@ -65,6 +65,21 @@ public class DownloadManager
             string json = JsonSerializer.Serialize(list);
             string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
             await File.WriteAllTextAsync(path, json);
+
+            // Also keep an external backup in Download/Shuka so downloads state survives app uninstalls / updates
+            try
+            {
+                string? extDir = HistoryService.GetExternalBackupDir();
+                if (extDir != null)
+                {
+                    string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
+                    if (list.Count > 0)
+                        await File.WriteAllTextAsync(backupPath, json);
+                    else if (File.Exists(backupPath))
+                        File.Delete(backupPath);
+                }
+            }
+            catch { }
         }
         catch { }
         finally { _saveLock.Release(); }
@@ -128,11 +143,63 @@ public class DownloadManager
         try
         {
             string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
-            if (!File.Exists(path)) return;
+            string? json = null;
+            if (File.Exists(path))
+            {
+                json = await File.ReadAllTextAsync(path);
+            }
+            else
+            {
+                // Restore from external backup if local file is missing
+                string? extDir = HistoryService.GetExternalBackupDir();
+                if (extDir != null)
+                {
+                    string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
+                    if (File.Exists(backupPath))
+                    {
+                        try
+                        {
+                            json = await File.ReadAllTextAsync(backupPath);
+                            await File.WriteAllTextAsync(path, json);
+                        }
+                        catch { }
+                    }
+                }
+            }
 
-            string json = await File.ReadAllTextAsync(path);
-            var list = JsonSerializer.Deserialize<List<DownloadItem>>(json);
-            if (list == null) return;
+            List<DownloadItem>? list = null;
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                try { list = JsonSerializer.Deserialize<List<DownloadItem>>(json); } catch { }
+            }
+
+            // Wait for history before reconciling — otherwise we cannot match URL → EPUB path.
+            await HistoryService.Instance.LoadedTask;
+
+            // If downloads queue is still empty, populate completed items from history so
+            // the downloads list stays populated after clean installs / updates
+            if (list == null || list.Count == 0)
+            {
+                list = new List<DownloadItem>();
+                foreach (var h in HistoryService.Instance.Entries)
+                {
+                    list.Add(new DownloadItem
+                    {
+                        Id = h.Id,
+                        Title = h.Title,
+                        Author = h.Author,
+                        Url = h.Url,
+                        CoverUrl = h.CoverUrl ?? "",
+                        Chapters = h.ChapterCount,
+                        TotalChapters = h.ChapterCount,
+                        EpubPath = h.EpubPath,
+                        Status = DownloadStatus.Completed,
+                        StatusText = "Done",
+                        Progress = 1.0,
+                        EnqueuedAt = h.CompletedAt
+                    });
+                }
+            }
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {

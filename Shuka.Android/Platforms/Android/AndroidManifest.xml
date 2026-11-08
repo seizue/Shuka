@@ -43,6 +43,7 @@
     <application
         android:label="Shuka"
         android:allowBackup="true"
+        android:hasFragileUserData="true"
         android:icon="@mipmap/appicon"
         android:roundIcon="@mipmap/appicon_round"
         android:supportsRtl="true">
