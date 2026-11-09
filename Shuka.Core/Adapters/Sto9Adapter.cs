@@ -138,6 +138,9 @@ public class Sto9Adapter : ISiteAdapter
         if (string.IsNullOrWhiteSpace(html))
             return new List<string>();
 
+        if (CloudflareHelper.IsChallenge(html))
+            throw new CloudflareExpiredException("sto9.com");
+
         // Remove noise blocks first
         html = Regex.Replace(html, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
         html = Regex.Replace(html, @"<style[\s\S]*?</style>",   "", RegexOptions.IgnoreCase);
@@ -234,23 +237,6 @@ public class Sto9Adapter : ISiteAdapter
                 (trimmed.Length >= 2 && Regex.IsMatch(trimmed, @"^[""“”'‘’（(].*[""“”'‘’）)…?!？！~]$")))
             {
                 result.Add(trimmed);
-            }
-        }
-
-        // Fallback: if CJK filter yielded 0 lines, keep non-watermark prose lines > 15 chars
-        if (result.Count == 0)
-        {
-            foreach (var line in content.Split('\n'))
-            {
-                string trimmed = line.Trim('\r', ' ', '\t', '\u3000', '\u00A0', '\u2002', '\u2003', '\u2009', '\uFEFF');
-                if (trimmed.Length > 15 &&
-                    !trimmed.Contains("sto9", StringComparison.OrdinalIgnoreCase) &&
-                    !trimmed.Contains("思兔", StringComparison.OrdinalIgnoreCase) &&
-                    !trimmed.Contains("www.", StringComparison.OrdinalIgnoreCase) &&
-                    !Regex.IsMatch(trimmed, @"https?://", RegexOptions.IgnoreCase))
-                {
-                    result.Add(trimmed);
-                }
             }
         }
 

@@ -409,6 +409,14 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     if (!isChallenge) break;
                 }
 
+                bool hasCfChallenge = IsCloudflareChallenge(html);
+                if (hasCfChallenge)
+                {
+                    tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
+                        new Uri(url).Host));
+                    return;
+                }
+
                 // Noveldex-only: wait for Next.js SPA hydration and extract chapter text
                 bool isNoveldex = Regex.IsMatch(url,
                     @"noveldex\.io/series/.+/chapter/\d+", RegexOptions.IgnoreCase);
@@ -438,6 +446,29 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                         if (!string.IsNullOrEmpty(html) && html.Contains("txtnav", StringComparison.OrdinalIgnoreCase))
                             break;
                     }
+
+                    if (string.IsNullOrEmpty(html) || !html.Contains("txtnav", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (IsCloudflareChallenge(html))
+                        {
+                            tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(new Uri(url).Host));
+                            return;
+                        }
+                    }
+                }
+
+                // Re-check after site-specific waits
+                if (IsCloudflareChallenge(html))
+                {
+                    tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
+                        new Uri(url).Host));
+                    return;
+                }
+
+                if (waited >= MaxWaitMs && (string.IsNullOrEmpty(html) || html.Length < 300))
+                {
+                    tcs.TrySetException(new TimeoutException($"Page load timed out for {url}"));
+                    return;
                 }
 
                 tcs.TrySetResult(html ?? "");
@@ -1158,26 +1189,6 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
     private static bool IsCloudflareChallenge(string? html)
     {
-        if (string.IsNullOrWhiteSpace(html)) return false;
-
-        // If the page contains real novel content or chapter list, it is NOT a challenge page
-        if (html.Length > 2000 &&
-            (html.Contains("bookname", StringComparison.OrdinalIgnoreCase) ||
-             html.Contains("mybox", StringComparison.OrdinalIgnoreCase) ||
-             html.Contains("/txt/", StringComparison.OrdinalIgnoreCase) ||
-             html.Contains("yuedu", StringComparison.OrdinalIgnoreCase) ||
-             (html.Contains("<h1", StringComparison.OrdinalIgnoreCase) && html.Contains("chapter", StringComparison.OrdinalIgnoreCase))))
-        {
-            return false;
-        }
-
-        // True Cloudflare challenge indicators
-        return html.Contains("<title>Just a moment", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("<title>Attention Required!", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("id=\"challenge-form\"", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("id=\"challenge-running\"", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("cf-chl-opt", StringComparison.OrdinalIgnoreCase) ||
-               html.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase) ||
-               (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) && html.Contains("checking your browser", StringComparison.OrdinalIgnoreCase));
+        return CloudflareHelper.IsChallenge(html);
     }
 }

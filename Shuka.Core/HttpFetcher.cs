@@ -42,7 +42,10 @@ public class HttpFetcher : IDisposable
         if (forceBypass && _cfBypass != null)
         {
             log?.Invoke($"[CF bypass] Forcing bypass on {url}");
-            return await _cfBypass.FetchAsync(url, ct);
+            string bypassed = await _cfBypass.FetchAsync(url, ct);
+            if (CloudflareHelper.IsChallenge(bypassed))
+                throw new CloudflareExpiredException(new Uri(url).Host);
+            return bypassed;
         }
 
         int delay = 500;
@@ -78,7 +81,10 @@ public class HttpFetcher : IDisposable
                     if (_cfBypass != null)
                     {
                         log?.Invoke("[cloudflare] Using bypass...");
-                        return await _cfBypass.FetchAsync(url, ct);
+                        string bypassed = await _cfBypass.FetchAsync(url, ct);
+                        if (CloudflareHelper.IsChallenge(bypassed))
+                            throw new CloudflareExpiredException(new Uri(url).Host);
+                        return bypassed;
                     }
                     throw new Exception("Cloudflare blocked the request and no bypass is configured.");
                 }
@@ -92,6 +98,8 @@ public class HttpFetcher : IDisposable
                     {
                         log?.Invoke($"[CF bypass] {(int)resp.StatusCode} (no CF header) on {url}");
                         string bypassed = await _cfBypass.FetchAsync(url, ct);
+                        if (CloudflareHelper.IsChallenge(bypassed))
+                            throw new CloudflareExpiredException(new Uri(url).Host);
                         log?.Invoke($"[CF bypass] got {bypassed.Length}b, cf={bypassed.Contains("cf-chl-opt")}");
                         return bypassed;
                     }
@@ -107,11 +115,7 @@ public class HttpFetcher : IDisposable
                     // Using ASCII would replace bytes > 127 with '?' and break the regex.
                     string latin1 = Encoding.Latin1.GetString(rawBytes);
 
-                    bool isCfChallenge = latin1.Contains("cf-browser-verification") ||
-                                         latin1.Contains("jschl-answer") ||
-                                         latin1.Contains("challenge-form") ||
-                                         latin1.Contains("cf-chl-opt") ||          // managed challenge (69shuba)
-                                         (latin1.Contains("cloudflare") && latin1.Contains("checking your browser"));
+                    bool isCfChallenge = CloudflareHelper.IsChallenge(latin1);
 
                     // Also detect the czbooks login-wall stub (tiny page with no real content)
                     bool isLoginWall = rawBytes.Length < 2000 &&
@@ -125,7 +129,10 @@ public class HttpFetcher : IDisposable
                             log?.Invoke(isCfChallenge
                                 ? "[cloudflare] JS challenge detected, using bypass..."
                                 : "[cloudflare] Login wall detected, using bypass...");
-                            return await _cfBypass.FetchAsync(url, ct);
+                            string bypassed = await _cfBypass.FetchAsync(url, ct);
+                            if (CloudflareHelper.IsChallenge(bypassed))
+                                throw new CloudflareExpiredException(new Uri(url).Host);
+                            return bypassed;
                         }
                         throw new Exception("Cloudflare/login wall detected and no bypass is configured.");
                     }
