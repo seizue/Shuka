@@ -131,7 +131,9 @@ public class Translator
             }
             if (cur.Message.Contains("Software caused connection abort", StringComparison.OrdinalIgnoreCase) ||
                 cur.Message.Contains("connection abort", StringComparison.OrdinalIgnoreCase) ||
-                cur.Message.Contains("ECONNABORTED", StringComparison.OrdinalIgnoreCase))
+                cur.Message.Contains("ECONNABORTED", StringComparison.OrdinalIgnoreCase) ||
+                cur.Message.Contains("Socket closed", StringComparison.OrdinalIgnoreCase) ||
+                cur.Message.Contains("Connection reset by peer", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -430,72 +432,91 @@ public class Translator
 
     /// <summary>
     /// Microsoft Bing Translator web API. Caches session parameters for up to 10 minutes.
+    /// Handles socket closes, connection aborts, and stale sessions with automatic self-recovery.
     /// </summary>
     private async Task<string?> CallBingTranslator(string chunk, CancellationToken ct, string fromLang = "auto-detect")
     {
-        await EnsureBingSessionAsync(ct);
-        if (_bingToken == null || _bingKey == null)
-            return null;
-
-        string postUrl = $"https://www.bing.com/ttranslatev3?isVertical=1&IG={_bingIg}&IID={_bingIid}";
-        var form = new Dictionary<string, string>
+        for (int attempt = 1; attempt <= 2; attempt++)
         {
-            { "fromLang", fromLang },
-            { "to", "en" },
-            { "text", chunk },
-            { "token", _bingToken },
-            { "key", _bingKey }
-        };
-
-        using var postReq = new HttpRequestMessage(HttpMethod.Post, postUrl);
-        postReq.Headers.TryAddWithoutValidation("User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-        postReq.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-        postReq.Content = new FormUrlEncodedContent(form);
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(12));
-
-        var resp = await _http.SendAsync(postReq, cts.Token);
-        if (!resp.IsSuccessStatusCode)
-        {
-            // Reset cached session on HTTP failure
-            _bingToken = null;
-            throw new Exception($"Bing HTTP {(int)resp.StatusCode}");
-        }
-
-        string json = await resp.Content.ReadAsStringAsync(cts.Token);
-        using var jdoc = JsonDocument.Parse(json);
-        var root = jdoc.RootElement;
-        if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
-        {
-            var first = root[0];
-            if (first.TryGetProperty("translations", out var transArray) && transArray.GetArrayLength() > 0)
+            ct.ThrowIfCancellationRequested();
+            try
             {
-                string? text = transArray[0].GetProperty("text").GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                    return text.Trim();
+                await EnsureBingSessionAsync(ct, forceRefresh: attempt > 1);
+                if (_bingToken == null || _bingKey == null)
+                    return null;
+
+                string postUrl = $"https://www.bing.com/ttranslatev3?isVertical=1&IG={_bingIg}&IID={_bingIid}";
+                var form = new Dictionary<string, string>
+                {
+                    { "fromLang", fromLang },
+                    { "to", "en" },
+                    { "text", chunk },
+                    { "token", _bingToken },
+                    { "key", _bingKey }
+                };
+
+                using var postReq = new HttpRequestMessage(HttpMethod.Post, postUrl);
+                postReq.Headers.TryAddWithoutValidation("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+                postReq.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                // Disable keep-alive socket reuse for bulk chapter requests so dead sockets don't throw 'socket closed'
+                postReq.Headers.ConnectionClose = true;
+                postReq.Content = new FormUrlEncodedContent(form);
+
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(12));
+
+                var resp = await _http.SendAsync(postReq, cts.Token);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _bingToken = null;
+                    throw new Exception($"Bing HTTP {(int)resp.StatusCode}");
+                }
+
+                string json = await resp.Content.ReadAsStringAsync(cts.Token);
+                using var jdoc = JsonDocument.Parse(json);
+                var root = jdoc.RootElement;
+                if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+                {
+                    var first = root[0];
+                    if (first.TryGetProperty("translations", out var transArray) && transArray.GetArrayLength() > 0)
+                    {
+                        string? text = transArray[0].GetProperty("text").GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                            return text.Trim();
+                    }
+                }
+
+                return null;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception)
+            {
+                _bingToken = null; // Invalidate cached session so retry or next chunk acquires a fresh session
+                if (attempt == 2) throw;
+                await Task.Delay(300 * attempt, ct);
             }
         }
 
         return null;
     }
 
-    private async Task EnsureBingSessionAsync(CancellationToken ct)
+    private async Task EnsureBingSessionAsync(CancellationToken ct, bool forceRefresh = false)
     {
-        if (_bingToken != null && DateTime.UtcNow < _bingTokenExpiry)
+        if (!forceRefresh && _bingToken != null && DateTime.UtcNow < _bingTokenExpiry)
             return;
 
         await _bingAuthLock.WaitAsync(ct);
         try
         {
-            if (_bingToken != null && DateTime.UtcNow < _bingTokenExpiry)
+            if (!forceRefresh && _bingToken != null && DateTime.UtcNow < _bingTokenExpiry)
                 return;
 
             using var req = new HttpRequestMessage(HttpMethod.Get, "https://www.bing.com/translator");
             req.Headers.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
             req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+            req.Headers.ConnectionClose = true;
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
