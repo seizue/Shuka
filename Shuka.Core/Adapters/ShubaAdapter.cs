@@ -176,30 +176,28 @@ public class ShubaAdapter : ISiteAdapter
         {
             string raw = txtNavMatch.Groups[1].Value;
 
+            // In 69shuba, <h1> is placed directly above the story text (below txtinfo and txtright).
+            // Taking everything after </h1> eliminates all header and navigation noise cleanly.
+            int h1End = raw.IndexOf("</h1>", StringComparison.OrdinalIgnoreCase);
+            if (h1End >= 0 && (raw.Length - h1End) > 50)
+            {
+                raw = raw[(h1End + 5)..];
+            }
+
             // Cut off at the bottom pagination / tools / footer
-            var endMatch = Regex.Match(raw, @"<div[^>]+class=""[^""]*(?:page1|bottom-ad|txtbottom|bottom_tools)[^""]*""", RegexOptions.IgnoreCase);
+            var endMatch = Regex.Match(raw, @"<div[^>]+class=""[^""]*(?:page1|bottom-ad|txtbottom|bottom_tools|page_bottom)[^""]*""", RegexOptions.IgnoreCase);
             if (endMatch.Success)
             {
                 raw = raw[..endMatch.Index];
             }
             else
             {
-                var closeMatch = Regex.Match(raw, @"</div>\s*</div>", RegexOptions.IgnoreCase);
-                if (closeMatch.Success && closeMatch.Index > 200)
-                    raw = raw[..closeMatch.Index];
+                int lastDiv = raw.LastIndexOf("</div>", StringComparison.OrdinalIgnoreCase);
+                if (lastDiv > 200)
+                    raw = raw[..lastDiv];
             }
 
-            // In 69shuba, <h1> is placed directly above the story text (below txtinfo and txtright).
-            // Taking everything after </h1> eliminates all header and navigation noise cleanly.
-            int h1End = raw.IndexOf("</h1>", StringComparison.OrdinalIgnoreCase);
-            if (h1End >= 0 && (raw.Length - h1End) > 200)
-            {
-                content = raw[(h1End + 5)..];
-            }
-            else
-            {
-                content = raw;
-            }
+            content = raw;
         }
 
         // Secondary / fallback containers if .txtnav was not matched

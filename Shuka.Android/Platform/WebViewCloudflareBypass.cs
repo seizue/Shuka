@@ -74,12 +74,17 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             var cm = global::Android.Webkit.CookieManager.Instance;
             if (cm == null) return null;
 
-            // Try full origin with trailing slash, plain origin, and non-www
-            string? cookies = cm.GetCookie($"https://{host}/");
+            // Try full origin with and without trailing slash
+            string? cookies = cm.GetCookie($"https://{host}/") ?? cm.GetCookie($"https://{host}");
+
+            // Try alternate (www / non-www)
             if (string.IsNullOrWhiteSpace(cookies))
-                cookies = cm.GetCookie($"https://{host}");
-            if (string.IsNullOrWhiteSpace(cookies) && host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
-                cookies = cm.GetCookie($"https://{host[4..]}/");
+            {
+                string altHost = host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+                    ? host[4..]
+                    : "www." + host;
+                cookies = cm.GetCookie($"https://{altHost}/") ?? cm.GetCookie($"https://{altHost}");
+            }
 
             if (string.IsNullOrWhiteSpace(cookies)) return null;
             return cookies;
@@ -152,14 +157,23 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             if (cm == null) return null;
 
             string? cookies = cm.GetCookie(url);
+            if (!string.IsNullOrWhiteSpace(cookies)) return cookies;
+
+            var uri = new Uri(url);
+            string host = uri.Host;
+            cookies = cm.GetCookie($"{uri.Scheme}://{host}/");
+            if (string.IsNullOrWhiteSpace(cookies))
+                cookies = cm.GetCookie($"{uri.Scheme}://{host}");
+
             if (string.IsNullOrWhiteSpace(cookies))
             {
-                var uri = new Uri(url);
-                cookies = cm.GetCookie($"{uri.Scheme}://{uri.Host}/");
-                if (string.IsNullOrWhiteSpace(cookies) && uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
-                {
-                    cookies = cm.GetCookie($"{uri.Scheme}://{uri.Host[4..]}/");
-                }
+                string altHost = host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+                    ? host[4..]
+                    : "www." + host;
+
+                cookies = cm.GetCookie($"{uri.Scheme}://{altHost}/");
+                if (string.IsNullOrWhiteSpace(cookies))
+                    cookies = cm.GetCookie($"{uri.Scheme}://{altHost}");
             }
 
             if (string.IsNullOrWhiteSpace(cookies)) return null;
@@ -449,11 +463,13 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                     if (string.IsNullOrEmpty(html) || !html.Contains("txtnav", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (IsCloudflareChallenge(html))
+                        if (IsCloudflareChallenge(html) || (html != null && (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) || html.Contains("cf-", StringComparison.OrdinalIgnoreCase))))
                         {
                             tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(new Uri(url).Host));
                             return;
                         }
+                        tcs.TrySetException(new InvalidOperationException($"69shuba chapter content container (.txtnav) not found on {url}"));
+                        return;
                     }
                 }
 
@@ -470,6 +486,10 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     tcs.TrySetException(new TimeoutException($"Page load timed out for {url}"));
                     return;
                 }
+
+#if ANDROID
+                try { global::Android.Webkit.CookieManager.Instance?.Flush(); } catch { }
+#endif
 
                 tcs.TrySetResult(html ?? "");
             }
@@ -1108,6 +1128,26 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 Grid.SetColumnSpan(overlay, 99);
             }
             host.Add(overlay);
+#if ANDROID
+            if (webView.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                try
+                {
+                    var settings = awv.Settings;
+                    settings.JavaScriptEnabled = true;
+                    settings.DomStorageEnabled = true;
+                    settings.DatabaseEnabled = true;
+                    settings.UseWideViewPort = true;
+                    settings.LoadWithOverviewMode = true;
+                    settings.SetSupportMultipleWindows(false);
+                    settings.JavaScriptCanOpenWindowsAutomatically = false;
+                    settings.UserAgentString = "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+                    awv.OnResume();
+                    awv.ResumeTimers();
+                }
+                catch { }
+            }
+#endif
             return (host, overlay);
         }
 
