@@ -118,7 +118,7 @@ public static class EpubBuilder
                 $"<title>{Escape(chTitle)}</title>" +
                 "<link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/>" +
                 "<style>body{font-family:Georgia,serif;line-height:1.8;margin:2em}h2{text-align:left;}p{margin:0 0 0.5em 0 !important;text-indent:0 !important;line-height:1.8 !important;}</style>" +
-                $"</head><body><h2>{Escape(chTitle)}</h2>" +
+                $"</head><body><h2>{Escape(SanitizeChapterHeading(chTitle, idx))}</h2>" +
                 string.Join("", paras) + "</body></html>");
         }
 
@@ -172,6 +172,24 @@ public static class EpubBuilder
             "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">" +
             $"<head><meta name=\"dtb:uid\" content=\"{uid}\"/></head>" +
             $"<docTitle><text>{Escape(mainTitle)}</text></docTitle><navMap>{np}</navMap></ncx>");
+    }
+
+    /// <summary>
+    /// Prevents doubled numbering in chapter headings.
+    /// If the title is already "Chapter N" or "Chapter N something" and idx matches N,
+    /// return it as-is. If the title is a bare number or empty, synthesize "Chapter N".
+    /// Strips leading Chinese chapter markers (第N章) that survive translation as bare numbers.
+    /// </summary>
+    private static string SanitizeChapterHeading(string chTitle, int idx)
+    {
+        if (string.IsNullOrWhiteSpace(chTitle))
+            return $"Chapter {idx}";
+
+        // Bare number (e.g. the site title was just "3") — replace with "Chapter N"
+        if (System.Text.RegularExpressions.Regex.IsMatch(chTitle.Trim(), @"^\d+$"))
+            return $"Chapter {idx}";
+
+        return chTitle;
     }
 
     public static string GenerateCoverSvg(string titleEn, string titleZh, string authorEn, string authorZh, bool translate = true)

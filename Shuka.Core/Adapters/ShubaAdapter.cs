@@ -115,16 +115,15 @@ public class ShubaAdapter : ISiteAdapter
             .Cast<Match>()
             .Select(m => new
             {
-                ChapterId = m.Groups[1].Value,
-                Title     = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value.Trim())
+                ChapterId    = m.Groups[1].Value,
+                ChapterIdInt = int.TryParse(m.Groups[1].Value, out int cid) ? cid : 0,
+                Title        = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value.Trim())
             })
             .DistinctBy(x => x.ChapterId)
+            // Sort ascending by numeric chapter ID so chapter 1 is always index 0,
+            // regardless of whether the page renders newest-first or oldest-first.
+            .OrderBy(x => x.ChapterIdInt)
             .ToList();
-
-        // 69shuba lists chapters newest-first in the HTML (reverse chronological).
-        // Reverse so index 0 = Chapter 1 (oldest), which is what every other adapter returns
-        // and what chapterFrom / chapterLimit counting depends on.
-        chapters.Reverse();
 
         var chapterRefs = chapters
             .Select((x, i) => new ChapterRef(
