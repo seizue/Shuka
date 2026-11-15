@@ -768,6 +768,8 @@ public class DownloadManager
             book.TitleEn  ??= !string.IsNullOrWhiteSpace(item.Title)  ? item.Title  : book.Title;
             book.AuthorEn ??= !string.IsNullOrWhiteSpace(item.Author) ? item.Author : book.Author;
 
+            await service.DownloadCoverAsync(book.CoverUrl, Log, ct);
+
             var saved = checkpointPath != null
                 ? await CheckpointService.LoadAsync(checkpointPath, book.Total)
                 : null;

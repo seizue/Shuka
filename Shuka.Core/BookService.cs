@@ -741,6 +741,13 @@ public class BookService
         return (null, "image/jpeg"); // unreachable but satisfies compiler
     }
 
+    public async Task DownloadCoverAsync(string? coverUrl, Action<string>? log = null, CancellationToken ct = default)
+    {
+        var (bytes, mime) = await DownloadCover(coverUrl, log, ct);
+        LastCoverBytes = bytes;
+        LastCoverMime = mime;
+    }
+
     private static ISiteAdapter DetectAdapter(string url) =>
         Adapters.FirstOrDefault(a => a.Matches(url))
         ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net");
