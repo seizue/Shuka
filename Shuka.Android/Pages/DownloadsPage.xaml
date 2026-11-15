@@ -498,8 +498,7 @@
                                        FontSize="18"
                                        TextColor="{DynamicResource AccentLight}"
                                        VerticalOptions="Center" />
-                                <Label x:Name="OptionsSheetOpenInBrowserLabel"
-                                       Text="Open in In-App Browser (Fix Cloudflare)"
+                                <Label Text="Open in In-App Browser"
                                        Grid.Column="1"
                                        FontSize="13"
                                        FontAttributes="Bold"
