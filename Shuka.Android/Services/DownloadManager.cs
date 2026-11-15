@@ -457,6 +457,8 @@ public class DownloadManager
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 item.Cts = new CancellationTokenSource();
+                // Reset the CF retry counter so manual retries don't consume the automatic cap.
+                item.CfRetryCount = 0;
                 item.StatusText = "Queued — waiting for slot...";
                 item.Status     = DownloadStatus.Pending;
                 _ = ProcessQueueAsync();
@@ -1302,6 +1304,7 @@ public class DownloadManager
             {
                 item.CfRetryCount++;
                 Log($"Cloudflare verification required for {ex.SiteUrl} (attempt {item.CfRetryCount}/3). Waiting for cookie refresh...");
+                System.Diagnostics.Debug.WriteLine($"[DownloadManager] WaitingForCF: attempt {item.CfRetryCount}/3 for {ex.SiteUrl}, item={item.Title}");
 
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
@@ -1318,14 +1321,23 @@ public class DownloadManager
                     // Unsubscribe immediately — one-shot
                     Platform.WebViewCloudflareBypass.CookiesRefreshed -= cookieHandler;
                     cookieRefreshCts.Cancel();
+                    System.Diagnostics.Debug.WriteLine($"[DownloadManager] CookiesRefreshed fired — scheduling re-queue for '{item.Title}' in 1.5s");
 
-                    MainThread.BeginInvokeOnMainThread(() =>
+                    // Small delay so the CookieManager flush has fully propagated to WebKit
+                    // before the persistent WebView starts its next navigation. Without this,
+                    // the WebView may start loading before cf_clearance is visible and trigger
+                    // a fresh CF challenge instead of passing with the new cookie.
+                    _ = Task.Run(async () =>
                     {
-                        if (item.Status != DownloadStatus.WaitingForCF) return;
-                        item.Cts = new CancellationTokenSource();
-                        item.StatusText = "Queued — Cloudflare cookies refreshed";
-                        item.Status     = DownloadStatus.Pending;
-                        _ = ProcessQueueAsync();
+                        await Task.Delay(1500); // let CookieManager.Flush() settle
+                        await MainThread.InvokeOnMainThreadAsync(() =>
+                        {
+                            if (item.Status != DownloadStatus.WaitingForCF) return;
+                            item.Cts = new CancellationTokenSource();
+                            item.StatusText = "Queued — Cloudflare cookies refreshed";
+                            item.Status     = DownloadStatus.Pending;
+                            _ = ProcessQueueAsync();
+                        });
                     });
                 };
                 Platform.WebViewCloudflareBypass.CookiesRefreshed += cookieHandler;
@@ -1691,15 +1703,36 @@ public class DownloadManager
     private static string GetDefaultOutputDirectory()
     {
 #if ANDROID
-        var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
-            global::Android.OS.Environment.DirectoryDownloads)!.AbsolutePath;
-        string dir = Path.Combine(downloads, "Shuka");
+        // Prefer the public Downloads/Shuka folder — accessible from any file manager.
+        // This works when the SAF tree URI has been granted (CopyToOutputAsync uses SAF),
+        // or on devices where direct filesystem access to Downloads is still allowed.
+        // Falls back to app-specific external storage (no-permission-needed) as a safety net.
+        try
+        {
+            var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+                global::Android.OS.Environment.DirectoryDownloads)!.AbsolutePath;
+            string dir = Path.Combine(downloads, "Shuka");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+        catch
+        {
+            // Android 10+ scoped storage: fall back to app-specific external storage.
+            // User can grant proper Downloads access via the first-launch folder prompt.
+            var externalFilesDir = global::Android.App.Application.Context
+                .GetExternalFilesDir(global::Android.OS.Environment.DirectoryDownloads);
+            string dir = externalFilesDir != null
+                ? Path.Combine(externalFilesDir.AbsolutePath, "Shuka")
+                : Path.Combine(FileSystem.AppDataDirectory, "Shuka");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
 #else
         string dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Shuka");
-#endif
         Directory.CreateDirectory(dir);
         return dir;
+#endif
     }
 
     private static string SanitizeFileName(string name)

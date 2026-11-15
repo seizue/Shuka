@@ -128,6 +128,12 @@ public class BookService
             : info.ChapterUrls.Skip(from).ToList();
 
         int total = rangedUrls.Count;
+        if (total == 0)
+        {
+            if (CloudflareHelper.IsChallenge(html))
+                throw new CloudflareExpiredException(new Uri(indexUrl).Host);
+            throw new InvalidOperationException($"No chapters found for {indexUrl}. Please verify the URL or open it in the in-app browser first.");
+        }
         string? coverUrl = forceCoverUrl ?? info.CoverUrl ?? TryExtractCover(html, indexUrl);
 
         // If the adapter couldn't find a cover in the index page, try the hint URL

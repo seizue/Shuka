@@ -53,8 +53,11 @@ public class ShubaAdapter : ISiteAdapter
 
     public IndexInfo ParseIndex(string html, string indexUrl)
     {
+        if (CloudflareHelper.IsChallenge(html))
+            throw new CloudflareExpiredException("69shuba.com");
+
         // ── Book ID ───────────────────────────────────────────────────────────
-        string bookId = Regex.Match(indexUrl, @"/book/(\d+)/").Groups[1].Value;
+        string bookId = Regex.Match(indexUrl, @"/(?:book|txt)/(\d+)").Groups[1].Value;
 
         // Strip scripts/styles to avoid matching nav/ad text
         string cleanHtml = Regex.Replace(html, @"<script[\s\S]*?</script>", "", RegexOptions.IgnoreCase);
@@ -96,9 +99,17 @@ public class ShubaAdapter : ISiteAdapter
 
         // ── Chapter list ──────────────────────────────────────────────────────
         // Links: href="/txt/{bookId}/{chapterId}"  or  href="https://www.69shuba.com/txt/{bookId}/{chapterId}"
+        string idPattern = string.IsNullOrEmpty(bookId) ? @"\d+" : Regex.Escape(bookId);
         var chapterMatches = Regex.Matches(html,
-            @"href=[""'](?:https?://(?:www\.)?69shuba\.com)?/txt/" + Regex.Escape(bookId) + @"/(\d+)[""'][^>]*>([^<]*)</a>",
+            @"href=[""'](?:https?://(?:www\.)?69shuba\.[a-z]+)?/txt/" + idPattern + @"/(\d+)[""'][^>]*>([^<]*)</a>",
             RegexOptions.IgnoreCase);
+
+        if (chapterMatches.Count == 0)
+        {
+            chapterMatches = Regex.Matches(html,
+                @"href=[""'](?:https?://[^""']+)?/txt/(?:" + idPattern + @"/)?(\d+)[""'][^>]*>([^<]+)</a>",
+                RegexOptions.IgnoreCase);
+        }
 
         var chapters = chapterMatches
             .Cast<Match>()
@@ -108,10 +119,23 @@ public class ShubaAdapter : ISiteAdapter
                 Title     = System.Net.WebUtility.HtmlDecode(m.Groups[2].Value.Trim())
             })
             .DistinctBy(x => x.ChapterId)
+            .ToList();
+
+        // 69shuba lists chapters newest-first in the HTML (reverse chronological).
+        // Reverse so index 0 = Chapter 1 (oldest), which is what every other adapter returns
+        // and what chapterFrom / chapterLimit counting depends on.
+        chapters.Reverse();
+
+        var chapterRefs = chapters
             .Select((x, i) => new ChapterRef(
                 $"https://www.69shuba.com/txt/{bookId}/{x.ChapterId}",
                 string.IsNullOrWhiteSpace(x.Title) ? $"Chapter {i + 1}" : x.Title))
             .ToList();
+
+        if (chapters.Count == 0 && (string.IsNullOrWhiteSpace(html) || html.Length < 500))
+        {
+            throw new InvalidOperationException($"Empty or truncated HTML received from {indexUrl}");
+        }
 
         // ── Cover ─────────────────────────────────────────────────────────────
         // Try og:image / img tag in the chapter list page first
@@ -142,7 +166,7 @@ public class ShubaAdapter : ISiteAdapter
             cover = $"https://cdn.cdnshu.com/files/article/image/{prefix}/{bookId}/{bookId}s.jpg";
         }
 
-        return new IndexInfo(title, author, chapters, cover);
+        return new IndexInfo(title, author, chapterRefs, cover);
     }
 
     public List<string> ExtractChapterText(string html)

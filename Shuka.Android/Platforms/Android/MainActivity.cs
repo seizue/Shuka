@@ -45,10 +45,19 @@ public class MainActivity : MauiAppCompatActivity
     /// Opens the system folder picker and returns the selected tree URI, or null if cancelled.
     /// </summary>
     public Task<AndroidUri?> PickFolderAsync()
+        => PickFolderAsync(initialUri: null);
+
+    /// <summary>
+    /// Opens the system folder picker, optionally pre-navigated to <paramref name="initialUri"/>,
+    /// and returns the selected tree URI, or null if cancelled.
+    /// </summary>
+    public Task<AndroidUri?> PickFolderAsync(AndroidUri? initialUri)
     {
         _folderPickerTcs = new TaskCompletionSource<AndroidUri?>();
         var intent = new Intent(Intent.ActionOpenDocumentTree);
         intent.AddFlags(ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantWriteUriPermission);
+        if (initialUri != null)
+            intent.PutExtra("android.provider.extra.INITIAL_URI", initialUri);
         StartActivityForResult(intent, FolderPickerRequestCode);
         return _folderPickerTcs.Task;
     }
@@ -210,6 +219,65 @@ public class MainActivity : MauiAppCompatActivity
         base.OnResume();
         TriggerPendingNavigationIfAny();
         MainThread.BeginInvokeOnMainThread(AppShell.SyncTabBarToCurrentPage);
+#if ANDROID
+        // One-time first-launch folder permission prompt.
+        // Runs after the UI is fully visible (OnResume fires after OnCreate + first draw).
+        _ = TriggerFirstLaunchFolderPromptAsync();
+#endif
+    }
+
+    private const string PrefKeyFolderPromptDone = "folder_prompt_done_v1";
+
+    /// <summary>
+    /// Shows a one-time dialog on first launch (or first run after install/update) explaining
+    /// that Shuka needs access to the Downloads/Shuka folder, then opens the SAF folder picker
+    /// pre-navigated there. Skipped if the user already set a folder or cancelled once before.
+    /// </summary>
+    private async Task TriggerFirstLaunchFolderPromptAsync()
+    {
+        // Only run once
+        if (Preferences.Default.Get(PrefKeyFolderPromptDone, false)) return;
+        // Already configured via SAF tree URI — no need to prompt
+        if (!string.IsNullOrEmpty(Preferences.Default.Get("download_tree_uri", ""))) return;
+
+        // Mark done immediately so a rotation/resume cycle doesn't re-trigger
+        Preferences.Default.Set(PrefKeyFolderPromptDone, true);
+
+        // Brief delay so the splash → home transition finishes first
+        await Task.Delay(1200);
+
+        // Build the initial URI pointing at primary storage Downloads
+        // Format: content://com.android.externalstorage.documents/tree/primary%3ADownload
+        AndroidUri? initialUri = null;
+        try
+        {
+            initialUri = AndroidUri.Parse(
+                "content://com.android.externalstorage.documents/document/primary%3ADownload%2FShuka");
+        }
+        catch { /* ignore — picker will just open at default location */ }
+
+        // Show rationale dialog on the main thread
+        bool proceed = false;
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var page = Microsoft.Maui.Controls.Application.Current?.Windows
+                           .FirstOrDefault()?.Page;
+            if (page == null) return;
+            proceed = await page.DisplayAlertAsync(
+                "Choose Download Folder",
+                "Shuka saves novels to your Downloads/Shuka folder so you can find them in any file manager.\n\nTap OK to grant access — your Downloads folder will open automatically.",
+                "OK", "Skip");
+        });
+
+        if (!proceed) return;
+
+        try
+        {
+            var treeUri = await PickFolderAsync(initialUri);
+            if (treeUri != null)
+                Services.DownloadManager.SetOutputDirectoryFromUri(treeUri);
+        }
+        catch { /* ignore picker errors */ }
     }
 
     private void HandleNotificationIntent(Intent? intent)

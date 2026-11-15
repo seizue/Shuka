@@ -26,9 +26,10 @@ namespace Shuka.Android.Platform;
 public class WebViewCloudflareBypass : ICloudflareBypass
 {
     // Max time to wait for a hidden-WebView CF challenge to auto-resolve.
-    // Lowered from 35 s to 20 s — managed challenges can never auto-resolve so
-    // there is no value in waiting longer; old-style JS challenges resolve in <10 s.
-    private const int MaxWaitMs   = 20000;
+    // Set to 2 minutes — when a CF Managed Challenge is detected, the persistent
+    // WebView is brought to the foreground so the user can solve it interactively.
+    // Old-style JS challenges auto-resolve in <10 s.
+    private const int MaxWaitMs   = 120000;
     private const int PollMs      = 1000;
 
     // Register extended encodings (GBK, Big5, etc.) once
@@ -122,13 +123,19 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         try
         {
             string? existingCookies = GetCookiesForUrl(url);
+            System.Diagnostics.Debug.WriteLine(
+                $"[CFBypass] FetchAsync fast-path: cookies={(existingCookies != null ? "present" : "null")}, cf_clearance={existingCookies?.Contains("cf_clearance") == true}");
             if (!string.IsNullOrEmpty(existingCookies))
             {
                 string? fastHtml = await TryHttpWithCookiesAsync(url, existingCookies, ct);
+                bool fastIsChallenge = fastHtml != null && CloudflareHelper.IsChallenge(fastHtml);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CFBypass] FetchAsync fast-path result: html={(fastHtml?.Length ?? 0)}b, isChallenge={fastIsChallenge}");
                 if (!string.IsNullOrEmpty(fastHtml) &&
                     fastHtml.Length > 500 &&
-                    !IsCloudflareChallenge(fastHtml))
+                    !fastIsChallenge)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[CFBypass] FetchAsync fast-path SUCCESS for {url}");
                     return fastHtml;
                 }
                 // Cookies exist but are expired/invalid — fall through to WebView path
@@ -461,19 +468,61 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                     if (titleIsChallenge)
                     {
-                        // Fast-fail for CF Managed Challenge: if we have been polling for
-                        // 3 s or less, this is almost certainly a Managed Challenge (Turnstile)
-                        // which can NEVER auto-resolve in a hidden WebView. No point waiting 20 s.
+                        bool hasCfClearanceCookie = false;
+#if ANDROID
+                        try
+                        {
+                            string? ck = GetCookiesForUrl(url);
+                            hasCfClearanceCookie = !string.IsNullOrEmpty(ck) &&
+                                ck.Contains("cf_clearance", StringComparison.OrdinalIgnoreCase);
+                        }
+                        catch { }
+#endif
+                        // Always bring the WebView to the foreground on the first challenge detection
+                        // so the user can interact with CF Managed Challenge (Turnstile).
+                        // A hidden WebView with InputTransparent=true can never receive touch input.
+                        // We only do this once (waited <= 3000 means first detection), subsequent
+                        // polls just keep waiting while the user solves it.
                         if (waited <= 3000)
                         {
-                            tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
-                                new Uri(url).Host));
-                            return;
+                            System.Diagnostics.Debug.WriteLine($"[CFBypass] PersistentWebView bringing overlay to foreground for CF challenge (hasClearance={hasCfClearanceCookie}): {url}");
+                            await MainThread.InvokeOnMainThreadAsync(() =>
+                            {
+                                if (_persistentOverlay != null)
+                                {
+                                    _persistentOverlay.TranslationX     = 0;
+                                    _persistentOverlay.TranslationY     = 0;
+                                    _persistentOverlay.InputTransparent  = false;
+                                    _persistentOverlay.ZIndex            = 9999;
+                                }
+                                if (_persistentWebView != null)
+                                {
+                                    _persistentWebView.TranslationX     = 0;
+                                    _persistentWebView.InputTransparent  = false;
+                                }
+                            });
                         }
+                        System.Diagnostics.Debug.WriteLine($"[CFBypass] PersistentWebView CF title at {waited}ms, hasClearance={hasCfClearanceCookie} — waiting for user: {url}");
                         if (waited >= MaxWaitMs) timedOut = true;
                         continue;
                     }
 
+                    // CF challenge resolved — hide the WebView again if we made it visible
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        if (_persistentOverlay != null && _persistentOverlay.TranslationX == 0)
+                        {
+                            _persistentOverlay.TranslationX     = -10000;
+                            _persistentOverlay.InputTransparent  = true;
+                            _persistentOverlay.ZIndex            = -9999;
+                        }
+                        if (_persistentWebView != null && _persistentWebView.TranslationX == 0)
+                        {
+                            _persistentWebView.TranslationX     = -10000;
+                            _persistentWebView.InputTransparent  = true;
+                        }
+                    });
+                    // Now read the actual page HTML
                     html = await GetPageHtmlAsync(_persistentWebView);
                     ct.ThrowIfCancellationRequested();
                     if (html == null || html.Length < 300)
@@ -720,15 +769,31 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                     if (titleIsChallenge)
                     {
-                        // Fast-fail for CF Managed Challenge: if we have been polling for
-                        // 3 s or less, this is almost certainly a Managed Challenge (Turnstile)
-                        // which can NEVER auto-resolve in a hidden WebView. No point waiting 20 s.
-                        if (waited <= 3000)
+                        // Fast-fail for CF Managed Challenge ONLY when no valid cf_clearance cookie
+                        // exists in CookieManager. If a cf_clearance cookie is present, CF is doing
+                        // a legitimate server-side cookie validation — it briefly shows "Just a moment"
+                        // while checking the clearance token before serving the real page. We must
+                        // keep waiting (up to MaxWaitMs) for that to resolve.
+                        // Without any clearance cookie, a Managed Challenge (Turnstile) can NEVER
+                        // auto-resolve in a hidden WebView, so we fast-fail to avoid a 20 s hang.
+                        bool hasCfClearanceCookie = false;
+#if ANDROID
+                        try
                         {
+                            string? ck = GetCookiesForUrl(url);
+                            hasCfClearanceCookie = !string.IsNullOrEmpty(ck) &&
+                                ck.Contains("cf_clearance", StringComparison.OrdinalIgnoreCase);
+                        }
+                        catch { }
+#endif
+                        if (!hasCfClearanceCookie && waited <= 3000)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[CFBypass] FetchInternal fast-fail (no clearance cookie, Managed Challenge) at {waited}ms: {url}");
                             tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
                                 new Uri(url).Host));
                             return;
                         }
+                        System.Diagnostics.Debug.WriteLine($"[CFBypass] FetchInternal CF title at {waited}ms, hasClearance={hasCfClearanceCookie} — waiting: {url}");
                         if (waited >= MaxWaitMs) timedOut = true;
                         continue;
                     }
