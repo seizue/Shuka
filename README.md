@@ -20,7 +20,6 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
   <img width="1366" alt="Shuka Screenshot"
        src="https://github.com/user-attachments/assets/3bf719c9-ea3a-4be2-9d19-dd7108d57566" />
 
-
 ### Supported Sites
 
 | Site | Example URL |
@@ -30,15 +29,16 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 | [czbooks.net](https://czbooks.net) | `https://czbooks.net/n/clgajm` |
 | [dmxs.org](https://www.dmxs.org) | `https://www.dmxs.org/gdjk/22982.html` |
 | [quanben.io](https://www.quanben.io) | `https://www.quanben.io/n/aoshidanshen/list.html` |
-| [situu.cc](https://www.situu.cc/) | `https://www.situu.cc/5_5792/` |
 | [yamibo.com](https://www.yamibo.com/novel/list) | `https://www.yamibo.com/novel/267137` |
 | [Zhenhun Xiaoshuo](https://www.zhenhunxiaoshuo.com/linshilanggu/) | `https://www.zhenhunxiaoshuo.com/linshilanggu/` |
 | [shubaow.net](https://www.shubaow.net/) | `https://www.shubaow.net/book/1669.html` |
+| [sto9.com](https://sto9.com) | `https://sto9.com/book/12058.html` |
 
-
-> **czbooks.net** and **69shuba.com** is protected by Cloudflare. Shuka handles this automatically using a headless browser on Windows and a hidden WebView on Android — no extra setup needed.
 
 **Note on Rate Limits (200+ Chapters):** Free translation providers enforce request quotas. Shuka uses gentle download pacing, saves progress chapter-by-chapter, and automatically fails over to backup engines (Bing on Android; Browser Translate / Local AI on Windows) if limits are hit.
+
+**Tip for Large Novels (400–1000+ Chapters):** The Android app is throttled by mobile network conditions and background processing limits. For novels with 400 or more chapters, the **Windows PowerShell CLI** is significantly faster — it runs uncapped in the background, uses Local AI or Browser Translate as unlimited fallback engines, and writes each chapter to disk as it completes so progress is never lost on interruption. 
+
 ## Building from source
 
 Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (Windows CLI) and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (Android / MAUI).
