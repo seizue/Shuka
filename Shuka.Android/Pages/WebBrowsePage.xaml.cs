@@ -111,6 +111,7 @@ public partial class WebBrowsePage : ContentPage
     private bool _isBrowserMenuOpen;
     private bool _isRecentLinksOpen;
     private bool _isCloudflareSheetOpen;
+    private bool _lastPageWasCfChallenge;
     private bool _isImageContextMenuOpen;
     private string? _currentImageContextMenuUrl;
     private string? _currentLinkContextMenuUrl;
@@ -1910,6 +1911,41 @@ public partial class WebBrowsePage : ContentPage
                     await SiteWebView.EvaluateJavaScriptAsync("document.title").ConfigureAwait(true));
             }
             catch { }
+
+            // ── CF challenge transition detection ──────────────────────────────
+            // If the previous page was a CF challenge and this one is not, the user
+            // just solved it — flush cookies and fire CookiesRefreshed so any
+            // WaitingForCF download items resume automatically.
+            bool titleIsCfChallenge = !string.IsNullOrEmpty(title) && (
+                title.Contains("Just a moment", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Checking your browser", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Attention Required", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Security Check", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("请稍候", StringComparison.OrdinalIgnoreCase));
+
+            if (titleIsCfChallenge)
+            {
+                _lastPageWasCfChallenge = true;
+            }
+            else if (_lastPageWasCfChallenge)
+            {
+                // Transition: challenge → real page. User passed the challenge.
+                _lastPageWasCfChallenge = false;
+#if ANDROID
+                try { global::Android.Webkit.CookieManager.Instance?.Flush(); } catch { }
+#endif
+                try
+                {
+                    Platform.WebViewCloudflareBypass.RaiseCookiesRefreshed();
+                }
+                catch { }
+            }
+            else
+            {
+                _lastPageWasCfChallenge = false;
+            }
+            // ── end CF transition detection ────────────────────────────────────
+
             UpdateActiveTab(_currentUrl, title);
             AddRecentVisit(_currentUrl, title);
 

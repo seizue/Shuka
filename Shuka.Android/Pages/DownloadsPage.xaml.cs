@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using Shuka.Android.Behaviors;
 using Shuka.Android.Platforms.Android;
@@ -154,7 +154,7 @@ public partial class DownloadsPage : ContentPage
 
         int downloading = all.Count(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Resuming);
         int queued      = all.Count(d => d.Status == DownloadStatus.Pending);
-        int paused      = all.Count(d => d.Status == DownloadStatus.Paused);
+        int paused      = all.Count(d => d.Status is DownloadStatus.Paused or DownloadStatus.WaitingForCF);
         int completed   = all.Count(d => d.Status == DownloadStatus.Completed);
         int failed      = all.Count(d => d.Status is DownloadStatus.Failed or DownloadStatus.Cancelled);
 
@@ -188,7 +188,7 @@ public partial class DownloadsPage : ContentPage
             {
                 DownloadCategory.Downloading => all.Where(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Resuming).ToList(),
                 DownloadCategory.Queued      => all.Where(d => d.Status == DownloadStatus.Pending).ToList(),
-                DownloadCategory.Paused      => all.Where(d => d.Status == DownloadStatus.Paused).ToList(),
+                DownloadCategory.Paused      => all.Where(d => d.Status is DownloadStatus.Paused or DownloadStatus.WaitingForCF).ToList(),
                 DownloadCategory.Completed   => all.Where(d => d.Status == DownloadStatus.Completed).ToList(),
                 DownloadCategory.Failed      => all.Where(d => d.Status is DownloadStatus.Failed or DownloadStatus.Cancelled).ToList(),
                 _ => new List<DownloadItem>()
@@ -414,17 +414,18 @@ public partial class DownloadsPage : ContentPage
         OptionsSheetDismissBtn.IsVisible = isCompleted || item.Status == DownloadStatus.Failed || item.Status == DownloadStatus.Cancelled;
 
         // Cancel should only be visible for active, pending, or paused items — not already completed, failed, or cancelled
-        OptionsSheetCancelBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming or DownloadStatus.Paused;
+        OptionsSheetCancelBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming or DownloadStatus.Paused or DownloadStatus.WaitingForCF;
         OptionsSheetPauseBtn.IsVisible = item.Status is DownloadStatus.Downloading or DownloadStatus.Pending or DownloadStatus.Resuming;
 
-        bool isResumeOrRetry = item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled;
+        bool isResumeOrRetry = item.Status is DownloadStatus.Paused or DownloadStatus.WaitingForCF or DownloadStatus.Failed or DownloadStatus.Cancelled;
         OptionsSheetResumeBtn.IsVisible = isResumeOrRetry;
         OptionsSheetOpenInBrowserBtn.IsVisible = !string.IsNullOrWhiteSpace(item.Url);
         if (isResumeOrRetry)
         {
             bool isRetry = item.Status is DownloadStatus.Failed or DownloadStatus.Cancelled;
-            OptionsSheetResumeLabel.Text = isRetry ? "Retry Download" : "Resume Download";
-            OptionsSheetResumeIcon.Text = isRetry ? "" : ""; // Refresh icon for retry, play icon for resume
+            bool isWaitingCf = item.Status == DownloadStatus.WaitingForCF;
+            OptionsSheetResumeLabel.Text = isRetry ? "Retry Download" : (isWaitingCf ? "Resume (force retry CF)" : "Resume Download");
+            OptionsSheetResumeIcon.Text = isRetry ? "" : ""; // Refresh icon for retry, play icon for resume/WaitingForCF
         }
 
         OptionsSheetCopyTitleBtn.IsVisible = !string.IsNullOrWhiteSpace(item.OriginalTitle);

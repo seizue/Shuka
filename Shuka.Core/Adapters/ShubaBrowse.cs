@@ -10,14 +10,14 @@ namespace Shuka.Core.Adapters;
 /// Search:  https://www.69shuba.com/search.htm?searchkey={query}&amp;page={page}
 ///
 /// Book URLs use the .htm extension: /book/{id}.htm
-/// No Cloudflare — site is accessible without bypass.
+/// Cloudflare Managed Challenge — requires WebView bypass.
 /// </summary>
 public class ShubaBrowse : IBrowsableAdapter
 {
     public string SiteName         => "69shuba.com";
     public string Description      => "Chinese novels · fantasy & urban · CF";
     public string IconGlyph        => "\uE894"; // language (globe)
-    public bool   RequiresCfBypass => false;
+    public bool   RequiresCfBypass => true;
 
     public string HomeUrl => "https://www.69shuba.com/novels/monthvisit_0_0_1.htm";
 

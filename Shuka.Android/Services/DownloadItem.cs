@@ -11,7 +11,8 @@ public enum DownloadStatus
     Resuming,
     Failed,
     Completed,
-    Cancelled
+    Cancelled,
+    WaitingForCF
 }
 
 /// <summary>
@@ -34,6 +35,8 @@ public class DownloadItem : INotifyPropertyChanged
     public int    ChapterFrom { get; set; } = 0;
     public bool   Translate   { get; set; } = true;
     public bool   ForceRebuild { get; set; } = false;
+    /// <summary>Number of times this item has entered WaitingForCF state. Caps at 3 before marking Failed.</summary>
+    public int    CfRetryCount { get; set; } = 0;
     public DateTime EnqueuedAt { get; set; } = DateTime.UtcNow;
 
     // Resolved after GatherBookInfo
@@ -138,6 +141,7 @@ public class DownloadItem : INotifyPropertyChanged
         DownloadStatus.Downloading => Color.FromArgb("#8B5E5F"),
         DownloadStatus.Resuming => Color.FromArgb("#FF9500"),
         DownloadStatus.Paused => Color.FromArgb("#8E8E93"),
+        DownloadStatus.WaitingForCF => Color.FromArgb("#FF9F0A"),
         _                        => Color.FromArgb("#636366") // Pending
     };
 
@@ -152,6 +156,7 @@ public class DownloadItem : INotifyPropertyChanged
         DownloadStatus.Downloading => "\uE2C4", // downloading
         DownloadStatus.Resuming => "\uE8BA", // restore/resume
         DownloadStatus.Paused => "\uE034", // pause
+        DownloadStatus.WaitingForCF => "\uE002", // warning bell
         _                        => "\uE8B6"  // schedule (Pending)
     };
 

@@ -1285,13 +1285,75 @@ public class DownloadManager
         }
         catch (Shuka.Core.CloudflareExpiredException ex)
         {
-            Log($"Cloudflare verification required for {ex.SiteUrl}. Pausing download — open the site in WebView to pass the check, then Resume.");
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                item.StatusText = "Paused — Cloudflare check needed (tap Resume after fixing)";
-                item.Status     = DownloadStatus.Paused;
-            });
+            Log($"Cloudflare verification required for {ex.SiteUrl}.");
             NotifyCloudflareCookieExpired(ex.SiteUrl);
+
+            if (item.CfRetryCount >= 3)
+            {
+                // Hit the retry cap — give up and mark Failed so the user knows to intervene.
+                Log($"Cloudflare retry limit reached for {ex.SiteUrl}.");
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    item.StatusText = "Cloudflare retry limit reached — please open the site in WebBrowsePage and retry manually.";
+                    item.Status     = DownloadStatus.Failed;
+                });
+            }
+            else
+            {
+                item.CfRetryCount++;
+                Log($"Cloudflare verification required for {ex.SiteUrl} (attempt {item.CfRetryCount}/3). Waiting for cookie refresh...");
+
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    item.StatusText = "Waiting for Cloudflare — open the site in browser, then download resumes automatically";
+                    item.Status     = DownloadStatus.WaitingForCF;
+                });
+
+                // One-shot subscription: when the user passes the CF challenge in WebBrowsePage
+                // (or the hidden WebView resolves it), CookiesRefreshed fires and we re-queue.
+                var cookieRefreshCts = new CancellationTokenSource();
+                EventHandler? cookieHandler = null;
+                cookieHandler = (_, _) =>
+                {
+                    // Unsubscribe immediately — one-shot
+                    Platform.WebViewCloudflareBypass.CookiesRefreshed -= cookieHandler;
+                    cookieRefreshCts.Cancel();
+
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        if (item.Status != DownloadStatus.WaitingForCF) return;
+                        item.Cts = new CancellationTokenSource();
+                        item.StatusText = "Queued — Cloudflare cookies refreshed";
+                        item.Status     = DownloadStatus.Pending;
+                        _ = ProcessQueueAsync();
+                    });
+                };
+                Platform.WebViewCloudflareBypass.CookiesRefreshed += cookieHandler;
+
+                // 5-minute timeout: if the event never fires, give up and mark Failed.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromMinutes(5), cookieRefreshCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Event fired before timeout — nothing to do.
+                        return;
+                    }
+
+                    // Timeout expired without cookie refresh — unsubscribe and fail.
+                    Platform.WebViewCloudflareBypass.CookiesRefreshed -= cookieHandler;
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        if (item.Status != DownloadStatus.WaitingForCF) return;
+                        item.StatusText = "Cloudflare wait timed out — please retry manually.";
+                        item.Status     = DownloadStatus.Failed;
+                        _ = ProcessQueueAsync();
+                    });
+                });
+            }
         }
         catch (Exception ex)
         {
