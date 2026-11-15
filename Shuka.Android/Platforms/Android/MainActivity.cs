@@ -240,6 +240,38 @@ public class MainActivity : MauiAppCompatActivity
         // Already configured via SAF tree URI — no need to prompt
         if (!string.IsNullOrEmpty(Preferences.Default.Get("download_tree_uri", ""))) return;
 
+        // Android 11+ (BuildVersionCodes.R): check MANAGE_ALL_FILES before the SAF picker.
+        // This mirrors the pattern in SettingsPage.OnChangeDownloadFolderTapped.
+#pragma warning disable CA1416
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.R &&
+            !global::Android.OS.Environment.IsExternalStorageManager)
+        {
+            // Reset the done flag so the prompt re-runs on next resume after the user grants permission.
+            Preferences.Default.Set(PrefKeyFolderPromptDone, false);
+
+            bool openSettings = false;
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                var page = Microsoft.Maui.Controls.Application.Current?.Windows
+                               .FirstOrDefault()?.Page;
+                if (page == null) return;
+                openSettings = await page.DisplayAlertAsync(
+                    "File Access Required",
+                    "Shuka needs All Files Access to save EPUBs to your Downloads folder. Tap Open Settings to grant it.",
+                    "Open Settings", "Skip");
+            });
+
+            if (openSettings)
+            {
+                var intent = new Intent(global::Android.Provider.Settings.ActionManageAllFilesAccessPermission);
+                intent.AddFlags(ActivityFlags.NewTask);
+                global::Android.App.Application.Context.StartActivity(intent);
+                return; // User will re-trigger the prompt on next resume after granting
+            }
+            // If "Skip", fall through to the SAF picker below
+        }
+#pragma warning restore CA1416
+
         // Mark done immediately so a rotation/resume cycle doesn't re-trigger
         Preferences.Default.Set(PrefKeyFolderPromptDone, true);
 
@@ -252,7 +284,7 @@ public class MainActivity : MauiAppCompatActivity
         try
         {
             initialUri = AndroidUri.Parse(
-                "content://com.android.externalstorage.documents/document/primary%3ADownload%2FShuka");
+                "content://com.android.externalstorage.documents/tree/primary%3ADownload");
         }
         catch { /* ignore — picker will just open at default location */ }
 
@@ -275,7 +307,20 @@ public class MainActivity : MauiAppCompatActivity
         {
             var treeUri = await PickFolderAsync(initialUri);
             if (treeUri != null)
+            {
                 Services.DownloadManager.SetOutputDirectoryFromUri(treeUri);
+                string confirmedPath = Services.DownloadManager.GetOutputDirectory();
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    var page = Microsoft.Maui.Controls.Application.Current?.Windows
+                                   .FirstOrDefault()?.Page;
+                    if (page != null)
+                        await page.DisplayAlertAsync(
+                            "Folder Set",
+                            $"Downloads will be saved to: {confirmedPath}",
+                            "OK");
+                });
+            }
         }
         catch { /* ignore picker errors */ }
     }

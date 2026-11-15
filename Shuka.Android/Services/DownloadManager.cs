@@ -1475,7 +1475,18 @@ public class DownloadManager
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                System.Diagnostics.Debug.WriteLine($"[SAF] copy failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[SAF] copy failed: {ex.Message}\n{ex}");
+                // Surface the failure to the user so they know the EPUB ended up in app storage.
+                _ = MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    var page = Microsoft.Maui.Controls.Application.Current?.Windows
+                                   .FirstOrDefault()?.Page;
+                    if (page != null)
+                        _ = page.DisplayAlertAsync(
+                            "Save Location Issue",
+                            $"Could not save to your chosen Downloads folder (SAF write failed: {ex.Message}). The EPUB was saved to app storage instead. Go to Settings → Download Location to pick a folder again.",
+                            "OK");
+                });
             }
         }
 #endif
