@@ -17,6 +17,8 @@ public partial class MainPage : ContentPage
 
     public static MainPage? Instance { get; private set; }
 
+    private TaskCompletionSource<bool>? _fileAccessSheetTcs;
+
     private readonly DiscoverService _discoverService;
     private bool _discoverBuilt = false;
     private CancellationTokenSource? _discoverBannerCts;
@@ -2191,5 +2193,69 @@ public partial class MainPage : ContentPage
             TranslateOptionSub.Text = "Skipping translation; EPUB will be in the original language";
             DownloadBtnLabel.Text = "Download Original";
         }
+    }
+
+    // ── File Access Required bottom sheet ─────────────────────────────────────
+
+    public async Task<bool> ShowFileAccessRequiredSheetAsync()
+    {
+        _fileAccessSheetTcs = new TaskCompletionSource<bool>();
+
+#if ANDROID
+        if (MainActivity.Instance is { } activity)
+        {
+            double bottomInset = activity.GetOverlayBottomInsetDip(14);
+            FileAccessSheet.Margin = new Thickness(12, 0, 12, bottomInset);
+        }
+#endif
+
+        FileAccessSheetOverlay.IsVisible = true;
+        FileAccessSheet.IsVisible = true;
+        FileAccessSheet.TranslationY = 300;
+        FileAccessSheet.Opacity = 0;
+        FileAccessSheetOverlay.Opacity = 0;
+
+        await Task.WhenAll(
+            FileAccessSheetOverlay.FadeToAsync(1, 160, Easing.CubicOut),
+            FileAccessSheet.FadeToAsync(1, 180, Easing.CubicOut),
+            FileAccessSheet.TranslateToAsync(0, 0, 180, Easing.CubicOut)
+        );
+
+        return await _fileAccessSheetTcs.Task;
+    }
+
+    private async Task HideFileAccessSheetAsync()
+    {
+        await Task.WhenAll(
+            FileAccessSheetOverlay.FadeToAsync(0, 160, Easing.CubicIn),
+            FileAccessSheet.FadeToAsync(0, 160, Easing.CubicIn),
+            FileAccessSheet.TranslateToAsync(0, 300, 180, Easing.CubicIn)
+        );
+        FileAccessSheetOverlay.IsVisible = false;
+        FileAccessSheet.IsVisible = false;
+    }
+
+    private async void OnFileAccessSheetOverlayTapped(object sender, TappedEventArgs e)
+    {
+        await HideFileAccessSheetAsync();
+        _fileAccessSheetTcs?.TrySetResult(false);
+    }
+
+    private async void OnFileAccessSheetCloseTapped(object sender, TappedEventArgs e)
+    {
+        await HideFileAccessSheetAsync();
+        _fileAccessSheetTcs?.TrySetResult(false);
+    }
+
+    private async void OnFileAccessOpenSettingsTapped(object sender, TappedEventArgs e)
+    {
+        await HideFileAccessSheetAsync();
+        _fileAccessSheetTcs?.TrySetResult(true);
+    }
+
+    private async void OnFileAccessSkipTapped(object sender, TappedEventArgs e)
+    {
+        await HideFileAccessSheetAsync();
+        _fileAccessSheetTcs?.TrySetResult(false);
     }
 }

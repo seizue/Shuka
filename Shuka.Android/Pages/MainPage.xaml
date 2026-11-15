@@ -600,6 +600,114 @@
             </Grid>
         </Grid>
 
+        <!-- File Access Required Bottom Sheet -->
+        <Grid x:Name="FileAccessSheetOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000"
+              Grid.Row="0"
+              Grid.RowSpan="3">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnFileAccessSheetOverlayTapped" />
+            </Grid.GestureRecognizers>
+
+            <Border x:Name="FileAccessSheet"
+                    Margin="12,0,12,16"
+                    Padding="16,14,16,20"
+                    VerticalOptions="End"
+                    Stroke="{DynamicResource Stroke}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 18"
+                    BackgroundColor="{DynamicResource BgCard}"
+                    TranslationY="300"
+                    Opacity="0">
+
+                <VerticalStackLayout Spacing="14">
+
+                    <!-- Drag handle pill -->
+                    <BoxView WidthRequest="36"
+                             HeightRequest="4"
+                             CornerRadius="2"
+                             HorizontalOptions="Center"
+                             Color="{DynamicResource Stroke}" />
+
+                    <!-- Header row -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Grid.Column="0"
+                               Text="File Access Required"
+                               FontSize="17"
+                               FontAttributes="Bold"
+                               TextColor="{DynamicResource TextPrimary}"
+                               VerticalOptions="Center" />
+                        <Label Grid.Column="1"
+                               x:Name="FileAccessSheetCloseBtn"
+                               Text="&#xE5CD;"
+                               FontFamily="{DynamicResource IconFont}"
+                               FontSize="20"
+                               TextColor="{DynamicResource TextSecondary}"
+                               VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnFileAccessSheetCloseTapped" />
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Lock icon -->
+                    <Label Text="&#xE897;"
+                           FontFamily="{DynamicResource IconFont}"
+                           FontSize="40"
+                           TextColor="{DynamicResource AccentLight}"
+                           HorizontalOptions="Center" />
+
+                    <!-- Body text -->
+                    <Label Text="Shuka needs All Files Access to save EPUBs to your Downloads folder."
+                           FontSize="13"
+                           TextColor="{DynamicResource TextSecondary}"
+                           LineBreakMode="WordWrap"
+                           HorizontalTextAlignment="Center" />
+
+                    <!-- Buttons -->
+                    <VerticalStackLayout Spacing="10">
+
+                        <!-- Open Settings button -->
+                        <Border x:Name="FileAccessOpenSettingsBtn"
+                                BackgroundColor="{DynamicResource AccentContainer}"
+                                Stroke="{DynamicResource AccentLight}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,14">
+                            <Label Text="Open Settings"
+                                   FontSize="14"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource AccentLight}"
+                                   HorizontalOptions="Center" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnFileAccessOpenSettingsTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                        <!-- Skip button -->
+                        <Border x:Name="FileAccessSkipBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,14">
+                            <Label Text="Skip"
+                                   FontSize="14"
+                                   FontAttributes="Bold"
+                                   TextColor="{DynamicResource TextSecondary}"
+                                   HorizontalOptions="Center" />
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnFileAccessSkipTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
+                    </VerticalStackLayout>
+
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
         <!-- Custom Source Selection Modal Overlay -->
         <Grid x:Name="SourceSelectModal"
               Grid.Row="0"
