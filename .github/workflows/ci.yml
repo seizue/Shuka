@@ -27,5 +27,8 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build -c Release --no-restore -p:AndroidKeyStore=false
+      - name: Build Windows
+        run: dotnet build Shuka.Windows/Shuka.Windows.csproj -c Release --no-restore
+
+      - name: Build Android (Debug)
+        run: dotnet build Shuka.Android/Shuka.Android.csproj -c Debug --no-restore
