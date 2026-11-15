@@ -449,10 +449,10 @@ public class DownloadManager
         }
     }
 
-    /// <summary>Resume a paused, failed, or cancelled download.</summary>
+    /// <summary>Resume a paused, failed, cancelled, or WaitingForCF download.</summary>
     public void Resume(DownloadItem item)
     {
-        if (item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled)
+        if (item.Status is DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Cancelled or DownloadStatus.WaitingForCF)
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
