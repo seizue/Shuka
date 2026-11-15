@@ -420,6 +420,9 @@ public partial class DownloadsPage : ContentPage
         bool isResumeOrRetry = item.Status is DownloadStatus.Paused or DownloadStatus.WaitingForCF or DownloadStatus.Failed or DownloadStatus.Cancelled;
         OptionsSheetResumeBtn.IsVisible = isResumeOrRetry;
         OptionsSheetOpenInBrowserBtn.IsVisible = !string.IsNullOrWhiteSpace(item.Url);
+        OptionsSheetOpenInBrowserLabel.Text = isCompleted
+            ? "Open in In-App Browser"
+            : "Open in In-App Browser (Fix Cloudflare)";
         if (isResumeOrRetry)
         {
             bool isRetry = item.Status is DownloadStatus.Failed or DownloadStatus.Cancelled;
