@@ -93,7 +93,9 @@ public static class EpubOpener
             {
                 string rel = docId["primary:".Length..];
 #pragma warning disable CA1422
-                string root = global::Android.OS.Environment.ExternalStorageDirectory!.AbsolutePath;
+                var extDir = global::Android.OS.Environment.ExternalStorageDirectory;
+                if (extDir == null || string.IsNullOrWhiteSpace(extDir.AbsolutePath)) return null;
+                string root = extDir.AbsolutePath;
 #pragma warning restore CA1422
                 string realPath = Path.Combine(root, rel);
                 System.Diagnostics.Debug.WriteLine(
@@ -249,6 +251,16 @@ public static class EpubOpener
         catch (global::Android.Content.ActivityNotFoundException)
         {
             throw new InvalidOperationException(noAppMessage);
+        }
+        catch (Java.Lang.SecurityException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EpubOpener.Launch] SecurityException: {ex.Message}");
+            throw new InvalidOperationException("Permission denied opening EPUB: " + ex.Message, ex);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EpubOpener.Launch] Exception: {ex.Message}");
+            throw new InvalidOperationException("Could not open EPUB: " + ex.Message, ex);
         }
     }
 
@@ -452,7 +464,7 @@ public static class EpubOpener
     }
 
     /// <summary>
-    /// Returns every directory that may contain downloaded EPUBs (default, custom, SAF-decoded).
+    /// Returns every directory that may contain downloaded EPUBs (default, custom, SAF-decoded, and common user folders).
     /// </summary>
     public static IEnumerable<string> EnumerateDownloadDirectories(string? hintPath = null)
     {
@@ -471,29 +483,108 @@ public static class EpubOpener
             catch { /* invalid path */ }
         }
 
-        var downloads = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
-            global::Android.OS.Environment.DirectoryDownloads)!.AbsolutePath;
-        TryAdd(Path.Combine(downloads, "Shuka"));
-
-        string savedPath = Preferences.Default.Get("download_output_path", "");
-        TryAdd(savedPath);
-
-        string? safDir = DecodeSafTreeDirectory();
-        TryAdd(safDir);
-
-        // Include the parent folder from a stored path (covers old custom locations)
-        if (!string.IsNullOrWhiteSpace(hintPath))
+        void TryAddWithSubs(string? parentDir)
         {
-            if (hintPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(parentDir)) return;
+            TryAdd(parentDir);
+            try
             {
-                string? realPath = SafContentUriToRealPath(hintPath);
-                TryAdd(realPath != null ? Path.GetDirectoryName(realPath) : null);
+                if (Directory.Exists(parentDir))
+                {
+                    foreach (var sub in Directory.EnumerateDirectories(parentDir))
+                    {
+                        TryAdd(sub);
+                    }
+                }
             }
-            else
+            catch { }
+        }
+
+        // Downloads directory and its subdirectories (e.g. Downloads/Shuka, Downloads/Novels, Downloads/Books)
+        try
+        {
+            var dlDir = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+                global::Android.OS.Environment.DirectoryDownloads);
+            if (dlDir != null && !string.IsNullOrWhiteSpace(dlDir.AbsolutePath))
             {
-                TryAdd(Path.GetDirectoryName(hintPath));
+                string dlPath = dlDir.AbsolutePath;
+                TryAdd(Path.Combine(dlPath, "Shuka"));
+                TryAddWithSubs(dlPath);
             }
         }
+        catch { }
+
+        // Documents directory and its subdirectories
+        try
+        {
+            var docDir = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+                global::Android.OS.Environment.DirectoryDocuments);
+            if (docDir != null && !string.IsNullOrWhiteSpace(docDir.AbsolutePath))
+            {
+                string docPath = docDir.AbsolutePath;
+                TryAdd(Path.Combine(docPath, "Shuka"));
+                TryAddWithSubs(docPath);
+            }
+        }
+        catch { }
+
+        // Standard library / book folders on primary external storage
+        try
+        {
+            var extDir = global::Android.OS.Environment.ExternalStorageDirectory;
+            if (extDir != null && !string.IsNullOrWhiteSpace(extDir.AbsolutePath))
+            {
+                string root = extDir.AbsolutePath;
+                TryAdd(Path.Combine(root, "Books"));
+                TryAdd(Path.Combine(root, "eBooks"));
+                TryAdd(Path.Combine(root, "Novels"));
+                TryAdd(Path.Combine(root, "Shuka"));
+            }
+        }
+        catch { }
+
+        // Configured custom paths
+        try
+        {
+            string savedPath = Preferences.Default.Get("download_output_path", "");
+            TryAddWithSubs(savedPath);
+
+            string? safDir = DecodeSafTreeDirectory();
+            TryAddWithSubs(safDir);
+        }
+        catch { }
+
+        // Include the parent folder from a stored path (covers previous or custom locations)
+        if (!string.IsNullOrWhiteSpace(hintPath))
+        {
+            try
+            {
+                if (hintPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? realPath = SafContentUriToRealPath(hintPath);
+                    if (!string.IsNullOrWhiteSpace(realPath))
+                        TryAddWithSubs(Path.GetDirectoryName(realPath));
+                }
+                else
+                {
+                    TryAddWithSubs(Path.GetDirectoryName(hintPath));
+                }
+            }
+            catch { }
+        }
+
+        // Include parent folders of existing history items
+        try
+        {
+            foreach (var h in Services.HistoryService.Instance.Entries)
+            {
+                if (!string.IsNullOrWhiteSpace(h.EpubPath) && !h.EpubPath.StartsWith("content://", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { TryAdd(Path.GetDirectoryName(h.EpubPath)); } catch { }
+                }
+            }
+        }
+        catch { }
 
         return seen;
     }
@@ -514,7 +605,9 @@ public static class EpubOpener
 
             string rel = docId["primary:".Length..];
 #pragma warning disable CA1422
-            string root = global::Android.OS.Environment.ExternalStorageDirectory!.AbsolutePath;
+            var extDir = global::Android.OS.Environment.ExternalStorageDirectory;
+            if (extDir == null || string.IsNullOrWhiteSpace(extDir.AbsolutePath)) return null;
+            string root = extDir.AbsolutePath;
 #pragma warning restore CA1422
             return Path.Combine(root, rel);
         }
@@ -623,6 +716,22 @@ public static class EpubOpener
                             $"[EpubOpener.ScanDownloadFolders] candidate '{file}' score={score}");
                     }
                 }
+
+                // If filename didn't match with high confidence, inspect EPUB metadata in this directory
+                if (bestScore < 75 && !string.IsNullOrWhiteSpace(title))
+                {
+                    foreach (string file in Directory.EnumerateFiles(dir, "*.epub"))
+                    {
+                        if (IsEpubTitleMatch(file, title) && TryResolveSinglePath(file, "metadata-scan", out _))
+                        {
+                            bestScore = 90;
+                            bestPath = PreferFilesystemPath(file);
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[EpubOpener.ScanDownloadFolders] OPF metadata matched '{file}' for title '{title}'");
+                            break;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -635,7 +744,33 @@ public static class EpubOpener
             System.Diagnostics.Debug.WriteLine(
                 $"[EpubOpener.ScanDownloadFolders] best match: '{bestPath}' score={bestScore}");
 
-        return bestScore >= 80 ? bestPath : null;
+        return bestScore >= 75 ? bestPath : null;
+    }
+
+    private static bool IsEpubTitleMatch(string filePath, string targetTitle)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return false;
+            using var stream = File.OpenRead(filePath);
+            using var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+            var opf = archive.GetEntry("OEBPS/content.opf");
+            if (opf == null) return false;
+
+            using var reader = new StreamReader(opf.Open());
+            string opfText = reader.ReadToEnd();
+            var tMatch = System.Text.RegularExpressions.Regex.Match(
+                opfText, @"<dc:title[^>]*>(.*?)</dc:title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (tMatch.Success && !string.IsNullOrWhiteSpace(tMatch.Groups[1].Value))
+            {
+                string epubTitle = System.Net.WebUtility.HtmlDecode(tMatch.Groups[1].Value.Trim());
+                return string.Equals(epubTitle, targetTitle, StringComparison.OrdinalIgnoreCase) ||
+                       (epubTitle.Length > 3 && targetTitle.Contains(epubTitle, StringComparison.OrdinalIgnoreCase)) ||
+                       (targetTitle.Length > 3 && epubTitle.Contains(targetTitle, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        catch { }
+        return false;
     }
 
     private static int ScoreEpubName(string nameKey, string? slugKey, string? titleKey, string? storedKey)
@@ -650,6 +785,7 @@ public static class EpubOpener
         if (slugKey != null && nameKey.StartsWith(slugKey, StringComparison.Ordinal)) return 85;
         if (titleKey != null && nameKey.StartsWith(titleKey, StringComparison.Ordinal)) return 82;
         if (slugKey != null && nameKey.Contains(slugKey, StringComparison.Ordinal)) return 80;
+        if (titleKey != null && nameKey.Contains(titleKey, StringComparison.Ordinal)) return 78;
         return 0;
     }
 

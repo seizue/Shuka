@@ -1,4 +1,4 @@
-﻿using System.Collections.Specialized;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Shuka.Android.Behaviors;
 using Shuka.Android.Platforms.Android;
@@ -364,6 +364,24 @@ public partial class DownloadsPage : ContentPage
     {
         string? epubPath = EpubOpener.ResolveAccessiblePath(item.EpubPath, item.Title, item.Url);
         if (epubPath == null) return;
+
+        // Heal the stored path if it changed (e.g. file was moved)
+        if (epubPath != item.EpubPath)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[DownloadsPage] Healing EpubPath for '{item.Title}': '{item.EpubPath}' → '{epubPath}'");
+            item.EpubPath = epubPath;
+
+            // Also heal the matching HistoryEntry so the History tab stays in sync
+            var histEntry = HistoryService.Instance.Entries
+                .FirstOrDefault(e => e.Url == item.Url);
+            if (histEntry != null)
+            {
+                histEntry.EpubPath       = epubPath;
+                histEntry.IsFileAvailable = true;
+            }
+            _ = HistoryService.Instance.SaveAsync();
+        }
 
         epubPath = EpubOpener.PreferFilesystemPath(epubPath);
         System.Diagnostics.Debug.WriteLine($"[DownloadsPage] Opening existing EPUB at: {epubPath} for '{item.Title}'");

@@ -6,6 +6,9 @@
     <!-- Public external storage — covers /storage/emulated/0 (e.g. Download/Shuka EPUBs) -->
     <external-path name="external_files" path="." />
 
+    <!-- Root path — covers SD cards and any external storage when files are moved -->
+    <root-path name="root" path="." />
+
     <!-- App-specific external storage (Android/data/<pkg>/files) -->
     <external-files-path name="external_app_files" path="." />
 

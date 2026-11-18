@@ -374,6 +374,30 @@
                             </Border.GestureRecognizers>
                         </Border>
 
+                        <!-- Locate / Link Moved File Option -->
+                        <Border x:Name="OptionsSheetLocateBtn"
+                                BackgroundColor="{DynamicResource BgInput}"
+                                Stroke="{DynamicResource Stroke}"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="14,12">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Text="&#xE2C8;"
+                                       FontFamily="{DynamicResource IconFont}"
+                                       FontSize="18"
+                                       TextColor="{DynamicResource AccentLight}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1"
+                                       Text="Locate EPUB File"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{DynamicResource TextPrimary}"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOptionsSheetLocateTapped" />
+                            </Border.GestureRecognizers>
+                        </Border>
+
                         <!-- Re-download Option -->
                         <Border x:Name="OptionsSheetRedownloadBtn"
                                 BackgroundColor="{DynamicResource BgInput}"

@@ -24,6 +24,7 @@ public partial class HistoryPage : ContentPage
 
     // Pagination state
     private bool _isLoading = false;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
     private int _currentLoadedCount = 0;
     private List<HistoryEntry> _filteredAndSortedEntries = new();
     private CancellationTokenSource? _searchDebounceTokenSource;
@@ -56,13 +57,82 @@ public partial class HistoryPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        MainActivity.Instance?.SetTabBarVisible(true);
-        TabTransition.Prepare(RootGrid, myTabIndex: 2);
-        await TabTransition.SlideInAsync(RootGrid);
+        try
+        {
+            MainActivity.Instance?.SetTabBarVisible(true);
+            TabTransition.Prepare(RootGrid, myTabIndex: 2);
+            await TabTransition.SlideInAsync(RootGrid);
 
-        // Refresh history cards to ensure newly completed or redownloaded novels appear immediately
-        _cards.Clear();
-        await LoadInitialBatch();
+            // Smoothly auto-reconcile any EPUB files moved to another folder
+            _ = ReconcileMissingFilesAsync();
+
+            await LoadInitialBatch();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] OnAppearing error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Scans known locations to automatically rediscover EPUBs that were moved to another folder.
+    /// Heals the entry and refreshes cards smoothly without crashing or interrupting the user.
+    /// </summary>
+    private async Task ReconcileMissingFilesAsync()
+    {
+        try
+        {
+            bool anyChanged = false;
+            var entries = HistoryService.Instance.Entries.ToList();
+
+            foreach (var entry in entries)
+            {
+                bool isAccessible = EpubOpener.IsAccessible(entry.EpubPath);
+                if (!isAccessible)
+                {
+                    string? resolved = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+                    if (resolved != null && resolved != entry.EpubPath)
+                    {
+                        entry.EpubPath = resolved;
+                        entry.IsFileAvailable = true;
+                        anyChanged = true;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[HistoryPage] Auto-healed moved EPUB for '{entry.Title}': {resolved}");
+                    }
+                    else if (resolved != null)
+                    {
+                        if (!entry.IsFileAvailable)
+                        {
+                            entry.IsFileAvailable = true;
+                            anyChanged = true;
+                        }
+                    }
+                    else if (entry.IsFileAvailable)
+                    {
+                        entry.IsFileAvailable = false;
+                        anyChanged = true;
+                    }
+                }
+                else if (!entry.IsFileAvailable)
+                {
+                    entry.IsFileAvailable = true;
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged)
+            {
+                await HistoryService.Instance.SaveAsync();
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    RebuildCards();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] ReconcileMissingFilesAsync error: {ex.Message}");
+        }
     }
 
     private async Task AnimateIn()
@@ -76,37 +146,51 @@ public partial class HistoryPage : ContentPage
 
     private void ShowLoadingSkeleton()
     {
-        LoadingSkeletonView.IsVisible = true;
-        ListScroll.IsVisible = false;
-        GridScroll.IsVisible = false;
-        EmptyState.IsVisible = false;
-        NoResultsState.IsVisible = false;
+        try
+        {
+            if (LoadingSkeletonView != null)
+            {
+                LoadingSkeletonView.Opacity = 1;
+                LoadingSkeletonView.IsVisible = true;
+            }
+            ListScroll.IsVisible = false;
+            GridScroll.IsVisible = false;
+            EmptyState.IsVisible = false;
+            NoResultsState.IsVisible = false;
+        }
+        catch { }
     }
 
     private async Task HideLoadingSkeleton()
     {
-        if (LoadingSkeletonView.IsVisible)
+        try
         {
-            await LoadingSkeletonView.FadeOut();
+            if (LoadingSkeletonView != null && LoadingSkeletonView.IsVisible)
+            {
+                await LoadingSkeletonView.FadeOut();
+            }
         }
+        catch { }
     }
 
     private async Task LoadInitialBatch()
     {
-        if (_isLoading) return;
-
-        _isLoading = true;
-        _currentLoadedCount = 0;
+        if (!await _loadLock.WaitAsync(0))
+            return;
 
         try
         {
+            _isLoading = true;
+            _currentLoadedCount = 0;
+            _cards.Clear();
+
             // Get sorted and filtered entries
             var sorted = GetSortedEntries();
             var filtered = string.IsNullOrEmpty(_searchQuery)
                 ? sorted
                 : sorted.Where(e =>
-                    e.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                    e.Author.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+                    (!string.IsNullOrEmpty(e.Title) && e.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(e.Author) && e.Author.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)));
 
             _filteredAndSortedEntries = filtered.ToList();
 
@@ -129,9 +213,14 @@ public partial class HistoryPage : ContentPage
             UpdateCountLabel();
             RenderCurrentBatch();
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] LoadInitialBatch error: {ex.Message}");
+        }
         finally
         {
             _isLoading = false;
+            _loadLock.Release();
         }
     }
 
@@ -145,13 +234,18 @@ public partial class HistoryPage : ContentPage
         try
         {
             // Infinite loading: load next batch as user scrolls
-            int itemsToLoad = Math.Min(ItemsPerBatch, _filteredAndSortedEntries.Count - _currentLoadedCount);
+            int remaining = Math.Max(0, _filteredAndSortedEntries.Count - _currentLoadedCount);
+            int itemsToLoad = Math.Min(ItemsPerBatch, remaining);
+            if (itemsToLoad <= 0) return;
             int startIndex = _currentLoadedCount;
 
             // Create cards in smaller chunks to avoid UI thread blocking
             for (int i = 0; i < itemsToLoad; i++)
             {
-                var entry = _filteredAndSortedEntries[startIndex + i];
+                int itemIdx = startIndex + i;
+                if (itemIdx >= _filteredAndSortedEntries.Count) break;
+
+                var entry = _filteredAndSortedEntries[itemIdx];
                 if (!_cards.ContainsKey(entry.Id))
                 {
                     var card = BuildCard(entry);
@@ -173,6 +267,10 @@ public partial class HistoryPage : ContentPage
                 AppendCurrentBatch(startIndex, itemsToLoad);
             });
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HistoryPage] LoadMoreItems error: {ex.Message}");
+        }
         finally
         {
             _isLoading = false;
@@ -181,20 +279,24 @@ public partial class HistoryPage : ContentPage
 
     private void OnScrolled(object? sender, ScrolledEventArgs e)
     {
-        if (_isLoading || _currentLoadedCount >= _filteredAndSortedEntries.Count)
-            return;
-
-        var scrollView = sender as ScrollView;
-        if (scrollView == null) return;
-
-        // Calculate if we're near the bottom
-        double scrollingSpace = scrollView.ContentSize.Height - scrollView.Height;
-        double threshold = scrollingSpace * 0.8; // Load when 80% scrolled
-
-        if (e.ScrollY >= threshold)
+        try
         {
-            _ = LoadMoreItems();
+            if (_isLoading || _currentLoadedCount >= _filteredAndSortedEntries.Count)
+                return;
+
+            var scrollView = sender as ScrollView;
+            if (scrollView == null) return;
+
+            // Calculate if we're near the bottom
+            double scrollingSpace = scrollView.ContentSize.Height - scrollView.Height;
+            double threshold = scrollingSpace * 0.8; // Load when 80% scrolled
+
+            if (e.ScrollY >= threshold)
+            {
+                _ = LoadMoreItems();
+            }
         }
+        catch { }
     }
 
     // ── Collection changes ────────────────────────────────────────────────────
@@ -203,8 +305,6 @@ public partial class HistoryPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            // Reload from scratch when collection changes
-            _cards.Clear();
             await LoadInitialBatch();
         });
     }
@@ -361,18 +461,30 @@ public partial class HistoryPage : ContentPage
         double width = _lastWidth;
         if (width <= 0)
         {
-            width = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
+            try
+            {
+                double density = DeviceDisplay.Current.MainDisplayInfo.Density;
+                if (density <= 0) density = 1.0;
+                width = DeviceDisplay.Current.MainDisplayInfo.Width / density;
+            }
+            catch
+            {
+                width = 360;
+            }
+        }
+        if (double.IsNaN(width) || double.IsInfinity(width) || width <= 0)
+        {
+            width = 360;
         }
 
         double cardWidth = 80;
         double cardHeight = 120;
         if (width > 48)
         {
-            cardWidth = (width - 48) / 4;
+            cardWidth = (width - 48) / 4.0;
             cardHeight = cardWidth * 1.5;
         }
 
-        // Use BeginUpdate/EndUpdate pattern for better performance
         try
         {
             // Clear and rebuild - but only for items we've loaded so far
@@ -389,6 +501,11 @@ public partial class HistoryPage : ContentPage
                 var entry = _filteredAndSortedEntries[i];
                 if (_cards.TryGetValue(entry.Id, out var card))
                 {
+                    if (card.Parent is Layout oldParent)
+                    {
+                        oldParent.Remove(card);
+                    }
+
                     if (_isCompactView)
                     {
                         card.WidthRequest = cardWidth;
@@ -438,14 +555,27 @@ public partial class HistoryPage : ContentPage
         double width = _lastWidth;
         if (width <= 0)
         {
-            width = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
+            try
+            {
+                double density = DeviceDisplay.Current.MainDisplayInfo.Density;
+                if (density <= 0) density = 1.0;
+                width = DeviceDisplay.Current.MainDisplayInfo.Width / density;
+            }
+            catch
+            {
+                width = 360;
+            }
+        }
+        if (double.IsNaN(width) || double.IsInfinity(width) || width <= 0)
+        {
+            width = 360;
         }
 
         double cardWidth = 80;
         double cardHeight = 120;
         if (width > 48)
         {
-            cardWidth = (width - 48) / 4;
+            cardWidth = (width - 48) / 4.0;
             cardHeight = cardWidth * 1.5;
         }
 
@@ -459,6 +589,11 @@ public partial class HistoryPage : ContentPage
                 var entry = _filteredAndSortedEntries[index];
                 if (_cards.TryGetValue(entry.Id, out var card))
                 {
+                    if (card.Parent is Layout oldParent)
+                    {
+                        oldParent.Remove(card);
+                    }
+
                     if (_isCompactView)
                     {
                         card.WidthRequest = cardWidth;
@@ -573,8 +708,15 @@ public partial class HistoryPage : ContentPage
                 System.Diagnostics.Debug.WriteLine(
                     $"[HistoryPage] Cannot open — no accessible EPUB for '{entry.Title}' " +
                     $"(storedPath='{entry.EpubPath ?? "null"}')");
-                await DisplayAlertAsync("File Not Found",
-                    "The EPUB file could not be found. It may have been moved or deleted.", "OK");
+
+                bool locate = await DisplayAlertAsync("File Not Found",
+                    $"The EPUB file for \"{entry.Title}\" was moved or cannot be found.\n\nWould you like to locate the moved EPUB file on your device?",
+                    "Locate File", "Cancel");
+
+                if (locate)
+                {
+                    await LocateAndAdoptEpubAsync(entry);
+                }
                 return;
             }
 
@@ -608,8 +750,13 @@ public partial class HistoryPage : ContentPage
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[HistoryPage] FileNotFoundException opening '{epubPath}' for '{entry.Title}'");
-                await DisplayAlertAsync("File Not Found",
-                    "The EPUB file could not be found. It may have been moved or deleted.", "OK");
+                bool locate = await DisplayAlertAsync("File Moved",
+                    $"The EPUB file could not be opened at this location.\n\nWould you like to locate the moved file on your device?",
+                    "Locate File", "Cancel");
+                if (locate)
+                {
+                    await LocateAndAdoptEpubAsync(entry);
+                }
             }
         }
         catch (Exception ex)
@@ -760,6 +907,7 @@ public partial class HistoryPage : ContentPage
 
         OptionsSheetShareBtn.IsVisible = fileExists;
         OptionsSheetRedownloadBtn.IsVisible = !fileExists;
+        OptionsSheetLocateBtn.IsVisible = !fileExists;
 
         OptionsSheetOverlay.IsVisible = true;
         OptionsSheetOverlay.Opacity = 0;
@@ -819,12 +967,95 @@ public partial class HistoryPage : ContentPage
         OnRedownloadRequested(entry);
     }
 
+    private async void OnOptionsSheetLocateTapped(object sender, TappedEventArgs e)
+    {
+        if (_activeOptionsEntry == null) return;
+        var entry = _activeOptionsEntry;
+        await HideOptionsSheetAsync();
+        await LocateAndAdoptEpubAsync(entry);
+    }
+
     private async void OnOptionsSheetRemoveTapped(object sender, TappedEventArgs e)
     {
         if (_activeOptionsEntry == null) return;
         var entry = _activeOptionsEntry;
         await HideOptionsSheetAsync();
         OnDeleteRequested(entry);
+    }
+
+    /// <summary>
+    /// Opens the system file picker so the user can manually locate a moved EPUB.
+    /// On success, heals the history entry's path and immediately opens the file.
+    /// </summary>
+    private async Task LocateAndAdoptEpubAsync(HistoryEntry entry)
+    {
+        try
+        {
+#if ANDROID
+            var activity = MainActivity.Instance;
+            if (activity == null)
+            {
+                await DisplayAlertAsync("Error", "Cannot open file picker right now.", "OK");
+                return;
+            }
+
+            // Open system file picker filtered to EPUB (or all files as fallback).
+            // Use 'var' to let the compiler resolve the correct Android.Net.Uri type.
+            var uri = await activity.PickOpenFileAsync("application/epub+zip");
+            if (uri is null)
+            {
+                // User cancelled — try again with */* in case the picker filtered out EPUBs.
+                uri = await activity.PickOpenFileAsync("*/*");
+                if (uri is null) return;
+            }
+
+            // Convert the SAF URI to a real filesystem path where possible.
+            string uriString   = uri.ToString() ?? string.Empty;
+            string? resolvedPath = EpubOpener.SafContentUriToRealPath(uriString);
+            if (string.IsNullOrWhiteSpace(resolvedPath))
+                resolvedPath = uriString; // fall back to raw SAF URI for SAF-only access
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] LocateAndAdopt: user picked '{resolvedPath}' for '{entry.Title}'");
+
+            // Heal the entry in history.
+            entry.EpubPath        = resolvedPath;
+            entry.IsFileAvailable = true;
+            await HistoryService.Instance.SaveAsync();
+
+            // Refresh cards to remove the "File missing" badge.
+            RebuildCards();
+
+            // Open the file immediately.
+            if (!string.IsNullOrWhiteSpace(resolvedPath))
+            {
+                try
+                {
+                    string openPath = EpubOpener.PreferFilesystemPath(resolvedPath);
+                    EpubOpener.Open(openPath);
+                }
+                catch (InvalidOperationException)
+                {
+                    // No EPUB reader installed — fall back to share sheet.
+                    try { EpubOpener.Share(resolvedPath, entry.Title); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[HistoryPage] LocateAndAdopt open error: {ex.Message}");
+                }
+            }
+#else
+            await DisplayAlertAsync("Not supported", "File picking is only available on Android.", "OK");
+#endif
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[HistoryPage] LocateAndAdoptEpubAsync error: {ex.Message}");
+            await DisplayAlertAsync("Error",
+                "Could not locate the file. Please try again.", "OK");
+        }
     }
 
     private void UpdateSheetBottomMargins()

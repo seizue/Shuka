@@ -17,12 +17,15 @@ public class HistoryCard : ContentView
     {
         _entry = entry;
         bool fileExists = entry.IsFileAvailable;
+        bool hasCover = entry.IsCoverAvailable &&
+                        !string.IsNullOrWhiteSpace(entry.CoverLocalPath) &&
+                        File.Exists(entry.CoverLocalPath);
 
         if (isCompact)
         {
             // ── Grid view (Compact Grid style like Tachiyomi) ────────────────
             View coverView;
-            if (entry.IsCoverAvailable && !string.IsNullOrWhiteSpace(entry.CoverLocalPath))
+            if (hasCover)
             {
                 coverView = new Image
                 {
@@ -140,7 +143,7 @@ public class HistoryCard : ContentView
         {
             // ── List view (standard layout) ──────────────────────────────────
             View coverView;
-            if (entry.IsCoverAvailable && !string.IsNullOrWhiteSpace(entry.CoverLocalPath))
+            if (hasCover)
             {
                 var img = new Image
                 {
@@ -212,13 +215,29 @@ public class HistoryCard : ContentView
             };
             metaLabel.SetDynamicResource(Label.TextColorProperty, "TextMuted");
 
-            var fileLabel = new Label
+            string iconChar  = fileExists ? "\uE876" : "\uE5CD";
+            string labelText = fileExists ? " File available" : " File missing / moved";
+            string colorKey  = fileExists ? "Success" : "Warning";
+
+            var fileLabel = new Label { FontSize = 11 };
+            fileLabel.SetDynamicResource(Label.TextColorProperty, colorKey);
+            fileLabel.FormattedText = new FormattedString
             {
-                Text      = fileExists ? "\uE876  File available" : "\uE5CD  File missing",
-                FontSize  = 11,
+                Spans =
+                {
+                    new Span
+                    {
+                        Text       = iconChar,
+                        FontFamily = "MaterialSymbols",
+                        FontSize   = 12,
+                    },
+                    new Span
+                    {
+                        Text     = labelText,
+                        // No FontFamily → inherits app default font
+                    },
+                }
             };
-            fileLabel.SetDynamicResource(Label.TextColorProperty,
-                fileExists ? "Success" : "TextMuted");
 
             var textStack = new VerticalStackLayout
             {

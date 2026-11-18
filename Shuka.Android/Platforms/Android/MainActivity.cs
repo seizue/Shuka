@@ -78,16 +78,21 @@ public class MainActivity : MauiAppCompatActivity
     }
 
     /// <summary>
-    /// Opens the system file-open picker (OPEN_DOCUMENT) filtered to JSON files.
+    /// Opens the system file-open picker (OPEN_DOCUMENT) filtered to the given MIME type.
     /// Returns the chosen URI or null.
     /// </summary>
-    public Task<AndroidUri?> PickOpenFileAsync()
+    public Task<AndroidUri?> PickOpenFileAsync(string mimeType = "application/json")
     {
         _fileOpenPickerTcs = new TaskCompletionSource<AndroidUri?>();
         var intent = new Intent(Intent.ActionOpenDocument);
-        intent.SetType("application/json");
+        intent.SetType(mimeType);
         intent.AddCategory(Intent.CategoryOpenable);
         intent.AddFlags(ActivityFlags.GrantReadUriPermission);
+        if (mimeType == "application/epub+zip")
+        {
+            // Support broad picker filters so users can select .epub files reliably across different file managers
+            intent.PutExtra(Intent.ExtraMimeTypes, new[] { "application/epub+zip", "application/zip", "application/octet-stream", "*/*" });
+        }
         StartActivityForResult(intent, FileOpenPickerRequestCode);
         return _fileOpenPickerTcs.Task;
     }
@@ -151,6 +156,12 @@ public class MainActivity : MauiAppCompatActivity
         {
             if (resultCode == Result.Ok && data?.Data is AndroidUri openUri)
             {
+                try
+                {
+                    var flags = ActivityFlags.GrantReadUriPermission;
+                    ContentResolver?.TakePersistableUriPermission(openUri, flags);
+                }
+                catch { }
                 _fileOpenPickerTcs?.TrySetResult(openUri);
             }
             else
