@@ -20,6 +20,7 @@ public partial class HistoryPage : ContentPage
     private bool _isOptionsSheetOpen;
     private HistoryEntry? _activeOptionsEntry;
     private bool _isCompactView;
+    private bool _isVisible;
     private double _lastWidth = -1;
 
     // Pagination state
@@ -57,6 +58,7 @@ public partial class HistoryPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        _isVisible = true;
         try
         {
             MainActivity.Instance?.SetTabBarVisible(true);
@@ -72,6 +74,12 @@ public partial class HistoryPage : ContentPage
         {
             System.Diagnostics.Debug.WriteLine($"[HistoryPage] OnAppearing error: {ex.Message}");
         }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _isVisible = false;
     }
 
     /// <summary>
@@ -303,6 +311,8 @@ public partial class HistoryPage : ContentPage
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (!_isVisible) return;
+
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             await LoadInitialBatch();

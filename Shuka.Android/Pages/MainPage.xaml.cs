@@ -1802,10 +1802,26 @@ public partial class MainPage : ContentPage
                 await dlBtn.ScaleToAsync(0.93, 70, Easing.CubicOut);
                 await dlBtn.ScaleToAsync(1.0, 70, Easing.SpringOut);
                 bool translate = Preferences.Default.Get("translate_to_english_enabled", true);
+
+                var existing = DownloadManager.Instance.FindExisting(novel.Url);
+                if (existing != null &&
+                    existing.Status is DownloadStatus.Downloading
+                                    or DownloadStatus.Pending
+                                    or DownloadStatus.Resuming
+                                    or DownloadStatus.Paused)
+                {
+                    // Already in queue — don't redirect, just show the banner
+                    await ShowQueuedBanner();
+                    await Task.Delay(80);
+                    suppressCardTap = false;
+                    return;
+                }
+
                 DownloadManager.Instance.Enqueue(novel.Url, 0,
                     string.IsNullOrWhiteSpace(novel.CoverUrl) ? null : novel.CoverUrl, 0, translate);
-                if (Shell.Current != null)
-                    await Shell.Current.GoToAsync("//DownloadsPage");
+
+                // Stay on current page — show brief queued banner instead of redirecting
+                await ShowQueuedBanner();
                 await Task.Delay(80);
                 suppressCardTap = false;
             })

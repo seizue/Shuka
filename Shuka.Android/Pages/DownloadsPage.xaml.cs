@@ -31,6 +31,8 @@ public partial class DownloadsPage : ContentPage
     private System.Threading.CancellationTokenSource? _refreshCts;
     private List<Guid>? _currentFilteredIds;
 
+    private bool _isVisible;
+
     public DownloadsPage()
     {
         InitializeComponent();
@@ -50,6 +52,7 @@ public partial class DownloadsPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        _isVisible = true;
         MainActivity.Instance?.SetTabBarVisible(true);
 
         UpdateCategorySelectorUI(_activeCategory);
@@ -85,6 +88,12 @@ public partial class DownloadsPage : ContentPage
         }
     }
 
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _isVisible = false;
+    }
+
     // ── Collection / Property Changes ──────────────────────────────────────────
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -100,6 +109,7 @@ public partial class DownloadsPage : ContentPage
                 item.PropertyChanged += OnItemPropertyChanged;
         }
 
+        if (!_isVisible) return;
         MainThread.BeginInvokeOnMainThread(() => RefreshUI(immediate: false));
     }
 
@@ -107,6 +117,7 @@ public partial class DownloadsPage : ContentPage
     {
         if (e.PropertyName == nameof(DownloadItem.Status))
         {
+            if (!_isVisible) return;
             MainThread.BeginInvokeOnMainThread(() => RefreshUI(immediate: false));
         }
 
@@ -120,6 +131,9 @@ public partial class DownloadsPage : ContentPage
 
     private void RefreshUI(bool immediate = false)
     {
+        if (!_isVisible && !immediate)
+            return;
+
         _refreshCts?.Cancel();
         _refreshCts = null;
 

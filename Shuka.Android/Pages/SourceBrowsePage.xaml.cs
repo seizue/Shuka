@@ -15,7 +15,7 @@ public partial class SourceBrowsePage : ContentPage
     private enum BrowseMode { Recent, Popular, Top500, Search }
     private BrowseMode _mode    = BrowseMode.Recent;
     private int        _page    = 1;
-    private bool       _loading = false;
+    private int        _isLoadingPage = 0;
     private bool       _hasMore = true;
     private string     _query   = "";
 
@@ -38,15 +38,24 @@ public partial class SourceBrowsePage : ContentPage
     private NovelEntry? _activeDetailNovel;
     private CancellationTokenSource? _translateCts;
 
+    // Toast cancellation — cancels the previous toast when a new one replaces it
+    private CancellationTokenSource? _toastCts;
+
     // All loaded novels (kept for adaptive re-layout on width change)
     private readonly List<NovelEntry> _loadedNovels = new();
 
     // Cache for translated titles (original title -> translated title)
     private readonly Dictionary<string, string> _translatedTitles = new(StringComparer.OrdinalIgnoreCase);
 
-    // Cache for remote cover image bytes (URL -> byte[])
+    // Cache for remote cover image bytes (URL -> byte[]) - bounded LRU cache to prevent memory bloat
+    private const int MaxCachedCovers = 150;
     private static readonly Dictionary<string, byte[]> _coverBytesCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly LinkedList<string> _coverCacheOrder = new();
     private static readonly object _coverImageLock = new();
+    private static readonly SemaphoreSlim _coverHttpSemaphore = new(3, 3);
+    private CancellationTokenSource? _browseCts;
+    private long _lastScrollCheckTicks;
+
     private static readonly HttpClient _coverHttp = new(new HttpClientHandler
     {
         AutomaticDecompression = System.Net.DecompressionMethods.All
@@ -127,6 +136,14 @@ public partial class SourceBrowsePage : ContentPage
         bool isPopped = Navigation == null || !Navigation.NavigationStack.Contains(this);
         if (isPopped)
         {
+            try
+            {
+                _browseCts?.Cancel();
+                _browseCts?.Dispose();
+                _browseCts = null;
+            }
+            catch { }
+
             var previousPage = navStack?.LastOrDefault(p => p != this);
             if (previousPage == null || 
                 (previousPage is not AboutPage &&
@@ -227,7 +244,12 @@ public partial class SourceBrowsePage : ContentPage
         lock (_coverImageLock)
         {
             if (_coverBytesCache.TryGetValue(coverUrl, out var bytes))
+            {
+                // Touch LRU entry
+                _coverCacheOrder.Remove(coverUrl);
+                _coverCacheOrder.AddLast(coverUrl);
                 return ImageSource.FromStream(() => new MemoryStream(bytes));
+            }
 
             // Not cached yet - will be loaded asynchronously
             return null;
@@ -235,7 +257,7 @@ public partial class SourceBrowsePage : ContentPage
     }
 
     /// <summary>
-    /// Caches image bytes for a remote cover URL.
+    /// Caches image bytes for a remote cover URL, pruning older entries if cache limit is exceeded.
     /// </summary>
     private static void CacheCoverBytes(string coverUrl, byte[] bytes)
     {
@@ -244,21 +266,86 @@ public partial class SourceBrowsePage : ContentPage
 
         lock (_coverImageLock)
         {
+            if (_coverBytesCache.ContainsKey(coverUrl))
+            {
+                _coverCacheOrder.Remove(coverUrl);
+                _coverCacheOrder.AddLast(coverUrl);
+                _coverBytesCache[coverUrl] = bytes;
+                return;
+            }
+
+            // Evict oldest items if exceeding capacity
+            while (_coverCacheOrder.Count >= MaxCachedCovers)
+            {
+                var oldest = _coverCacheOrder.First?.Value;
+                if (oldest != null)
+                {
+                    _coverCacheOrder.RemoveFirst();
+                    _coverBytesCache.Remove(oldest);
+                }
+                else break;
+            }
+
+            _coverCacheOrder.AddLast(coverUrl);
             _coverBytesCache[coverUrl] = bytes;
         }
     }
 
+#if ANDROID
+    private static byte[] DownsampleCoverBytes(byte[] rawBytes, int maxWidth = 260, int maxHeight = 380)
+    {
+        try
+        {
+            var options = new global::Android.Graphics.BitmapFactory.Options
+            {
+                InJustDecodeBounds = true
+            };
+            global::Android.Graphics.BitmapFactory.DecodeByteArray(rawBytes, 0, rawBytes.Length, options);
+
+            int origWidth = options.OutWidth;
+            int origHeight = options.OutHeight;
+            if (origWidth <= 0 || origHeight <= 0)
+                return rawBytes;
+
+            if (origWidth <= maxWidth && origHeight <= maxHeight)
+                return rawBytes;
+
+            int inSampleSize = 1;
+            while ((origWidth / (inSampleSize * 2)) >= maxWidth &&
+                   (origHeight / (inSampleSize * 2)) >= maxHeight)
+            {
+                inSampleSize *= 2;
+            }
+
+            options.InJustDecodeBounds = false;
+            options.InSampleSize = inSampleSize;
+            options.InPreferredConfig = global::Android.Graphics.Bitmap.Config.Rgb565;
+
+            using var bmp = global::Android.Graphics.BitmapFactory.DecodeByteArray(rawBytes, 0, rawBytes.Length, options);
+            if (bmp == null) return rawBytes;
+
+            using var ms = new MemoryStream();
+            bmp.Compress(global::Android.Graphics.Bitmap.CompressFormat.Jpeg!, 80, ms);
+            return ms.ToArray();
+        }
+        catch
+        {
+            return rawBytes;
+        }
+    }
+#else
+    private static byte[] DownsampleCoverBytes(byte[] rawBytes, int maxWidth = 260, int maxHeight = 380) => rawBytes;
+#endif
+
     /// <summary>
     /// Asynchronously loads a cover image using HttpClient with browser headers,
     /// caches the downloaded bytes in memory, and updates the Image control smoothly.
-    /// Avoids MAUI UriImageSource layout glitches and hotlink failures.
+    /// Uses bounded semaphore concurrency to prevent threadpool starvation.
     /// </summary>
     private void LoadCoverImageAsync(Image targetImg, string? coverUrl, View? placeholderView = null)
     {
         if (string.IsNullOrWhiteSpace(coverUrl) || !Uri.TryCreate(coverUrl, UriKind.Absolute, out var coverUri))
         {
-            targetImg.IsVisible = false;
-            if (placeholderView != null) placeholderView.IsVisible = true;
             return;
         }
 
@@ -267,44 +354,64 @@ public partial class SourceBrowsePage : ContentPage
         if (cached != null)
         {
             targetImg.Source = cached;
-            targetImg.IsVisible = true;
-            if (placeholderView != null) placeholderView.IsVisible = false;
             return;
         }
 
-        // Show placeholder while downloading
-        targetImg.IsVisible = false;
-        if (placeholderView != null) placeholderView.IsVisible = true;
+        var token = _browseCts?.Token ?? CancellationToken.None;
 
         _ = Task.Run(async () =>
         {
+            bool acquired = false;
             try
             {
+                await _coverHttpSemaphore.WaitAsync(token);
+                acquired = true;
+
+                if (token.IsCancellationRequested) return;
+
+                // Re-check cache after acquiring semaphore
+                var alreadyCached = GetCachedCoverImage(coverUrl);
+                if (alreadyCached != null)
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        targetImg.Source = alreadyCached;
+                    });
+                    return;
+                }
+
                 using var req = new HttpRequestMessage(HttpMethod.Get, coverUri);
                 if (!string.IsNullOrWhiteSpace(_source?.HomeUrl))
                 {
                     try { req.Headers.Referrer = new Uri(_source.HomeUrl); } catch { }
                 }
 
-                using var resp = await _coverHttp.SendAsync(req);
+                using var resp = await _coverHttp.SendAsync(req, HttpCompletionOption.ResponseContentRead, token);
                 if (resp.IsSuccessStatusCode)
                 {
-                    var data = await resp.Content.ReadAsByteArrayAsync();
+                    var data = await resp.Content.ReadAsByteArrayAsync(token);
                     if (data != null && data.Length > 0)
                     {
-                        CacheCoverBytes(coverUrl, data);
+                        var downsampled = DownsampleCoverBytes(data);
+                        CacheCoverBytes(coverUrl, downsampled);
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
-                            targetImg.Source = ImageSource.FromStream(() => new MemoryStream(data));
-                            targetImg.IsVisible = true;
-                            if (placeholderView != null) placeholderView.IsVisible = false;
+                            targetImg.Source = ImageSource.FromStream(() => new MemoryStream(downsampled));
                         });
                     }
                 }
             }
+            catch (OperationCanceledException) { /* navigation or reset cancelled */ }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[SourceBrowsePage] Failed to load cover: {ex.Message}");
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    _coverHttpSemaphore.Release();
+                }
             }
         });
     }
@@ -357,10 +464,18 @@ public partial class SourceBrowsePage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            NovelList.Children.Clear();
-            RenderNovelsIntoGrid(_loadedNovels);
-            if (_hasMore)
-                NovelList.Children.Add(BuildLoadMoreButton());
+            NovelList.BatchBegin();
+            try
+            {
+                NovelList.Children.Clear();
+                RenderNovelsIntoGrid(new List<NovelEntry>(_loadedNovels));
+                if (_hasMore)
+                    NovelList.Children.Add(BuildLoadMoreButton());
+            }
+            finally
+            {
+                NovelList.BatchCommit();
+            }
         });
     }
 
@@ -376,6 +491,7 @@ public partial class SourceBrowsePage : ContentPage
         };
 
         var list = novels.ToList();
+        var rowsToAdd = new List<Grid>();
         for (int i = 0; i < list.Count; i += cols)
         {
             var colDefs = new ColumnDefinitionCollection();
@@ -392,7 +508,20 @@ public partial class SourceBrowsePage : ContentPage
             for (int c = 0; c < cols && i + c < list.Count; c++)
                 row.Add(BuildCompactCard(list[i + c]), c, 0);
 
-            NovelList.Children.Add(row);
+            rowsToAdd.Add(row);
+        }
+
+        NovelList.BatchBegin();
+        try
+        {
+            foreach (var r in rowsToAdd)
+            {
+                NovelList.Children.Add(r);
+            }
+        }
+        finally
+        {
+            NovelList.BatchCommit();
         }
     }
 
@@ -523,15 +652,25 @@ public partial class SourceBrowsePage : ContentPage
 
     private async Task LoadPageAsync(bool reset = false)
     {
-        if (_loading) return;
-        if (!reset && !_hasMore) return;
-
-        _loading = true;
+        if (Interlocked.CompareExchange(ref _isLoadingPage, 1, 0) != 0) return;
+        if (!reset && !_hasMore)
+        {
+            Interlocked.Exchange(ref _isLoadingPage, 0);
+            return;
+        }
 
         if (reset)
         {
             _page = 1;
             _hasMore = true;
+            try
+            {
+                _browseCts?.Cancel();
+                _browseCts?.Dispose();
+            }
+            catch { }
+            _browseCts = new CancellationTokenSource();
+
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 _loadedNovels.Clear();
@@ -541,7 +680,12 @@ public partial class SourceBrowsePage : ContentPage
                 ListScroll.IsVisible   = false;
             });
         }
+        else if (_browseCts == null || _browseCts.IsCancellationRequested)
+        {
+            _browseCts = new CancellationTokenSource();
+        }
 
+        bool dispatchedToMain = false;
         try
         {
             // For CF-protected browse sources (RequiresCfBypass = true), apply a 30 s timeout
@@ -550,93 +694,114 @@ public partial class SourceBrowsePage : ContentPage
             // time to wait through the WebView semaphore if chapter downloads are holding it,
             // while still guaranteeing the spinner doesn't hang indefinitely.
             int timeoutSec = _source.RequiresCfBypass ? 30 : 90;
-            using var browseCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
+            using var browseTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(browseTimeoutCts.Token, _browseCts.Token);
 
             ListingPage result;
-            try
+            result = _mode switch
             {
-                result = _mode switch
-                {
-                    BrowseMode.Popular => await _service.GetPopularAsync(_source, _page, ct: browseCts.Token),
-                    BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
-                    BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page, ct: browseCts.Token),
-                    _                  => _activeFilter != null
-                                            ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page), ct: browseCts.Token)
-                                            : await _service.GetRecentAsync(_source, _page, ct: browseCts.Token),
-                };
-            }
-            finally
-            {
-                // browseCts disposed by using statement — no extra work needed here
-            }
+                BrowseMode.Popular => await _service.GetPopularAsync(_source, _page, ct: linkedCts.Token),
+                BrowseMode.Top500  => await GetTop500PageAsync(_source, _page),
+                BrowseMode.Search  => await _service.SearchAsync(_source, _query, _page, ct: linkedCts.Token),
+                _                  => _activeFilter != null
+                                        ? await _service.FetchPageAsync(_source, _activeFilter.UrlGenerator(_page), ct: linkedCts.Token)
+                                        : await _service.GetRecentAsync(_source, _page, ct: linkedCts.Token),
+            };
 
             _hasMore = result.HasNextPage;
             _page++;
 
+            dispatchedToMain = true;
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                LoadingState.IsVisible = false;
-
-                if (result.Novels.Count == 0 && reset)
+                try
                 {
-                    EmptyState.IsVisible = true;
-                    ListScroll.IsVisible = false;
-                    return;
+                    LoadingState.IsVisible = false;
+
+                    if (result.Novels.Count == 0 && reset)
+                    {
+                        EmptyState.IsVisible = true;
+                        ListScroll.IsVisible = false;
+                        return;
+                    }
+
+                    ListScroll.IsVisible = true;
+                    EmptyState.IsVisible = false;
+
+                    NovelList.BatchBegin();
+                    try
+                    {
+                        // Remove old "load more" button before appending new cards
+                        var oldLoadMore = NovelList.Children.LastOrDefault(
+                            c => c is Border b && b.AutomationId == "LoadMoreBtn");
+                        if (oldLoadMore != null) NovelList.Children.Remove(oldLoadMore);
+
+                        _loadedNovels.AddRange(result.Novels);
+                        RenderNovelsIntoGrid(result.Novels);
+
+                        // Load more button if there are more pages
+                        if (_hasMore)
+                        {
+                            var loadMoreBtn = BuildLoadMoreButton();
+                            NovelList.Children.Add(loadMoreBtn);
+                        }
+                    }
+                    finally
+                    {
+                        NovelList.BatchCommit();
+                    }
                 }
-
-                ListScroll.IsVisible = true;
-                EmptyState.IsVisible = false;
-
-                // Remove old "load more" button before appending new cards
-                var oldLoadMore = NovelList.Children.LastOrDefault(
-                    c => c is Border b && b.AutomationId == "LoadMoreBtn");
-                if (oldLoadMore != null) NovelList.Children.Remove(oldLoadMore);
-
-                _loadedNovels.AddRange(result.Novels);
-                RenderNovelsIntoGrid(result.Novels);
-
-                // Load more button if there are more pages
-                if (_hasMore)
+                finally
                 {
-                    var loadMoreBtn = BuildLoadMoreButton();
-                    NovelList.Children.Add(loadMoreBtn);
+                    Interlocked.Exchange(ref _isLoadingPage, 0);
                 }
             });
         }
         catch (Exception ex)
         {
+            dispatchedToMain = true;
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                LoadingState.IsVisible = false;
-
-                // Only show WebView prompt if a real Cloudflare challenge was detected
-                if (ex is CloudflareExpiredException && NovelList.Children.Count == 0)
+                try
                 {
-                    ShowWebViewOnlyState();
-                    return;
-                }
+                    LoadingState.IsVisible = false;
 
-                EmptyState.IsVisible   = NovelList.Children.Count == 0;
-                ListScroll.IsVisible   = NovelList.Children.Count > 0;
-                if (NovelList.Children.Count == 0)
-                {
-                    var errLabel = new Label
+                    // Only show WebView prompt if a real Cloudflare challenge was detected
+                    if (ex is CloudflareExpiredException && NovelList.Children.Count == 0)
                     {
-                        Text              = $"Failed to load: {ex.Message}",
-                        FontSize          = 12,
-                        HorizontalOptions = LayoutOptions.Center,
-                        Margin            = new Thickness(16),
-                    };
-                    errLabel.SetDynamicResource(Label.TextColorProperty, "Danger");
-                    NovelList.Children.Add(errLabel);
-                    ListScroll.IsVisible = true;
-                    EmptyState.IsVisible = false;
+                        ShowWebViewOnlyState();
+                        return;
+                    }
+
+                    EmptyState.IsVisible   = NovelList.Children.Count == 0;
+                    ListScroll.IsVisible   = NovelList.Children.Count > 0;
+                    if (NovelList.Children.Count == 0)
+                    {
+                        var errLabel = new Label
+                        {
+                            Text              = $"Failed to load: {ex.Message}",
+                            FontSize          = 12,
+                            HorizontalOptions = LayoutOptions.Center,
+                            Margin            = new Thickness(16),
+                        };
+                        errLabel.SetDynamicResource(Label.TextColorProperty, "Danger");
+                        NovelList.Children.Add(errLabel);
+                        ListScroll.IsVisible = true;
+                        EmptyState.IsVisible = false;
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _isLoadingPage, 0);
                 }
             });
         }
         finally
         {
-            _loading = false;
+            if (!dispatchedToMain)
+            {
+                Interlocked.Exchange(ref _isLoadingPage, 0);
+            }
         }
     }
 
@@ -1174,12 +1339,17 @@ public partial class SourceBrowsePage : ContentPage
 
     private void OnListScrolled(object? sender, ScrolledEventArgs e)
     {
-        if (_loading || !_hasMore) return;
+        if (Interlocked.CompareExchange(ref _isLoadingPage, 0, 0) != 0 || !_hasMore) return;
 
-        // Auto-load next page when user scrolls near the bottom (within 400px)
+        // Throttle scroll checks to at most once per 80ms to avoid duplicate trigger during rapid fling
+        long now = Environment.TickCount64;
+        if (now - _lastScrollCheckTicks < 80) return;
+        _lastScrollCheckTicks = now;
+
+        // Auto-load next page when user scrolls near the bottom (within 500px)
         double scrollBottom = e.ScrollY + ListScroll.Height;
         double contentHeight = ListScroll.ContentSize.Height;
-        if (contentHeight > 0 && scrollBottom >= contentHeight - 400)
+        if (contentHeight > 0 && scrollBottom >= contentHeight - 500)
         {
             _ = LoadPageAsync(reset: false);
         }
@@ -1224,17 +1394,39 @@ public partial class SourceBrowsePage : ContentPage
 
     private void OnDownloadTapped(NovelEntry novel)
     {
+        TryHapticLight();
+
         // English-only sources (noveldex.io) should never be translated
         bool isEnglishSource = _source.SiteName.Contains("noveldex.io", StringComparison.OrdinalIgnoreCase);
-        bool? translateOverride = isEnglishSource ? false : null; // null = use user's global preference
+        bool? translateOverride = isEnglishSource ? false : null;
+
+        var existing = Services.DownloadManager.Instance.FindExisting(novel.Url);
+
+        if (existing != null)
+        {
+            switch (existing.Status)
+            {
+                case Services.DownloadStatus.Downloading:
+                case Services.DownloadStatus.Resuming:
+                case Services.DownloadStatus.Pending:
+                    return;
+
+                case Services.DownloadStatus.Paused:
+                    Services.DownloadManager.Instance.Retry(existing);
+                    return;
+
+                case Services.DownloadStatus.Completed:
+                    // Previously downloaded — queue a fresh download silently
+                    Services.DownloadManager.Instance.Dismiss(existing);
+                    break;
+
+                // Failed / Cancelled — fall through and re-queue below
+            }
+        }
 
         Services.DownloadManager.Instance.Enqueue(novel.Url, 0,
             string.IsNullOrWhiteSpace(novel.CoverUrl) ? null : novel.CoverUrl,
             translate: translateOverride);
-
-        // Navigate to Downloads tab
-        if (Shell.Current != null)
-            _ = Shell.Current.GoToAsync("//DownloadsPage");
     }
 
     // ── Card long-press options ─────────────────────────────────────────────
@@ -1271,16 +1463,20 @@ public partial class SourceBrowsePage : ContentPage
 
         void CancelLongPress()
         {
-            try
+            var cts = Interlocked.Exchange(ref lpCts, null);
+            if (cts != null)
             {
-                if (lpCts != null && !lpCts.IsCancellationRequested)
-                    lpCts.Cancel();
+                try
+                {
+                    if (!cts.IsCancellationRequested)
+                        cts.Cancel();
+                    cts.Dispose();
+                }
+                catch { }
             }
-            catch { /* ignore */ }
         }
 
         pointerGesture.PointerReleased += (_, _) => CancelLongPress();
-        pointerGesture.PointerMoved    += (_, _) => CancelLongPress();
         pointerGesture.PointerExited   += (_, _) => CancelLongPress();
 
         targetView.GestureRecognizers.Add(pointerGesture);
@@ -1516,22 +1712,39 @@ public partial class SourceBrowsePage : ContentPage
 
     private async Task ShowImageActionToastAsync(string message, int displayMs = 2500)
     {
-        ImageActionToastLabel.Text = message;
-        ImageActionToast.Opacity = 0;
-        ImageActionToast.TranslationY = 20;
-        ImageActionToast.IsVisible = true;
+        // Cancel any currently-running toast so its animation doesn't conflict
+        _toastCts?.Cancel();
+        _toastCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _toastCts = cts;
 
-        await Task.WhenAll(
-            ImageActionToast.FadeToAsync(1.0, 250, Easing.CubicOut),
-            ImageActionToast.TranslateToAsync(0, 0, 250, Easing.CubicOut));
+        try
+        {
+            // Update label and snap to hidden start position
+            ImageActionToastLabel.Text = message;
+            ImageActionToast.Opacity      = 0;
+            ImageActionToast.TranslationY = 20;
+            ImageActionToast.IsVisible    = true;
 
-        await Task.Delay(displayMs);
+            // Fade + slide in
+            await Task.WhenAll(
+                ImageActionToast.FadeToAsync(1.0, 200, Easing.CubicOut),
+                ImageActionToast.TranslateToAsync(0, 0, 200, Easing.CubicOut));
 
-        await Task.WhenAll(
-            ImageActionToast.FadeToAsync(0, 250, Easing.CubicIn),
-            ImageActionToast.TranslateToAsync(0, 20, 250, Easing.CubicIn));
+            // Hold — exits early if a new toast cancels this one
+            await Task.Delay(displayMs, cts.Token);
 
-        ImageActionToast.IsVisible = false;
+            // Fade + slide out
+            await Task.WhenAll(
+                ImageActionToast.FadeToAsync(0, 200, Easing.CubicIn),
+                ImageActionToast.TranslateToAsync(0, 20, 200, Easing.CubicIn));
+
+            ImageActionToast.IsVisible = false;
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer toast took over — leave the view in whatever state the new one sets it
+        }
     }
 
     // ── Novel detail bottom sheet ─────────────────────────────────────────────

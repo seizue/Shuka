@@ -56,15 +56,22 @@ public class DownloadForegroundService : Service
         _currentTitle   = "Downloading novel\u2026";
     }
 
+    private static long _lastNotificationMs = 0;
+
     /// <summary>
     /// Updates the ongoing download notification with live chapter progress.
-    /// Call this from the download progress callback. Throttled by the OS (max ~1/s).
+    /// Call this from the download progress callback. Throttled to at most once per second.
     /// </summary>
     public static void UpdateProgress(string title, int current, int total)
     {
         _currentTitle   = title;
         _currentChapter = current;
         _currentTotal   = total;
+
+        long now = System.Environment.TickCount64;
+        if (current < total && (now - _lastNotificationMs) < 1000)
+            return;
+        _lastNotificationMs = now;
 
         var ctx = global::Android.App.Application.Context;
         EnsureProgressChannel(ctx);

@@ -43,18 +43,18 @@ public class DownloadManager
                 foreach (DownloadItem item in e.NewItems)
                     RegisterItemChange(item);
             }
-            _ = SaveQueueAsync();
+            _ = SaveQueueAsync(includeExternalBackup: true);
             UpdateQueuePositions();
         };
 
         _ = LoadQueueAsync();
     }
 
-    public async Task SaveQueueAsync()
+    public async Task SaveQueueAsync(bool includeExternalBackup = false)
     {
         if (_savePending) return;
         _savePending = true;
-        // Debounce to avoid rapid-fire writes on progress updates
+        // Debounce to avoid rapid-fire writes on frequent property updates
         await Task.Delay(500);
         _savePending = false;
 
@@ -66,23 +66,27 @@ public class DownloadManager
             string path = Path.Combine(FileSystem.AppDataDirectory, "downloads.json");
             await File.WriteAllTextAsync(path, json);
 
-            // Also keep an external backup across all download directories (custom and default) so downloads state survives app uninstalls / updates
-            try
+            // Mirror to external directories ONLY on milestone events (completion, add/remove)
+            // to avoid continuous disk I/O thrashing during active chapter downloads.
+            if (includeExternalBackup)
             {
-                foreach (string extDir in HistoryService.GetExternalBackupDirs())
+                try
                 {
-                    try
+                    foreach (string extDir in HistoryService.GetExternalBackupDirs())
                     {
-                        string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
-                        if (list.Count > 0)
-                            await File.WriteAllTextAsync(backupPath, json);
-                        else if (File.Exists(backupPath))
-                            File.Delete(backupPath);
+                        try
+                        {
+                            string backupPath = Path.Combine(extDir, ".shuka_downloads_backup.json");
+                            if (list.Count > 0)
+                                await File.WriteAllTextAsync(backupPath, json);
+                            else if (File.Exists(backupPath))
+                                File.Delete(backupPath);
+                        }
+                        catch { }
                     }
-                    catch { }
                 }
+                catch { }
             }
-            catch { }
         }
         catch { }
         finally { _saveLock.Release(); }
@@ -96,19 +100,19 @@ public class DownloadManager
 
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(DownloadItem.Status) or 
-                              nameof(DownloadItem.Progress) or 
-                              nameof(DownloadItem.Title) or 
-                              nameof(DownloadItem.Author) or 
-                              nameof(DownloadItem.EpubPath) or 
-                              nameof(DownloadItem.LogText))
-        {
-            _ = SaveQueueAsync();
-        }
-
+        // NEVER save queue on high-frequency Progress or LogText changes!
+        // Resumed downloads recover progress from the checkpoint file on disk.
         if (e.PropertyName == nameof(DownloadItem.Status))
         {
+            bool isFinished = sender is DownloadItem item && item.IsFinished;
+            _ = SaveQueueAsync(includeExternalBackup: isFinished);
             UpdateQueuePositions();
+        }
+        else if (e.PropertyName is nameof(DownloadItem.Title) or 
+                                  nameof(DownloadItem.Author) or 
+                                  nameof(DownloadItem.EpubPath))
+        {
+            _ = SaveQueueAsync(includeExternalBackup: false);
         }
     }
 
@@ -296,14 +300,19 @@ public class DownloadManager
             searchTitle = item.Title;
 
 #if ANDROID
-        string? path = existing != null
-            ? Platforms.Android.EpubOpener.ResolveAccessiblePath(
-                existing.EpubPath, existing.Title, existing.Url)
-            : Platforms.Android.EpubOpener.ResolveAccessiblePath(
-                item.EpubPath, searchTitle, item.Url);
+        string? path = null;
+        if (existing != null && !string.IsNullOrWhiteSpace(existing.EpubPath) && Platforms.Android.EpubOpener.IsAccessible(existing.EpubPath))
+        {
+            path = Platforms.Android.EpubOpener.PreferFilesystemPath(existing.EpubPath);
+        }
+        else if (existing != null)
+        {
+            path = Platforms.Android.EpubOpener.ResolveAccessiblePath(
+                existing.EpubPath, existing.Title, existing.Url);
 
-        if (path == null && !string.IsNullOrWhiteSpace(searchTitle))
-            path = Platforms.Android.EpubOpener.FindExistingEpub(searchTitle, item.EpubPath);
+            if (path == null && !string.IsNullOrWhiteSpace(searchTitle))
+                path = Platforms.Android.EpubOpener.FindExistingEpub(searchTitle, item.EpubPath);
+        }
 
         if (path == null) return false;
 
@@ -351,10 +360,9 @@ public class DownloadManager
         {
             var hist = HistoryService.Instance.Entries.FirstOrDefault(e =>
                 string.Equals(e.Url, url, StringComparison.OrdinalIgnoreCase));
-            string? existingPath = Platforms.Android.EpubOpener.ResolveAccessiblePath(
-                hist?.EpubPath, hist?.Title, url);
-            if (existingPath != null)
+            if (hist != null && !string.IsNullOrWhiteSpace(hist.EpubPath) && Platforms.Android.EpubOpener.IsAccessible(hist.EpubPath))
             {
+                string existingPath = Platforms.Android.EpubOpener.PreferFilesystemPath(hist.EpubPath);
                 System.Diagnostics.Debug.WriteLine(
                     $"[DownloadManager] Enqueue skipped — EPUB already exists at '{existingPath}' for {url}");
                 var adopted = new DownloadItem
@@ -370,8 +378,8 @@ public class DownloadManager
                     Progress     = 1.0,
                     StatusText   = "Done",
                     EnqueuedAt   = DateTime.UtcNow,
-                    Title        = hist?.Title ?? "",
-                    Author       = hist?.Author ?? "",
+                    Title        = hist.Title ?? "",
+                    Author       = hist.Author ?? "",
                 };
                 MainThread.BeginInvokeOnMainThread(() => Downloads.Insert(0, adopted));
                 return adopted;
@@ -755,8 +763,7 @@ public class DownloadManager
         var ct = item.Cts.Token;
 
         void Log(string msg) =>
-            MainThread.BeginInvokeOnMainThread(() =>
-                item.LogText += msg + "\n");
+            item.AppendLog(msg);
 
         try
         {
@@ -974,8 +981,7 @@ public class DownloadManager
         var ct = item.Cts.Token;
 
         void Log(string msg) =>
-            MainThread.BeginInvokeOnMainThread(() =>
-                item.LogText += msg + "\n");
+            item.AppendLog(msg);
 
 #if ANDROID
         DownloadForegroundService.Start();
@@ -987,8 +993,7 @@ public class DownloadManager
 #if ANDROID
             if (!item.ForceRebuild)
             {
-                bool adopted = false;
-                await MainThread.InvokeOnMainThreadAsync(() => adopted = TryAdoptExistingEpub(item));
+                bool adopted = TryAdoptExistingEpub(item);
                 if (adopted)
                 {
                     System.Diagnostics.Debug.WriteLine(
@@ -1000,96 +1005,6 @@ public class DownloadManager
 
             item.Status     = DownloadStatus.Downloading;
             item.StatusText = "Gathering book info...";
-
-            if (!item.ForceRebuild)
-            {
-                if (!HistoryService.Instance.LoadedTask.IsCompleted)
-                {
-                    await HistoryService.Instance.LoadedTask.WaitAsync(TimeSpan.FromMilliseconds(300))
-                        .ContinueWith(_ => { }, TaskContinuationOptions.None);
-                }
-
-                // ── Check history by URL first ──────────────────────────────────
-                var existing = HistoryService.Instance.Entries.FirstOrDefault(e =>
-                    string.Equals(e.Url, item.Url, StringComparison.OrdinalIgnoreCase));
-                System.Diagnostics.Debug.WriteLine(
-                    $"[DownloadManager.RunAsync] URL={item.Url} | history match: {(existing == null ? "null" : $"'{existing.Title}' EpubPath='{existing.EpubPath}'")}");
-
-                // ── Determine which title to use for file-system scan ───────────────
-                string? searchTitle = existing?.Title;
-                if (string.IsNullOrWhiteSpace(searchTitle) && !string.IsNullOrWhiteSpace(item.Title))
-                    searchTitle = item.Title;
-                System.Diagnostics.Debug.WriteLine(
-                    $"[DownloadManager.RunAsync] searchTitle='{searchTitle}'");
-
-                // ── Try to locate a valid EPUB (stored path, filename, then full scan) ─
-                string? path = null;
-                if (existing != null)
-                {
-                    path = Platforms.Android.EpubOpener.ResolveAccessiblePath(
-                        existing.EpubPath, existing.Title, existing.Url);
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[DownloadManager.RunAsync] ResolveAccessiblePath(history): '{path ?? "null"}'");
-                }
-
-                if (path == null)
-                {
-                    path = Platforms.Android.EpubOpener.ResolveAccessiblePath(
-                        item.EpubPath, searchTitle, item.Url);
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[DownloadManager.RunAsync] ResolveAccessiblePath(item): '{path ?? "null"}'");
-                }
-
-                if (path == null && !string.IsNullOrWhiteSpace(searchTitle))
-                {
-                    path = Platforms.Android.EpubOpener.FindExistingEpub(searchTitle, item.EpubPath);
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[DownloadManager.RunAsync] FindExistingEpub('{searchTitle}'): '{path ?? "null"}'");
-                }
-
-                if (path != null)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[DownloadManager] Reusing existing EPUB at: {path} for '{searchTitle ?? item.Url}'");
-                    Log($"EPUB already exists — reusing: {path}");
-
-                    // Keep history entry in sync
-                    if (existing != null && existing.EpubPath != path)
-                    {
-                        existing.EpubPath = path;
-                        existing.IsFileAvailable = true;
-                    }
-                    _ = HistoryService.Instance.SaveAsync();
-
-                    await MainThread.InvokeOnMainThreadAsync(() =>
-                    {
-                        if (!string.IsNullOrWhiteSpace(existing?.Title))
-                        {
-                            item.Title          = existing.Title;
-                            item.Author         = existing.Author;
-                            item.OriginalTitle  = existing.Title;
-                            item.OriginalAuthor = existing.Author;
-                        }
-                        item.EpubPath   = path;
-                        item.Progress   = 1.0;
-                        item.StatusText = "Done";
-                        item.Status     = DownloadStatus.Completed;
-                    });
-
-#if ANDROID
-                    DownloadForegroundService.NotifyDone(item.Title, path);
-#endif
-                    return;
-                }
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[DownloadManager.RunAsync] No existing EPUB found — proceeding with full download for '{searchTitle ?? item.Url}'");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[DownloadManager.RunAsync] ForceRebuild=true — skipping existing-EPUB check for URL={item.Url}");
-            }
 
             var service = new BookService(new WebViewCloudflareBypass());
 
@@ -1120,19 +1035,27 @@ public class DownloadManager
 
             item.StatusText = item.Translate ? $"Downloading & translating {book.Total} chapters..." : $"Downloading {book.Total} chapters...";
 
+            long lastProgressUiMs = 0;
             var progress = new Progress<ProgressEventArgs>(p =>
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                long now = System.Environment.TickCount64;
+                bool isDone = p.Current >= p.Total;
+                if (isDone || (now - lastProgressUiMs) >= 250)
                 {
-                    item.Progress    = (double)p.Current / p.Total;
-                    item.StatusText  = p.Message;
-                });
+                    lastProgressUiMs = now;
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        item.Progress    = p.Total > 0 ? (double)p.Current / p.Total : 0;
+                        item.StatusText  = p.Message;
+                    });
+
 #if ANDROID
-                DownloadForegroundService.UpdateProgress(
-                    !string.IsNullOrWhiteSpace(item.Title) && item.Title != "Loading..." ? item.Title : "Shuka",
-                    p.Current,
-                    p.Total);
+                    DownloadForegroundService.UpdateProgress(
+                        !string.IsNullOrWhiteSpace(item.Title) && item.Title != "Loading..." ? item.Title : "Shuka",
+                        p.Current,
+                        p.Total);
 #endif
+                }
             });
 
             // Always write the EPUB to app-private cache first — avoids

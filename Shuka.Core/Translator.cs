@@ -56,6 +56,7 @@ public class Translator
         {
             _googleRateLimited = true;
             _googleRateLimitReset = DateTime.UtcNow + (duration ?? TimeSpan.FromMinutes(20));
+            _isProbingGoogle = false;
         }
     }
 
@@ -65,6 +66,7 @@ public class Translator
         {
             _googleRateLimited = false;
             _googleRateLimitReset = DateTime.MinValue;
+            _isProbingGoogle = false;
         }
     }
 
@@ -218,6 +220,8 @@ public class Translator
         // ── 1. Google GTX Circuit Breaker & Single-Probe Recovery ────────────
         bool canTryGoogle = false;
         bool isProbe = false;
+        bool probeInProgress = false;
+        TimeSpan remainingCooldown = TimeSpan.Zero;
 
         lock (_rateLimitLock)
         {
@@ -235,85 +239,105 @@ public class Translator
                     isProbe = true;
                     canTryGoogle = true;
                 }
+                else
+                {
+                    probeInProgress = true;
+                }
+            }
+            else
+            {
+                remainingCooldown = _googleRateLimitReset - DateTime.UtcNow;
             }
         }
 
         if (canTryGoogle)
         {
-            if (isProbe)
+            bool probeSucceeded = false;
+            try
             {
-                log?.Invoke("[Google 20-min cooldown expired — probing Google with 1 chunk to verify recovery...]");
-            }
-
-            for (int attempt = 1; attempt <= 2; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-                try
+                if (isProbe)
                 {
-                    string? result = chunk.Length > 400
-                        ? await CallGooglePost(chunk, ct)
-                        : await CallGoogleGtx(chunk, ct);
+                    log?.Invoke("[Google 20-min cooldown expired — probing Google with 1 chunk to verify recovery...]");
+                }
 
-                    if (result != null)
+                for (int attempt = 1; attempt <= 2; attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try
                     {
-                        if (!IsUntranslatedChinese(chunk, result))
+                        string? result = chunk.Length > 400
+                            ? await CallGooglePost(chunk, ct)
+                            : await CallGoogleGtx(chunk, ct);
+
+                        if (result != null)
                         {
-                            if (isProbe)
+                            if (!IsUntranslatedChinese(chunk, result))
                             {
-                                log?.Invoke("[Google recovery probe succeeded! Google Translate is primary again]");
-                                ClearGoogleRateLimit();
+                                if (isProbe)
+                                {
+                                    log?.Invoke("[Google recovery probe succeeded! Google Translate is primary again]");
+                                    probeSucceeded = true;
+                                    ClearGoogleRateLimit();
+                                }
+                                return result;
                             }
-                            return result;
+
+                            log?.Invoke("[Google GTX returned untranslated text — rate limit active, switching to Bing (20m cooldown)]");
+                            MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
+                            break;
                         }
-
-                        log?.Invoke("[Google GTX returned untranslated text — rate limit active, switching to Bing (20m cooldown)]");
-                        MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
-                        break;
                     }
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-                catch (OperationCanceledException)
-                {
-                    log?.Invoke($"[Google GTX timeout attempt {attempt}/2]");
-                    if (attempt < 2) await Task.Delay(400 * attempt, ct);
-                }
-                catch (Exception ex)
-                {
-                    if (IsConnectionAbortedByOs(ex))
-                        log?.Invoke($"[Google failed: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted']");
-                    else
-                        log?.Invoke($"[Google GTX attempt {attempt}/2 failed: {ex.Message}]");
-
-                    if (ex.Message.Contains("429") || ex.Message.Contains("rate limit") || ex.Message.Contains("HTML"))
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (OperationCanceledException)
                     {
-                        log?.Invoke("[Google rate limit detected (429/blocked) — switching to Bing (20m cooldown)]");
-                        MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
-                        break;
+                        log?.Invoke($"[Google GTX timeout attempt {attempt}/2]");
+                        if (attempt < 2) await Task.Delay(400 * attempt, ct);
                     }
-                    if (attempt < 2) await Task.Delay(400 * attempt, ct);
+                    catch (Exception ex)
+                    {
+                        if (IsConnectionAbortedByOs(ex))
+                            log?.Invoke($"[Google failed: Connection aborted by OS power saving when switching apps. Tip: set Shuka battery to 'Unrestricted']");
+                        else
+                            log?.Invoke($"[Google GTX attempt {attempt}/2 failed: {ex.Message}]");
+
+                        if (ex.Message.Contains("429") || ex.Message.Contains("rate limit") || ex.Message.Contains("HTML"))
+                        {
+                            log?.Invoke("[Google rate limit detected (429/blocked) — switching to Bing (20m cooldown)]");
+                            MarkGoogleRateLimited(TimeSpan.FromMinutes(20));
+                            break;
+                        }
+                        if (attempt < 2) await Task.Delay(400 * attempt, ct);
+                    }
                 }
             }
-
-            if (isProbe)
+            finally
             {
-                lock (_rateLimitLock)
+                if (isProbe)
                 {
-                    _isProbingGoogle = false;
-                    // If probe failed or returned untranslated, re-extend cooldown for another 20 minutes
-                    if (_googleRateLimited)
+                    lock (_rateLimitLock)
                     {
-                        _googleRateLimitReset = DateTime.UtcNow + TimeSpan.FromMinutes(20);
-                        log?.Invoke("[Google recovery probe did not succeed — remaining on Bing for another 20 minutes]");
+                        _isProbingGoogle = false;
+                        // If probe failed or returned untranslated, re-extend cooldown for 20 minutes from now
+                        if (!probeSucceeded && _googleRateLimited)
+                        {
+                            _googleRateLimitReset = DateTime.UtcNow + TimeSpan.FromMinutes(20);
+                            log?.Invoke("[Google recovery probe did not succeed — remaining on Bing for another 20 minutes]");
+                        }
                     }
                 }
             }
         }
         else
         {
-            TimeSpan remaining = TimeSpan.Zero;
-            lock (_rateLimitLock) { remaining = _googleRateLimitReset - DateTime.UtcNow; }
-            int remMins = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
-            log?.Invoke($"[Google cooldown active ({remMins}m remaining) — translating via Bing]");
+            if (probeInProgress)
+            {
+                log?.Invoke("[Google cooldown expired — recovery probe in progress, translating via Bing]");
+            }
+            else
+            {
+                int remMins = Math.Max(1, (int)Math.Ceiling(remainingCooldown.TotalMinutes));
+                log?.Invoke($"[Google cooldown active ({remMins}m remaining) — translating via Bing]");
+            }
         }
 
         // ── 2. Bing Translator (independent high-quality fallback) ───────────

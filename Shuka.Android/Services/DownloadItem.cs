@@ -25,6 +25,9 @@ public class DownloadItem : INotifyPropertyChanged
     private DownloadStatus _status = DownloadStatus.Pending;
     private string? _epubPath;
     private string _logText = "";
+    private readonly System.Text.StringBuilder _logSb = new();
+    private readonly object _logLock = new();
+    private long _lastLogNotifyTicks;
     private int _queuePosition;
 
     public Guid   Id         { get; set; } = Guid.NewGuid();
@@ -106,8 +109,43 @@ public class DownloadItem : INotifyPropertyChanged
 
     public string LogText
     {
-        get => _logText;
-        set { _logText = value; OnPropertyChanged(); }
+        get
+        {
+            lock (_logLock) { return _logText; }
+        }
+        set
+        {
+            lock (_logLock)
+            {
+                _logText = value ?? "";
+                _logSb.Clear();
+                if (!string.IsNullOrEmpty(value)) _logSb.Append(value);
+            }
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Appends a log line efficiently on background threads without allocating large strings or spamming the UI thread.
+    /// </summary>
+    public void AppendLog(string msg)
+    {
+        lock (_logLock)
+        {
+            _logSb.AppendLine(msg);
+            if (_logSb.Length > 80_000)
+            {
+                _logSb.Remove(0, 20_000);
+            }
+            _logText = _logSb.ToString();
+        }
+
+        long now = System.Environment.TickCount64;
+        if (now - _lastLogNotifyTicks >= 500)
+        {
+            _lastLogNotifyTicks = now;
+            OnPropertyChanged(nameof(LogText));
+        }
     }
 
     [JsonIgnore]
