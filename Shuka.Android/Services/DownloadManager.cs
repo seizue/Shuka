@@ -1213,7 +1213,7 @@ public class DownloadManager
         catch (Shuka.Core.CloudflareExpiredException ex)
         {
             Log($"Cloudflare verification required for {ex.SiteUrl}.");
-            NotifyCloudflareCookieExpired(ex.SiteUrl);
+            NotifyCloudflareCookieExpired(ex.SiteUrl, item.Url);
 
             if (item.CfRetryCount >= 3)
             {
@@ -1516,11 +1516,20 @@ public class DownloadManager
 
     /// <summary>
     /// Posts a notification telling the user their Cloudflare cookie has expired.
-    /// Tapping the notification opens the site in the browser so they can solve
-    /// the challenge — after which the download can be retried.
+    /// The persistent WebView overlay is already showing the CF challenge in-app,
+    /// so the notification exists only as a fallback for when the app is backgrounded.
+    ///
+    /// <paramref name="pageUrl"/> is the full item URL; the notification deep-links
+    /// to it rather than the homepage so it triggers the CF challenge if tapped.
     /// </summary>
-    private static void NotifyCloudflareCookieExpired(string siteHost)
+    private static void NotifyCloudflareCookieExpired(string siteHost, string? pageUrl = null)
     {
+        // The notification deep-links to the actual book page (more likely to trigger CF)
+        // rather than the bare homepage. Only used when the app is in the background.
+        string openUrl = !string.IsNullOrWhiteSpace(pageUrl)
+            ? pageUrl
+            : $"https://{siteHost}/";
+
 #if ANDROID
         const string ChannelId = "shuka_cf_channel";
         var ctx = global::Android.App.Application.Context;
@@ -1544,12 +1553,13 @@ public class DownloadManager
 #pragma warning restore CA1416
         }
 
-        // Intent: open the site in the app's internal WebBrowsePage so cookies are captured
+        // Intent: open the book page (not homepage) in the app's WebBrowsePage so the
+        // CF challenge is triggered and the clearance cookie is captured.
         var browserIntent = new global::Android.Content.Intent(ctx, typeof(MainActivity));
         browserIntent.SetAction(global::Android.Content.Intent.ActionMain);
         browserIntent.AddCategory(global::Android.Content.Intent.CategoryLauncher);
         browserIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask | global::Android.Content.ActivityFlags.SingleTop);
-        browserIntent.PutExtra("open_webview_url", $"https://{siteHost}/");
+        browserIntent.PutExtra("open_webview_url", openUrl);
 
 #pragma warning disable CA1416
         var pendingFlags = global::Android.OS.Build.VERSION.SdkInt >=
@@ -1567,7 +1577,7 @@ public class DownloadManager
 #pragma warning disable CS8602
         var notification = new AndroidX.Core.App.NotificationCompat.Builder(ctx, ChannelId)
             .SetContentTitle("Cloudflare verification needed")
-            .SetContentText($"Tap to open {siteHost} in WebView to pass the check, then resume.")
+            .SetContentText($"Complete the verification shown in the app, or tap here to open {siteHost}.")
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysWarning)
             .SetAutoCancel(true)
             .SetContentIntent(pi)
