@@ -61,6 +61,34 @@ public partial class DownloadsPage : ContentPage
         TabTransition.Prepare(RootGrid, myTabIndex: 1);
         await TabTransition.SlideInAsync(RootGrid);
 
+        // Check if navigated from CF notification — scroll to the item so it's
+        // visible during the ~2s wait before the CF challenge overlay appears.
+        if (!string.IsNullOrEmpty(MainActivity.PendingCfItemId))
+        {
+            string cfId = MainActivity.PendingCfItemId;
+            MainActivity.PendingCfItemId = null;
+            if (Guid.TryParse(cfId, out var cfGuid))
+            {
+                var cfItem = DownloadManager.Instance.Downloads.FirstOrDefault(d => d.Id == cfGuid);
+                if (cfItem != null)
+                {
+                    // Switch to whatever category the item currently belongs to so it's visible.
+                    DownloadCategory itemCategory = cfItem.Status switch
+                    {
+                        DownloadStatus.WaitingForCF or DownloadStatus.Paused => DownloadCategory.Paused,
+                        DownloadStatus.Pending                                => DownloadCategory.Queued,
+                        DownloadStatus.Downloading or DownloadStatus.Resuming => DownloadCategory.Downloading,
+                        DownloadStatus.Failed or DownloadStatus.Cancelled     => DownloadCategory.Failed,
+                        DownloadStatus.Completed                              => DownloadCategory.Completed,
+                        _                                                     => DownloadCategory.Queued
+                    };
+                    SwitchCategory(itemCategory);
+                    await Task.Delay(300); // let the list render
+                    DownloadsCollectionView.ScrollTo(cfItem, animate: true);
+                }
+            }
+        }
+
         // Check if navigated from notification wanting to retranslate
         if (!string.IsNullOrEmpty(MainActivity.PendingRetranslateItemId))
         {

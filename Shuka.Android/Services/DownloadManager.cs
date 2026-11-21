@@ -1213,7 +1213,7 @@ public class DownloadManager
         catch (Shuka.Core.CloudflareExpiredException ex)
         {
             Log($"Cloudflare verification required for {ex.SiteUrl}.");
-            NotifyCloudflareCookieExpired(ex.SiteUrl, item.Url);
+            NotifyCloudflareCookieExpired(ex.SiteUrl, item.Id);
 
             if (item.CfRetryCount >= 3)
             {
@@ -1516,21 +1516,16 @@ public class DownloadManager
 
     /// <summary>
     /// Posts a notification telling the user their Cloudflare cookie has expired.
-    /// The persistent WebView overlay is already showing the CF challenge in-app,
-    /// so the notification exists only as a fallback for when the app is backgrounded.
-    ///
-    /// <paramref name="pageUrl"/> is the full item URL; the notification deep-links
-    /// to it rather than the homepage so it triggers the CF challenge if tapped.
+    /// Tapping the notification resumes the waiting download, which re-starts
+    /// FetchWithPersistentWebViewAsync and naturally shows the CF challenge overlay.
     /// </summary>
-    private static void NotifyCloudflareCookieExpired(string siteHost, string? pageUrl = null)
+    private static void NotifyCloudflareCookieExpired(string siteHost, Guid itemId)
     {
-        // The notification deep-links to the actual book page (more likely to trigger CF)
-        // rather than the bare homepage. Only used when the app is in the background.
-        string openUrl = !string.IsNullOrWhiteSpace(pageUrl)
-            ? pageUrl
-            : $"https://{siteHost}/";
-
 #if ANDROID
+        // When the app is foreground the persistent WebView overlay is already showing
+        // the CF challenge — no notification needed.
+        if (MainActivity.IsAppInForeground) return;
+
         const string ChannelId = "shuka_cf_channel";
         var ctx = global::Android.App.Application.Context;
 
@@ -1553,13 +1548,17 @@ public class DownloadManager
 #pragma warning restore CA1416
         }
 
-        // Intent: open the book page (not homepage) in the app's WebBrowsePage so the
-        // CF challenge is triggered and the clearance cookie is captured.
-        var browserIntent = new global::Android.Content.Intent(ctx, typeof(MainActivity));
-        browserIntent.SetAction(global::Android.Content.Intent.ActionMain);
-        browserIntent.AddCategory(global::Android.Content.Intent.CategoryLauncher);
-        browserIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask | global::Android.Content.ActivityFlags.SingleTop);
-        browserIntent.PutExtra("open_webview_url", openUrl);
+        // Tapping the notification calls Resume() on the item by its ID.
+        // Resume() re-starts FetchWithPersistentWebViewAsync which detects the CF
+        // challenge and brings the overlay to the foreground — same as tapping
+        // "Resume (force retry CF)" in the Downloads options sheet.
+        // The item ID is passed directly from the caller (not looked up by status)
+        // so there is no race with the WaitingForCF status being set asynchronously.
+        var intent = new global::Android.Content.Intent(ctx, typeof(MainActivity));
+        intent.SetAction(global::Android.Content.Intent.ActionMain);
+        intent.AddCategory(global::Android.Content.Intent.CategoryLauncher);
+        intent.AddFlags(global::Android.Content.ActivityFlags.NewTask | global::Android.Content.ActivityFlags.SingleTop);
+        intent.PutExtra("resume_cf_item_id", itemId.ToString());
 
 #pragma warning disable CA1416
         var pendingFlags = global::Android.OS.Build.VERSION.SdkInt >=
@@ -1570,14 +1569,14 @@ public class DownloadManager
 #pragma warning restore CA1416
 
         var pi = global::Android.App.PendingIntent.GetActivity(
-            ctx, siteHost.GetHashCode(), browserIntent, pendingFlags);
+            ctx, siteHost.GetHashCode(), intent, pendingFlags);
 
         if (pi == null) return;
 
 #pragma warning disable CS8602
         var notification = new AndroidX.Core.App.NotificationCompat.Builder(ctx, ChannelId)
             .SetContentTitle("Cloudflare verification needed")
-            .SetContentText($"Complete the verification shown in the app, or tap here to open {siteHost}.")
+            .SetContentText($"Tap to verify on {siteHost} and resume download.")
             .SetSmallIcon(global::Android.Resource.Drawable.StatSysWarning)
             .SetAutoCancel(true)
             .SetContentIntent(pi)

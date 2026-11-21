@@ -23,6 +23,9 @@ public class MainActivity : MauiAppCompatActivity
     public static MainActivity? Instance { get; private set; }
     public static bool PendingNavigationToDownloads = false;
     public static string? PendingRetranslateItemId = null;
+    public static string? PendingCfItemId = null;
+    /// <summary>True while the activity is in the foreground (between OnResume and OnStop).</summary>
+    public static bool IsAppInForeground { get; private set; }
     private int _navigationRetryCount = 0;
     private int _persistentTabBarHeightPx;
     private int _systemNavBarInsetPx;
@@ -228,6 +231,7 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnResume()
     {
         base.OnResume();
+        IsAppInForeground = true;
         TriggerPendingNavigationIfAny();
         MainThread.BeginInvokeOnMainThread(AppShell.SyncTabBarToCurrentPage);
 #if ANDROID
@@ -235,6 +239,12 @@ public class MainActivity : MauiAppCompatActivity
         // Runs after the UI is fully visible (OnResume fires after OnCreate + first draw).
         _ = TriggerFirstLaunchFolderPromptAsync();
 #endif
+    }
+
+    protected override void OnStop()
+    {
+        base.OnStop();
+        IsAppInForeground = false;
     }
 
     private const string PrefKeyFolderPromptDone = "folder_prompt_done_v1";
@@ -352,23 +362,27 @@ public class MainActivity : MauiAppCompatActivity
     {
         if (intent == null) return;
 
-        string? openUrl = intent.GetStringExtra("open_webview_url");
-        if (!string.IsNullOrEmpty(openUrl))
+        // CF notification tap: resume the waiting download so FetchWithPersistentWebViewAsync
+        // restarts and naturally shows the CF challenge overlay — same as tapping
+        // "Resume (force retry CF)" in the Downloads options sheet.
+        string? cfItemId = intent.GetStringExtra("resume_cf_item_id");
+        if (!string.IsNullOrEmpty(cfItemId))
         {
-            intent.RemoveExtra("open_webview_url");
-            MainThread.BeginInvokeOnMainThread(async () =>
+            intent.RemoveExtra("resume_cf_item_id");
+            // OnNewIntent runs on the main thread. Resume queues a BeginInvokeOnMainThread
+            // internally, so OnAppearing may see WaitingForCF or Pending depending on timing.
+            // Both are handled by the status switch in OnAppearing.
+            if (Guid.TryParse(cfItemId, out var cfId))
             {
-                try
-                {
-                    var nav = Microsoft.Maui.Controls.Shell.Current?.Navigation;
-                    if (nav != null)
-                    {
-                        var webPage = new Pages.WebBrowsePage(openUrl);
-                        await nav.PushAsync(webPage, true);
-                    }
-                }
-                catch { }
-            });
+                var cfItem = Services.DownloadManager.Instance.Downloads
+                    .FirstOrDefault(d => d.Id == cfId);
+                if (cfItem != null)
+                    Services.DownloadManager.Instance.Resume(cfItem);
+            }
+            // Navigate to Downloads so the item is visible during the ~2s wait for the CF overlay.
+            PendingCfItemId = cfItemId;
+            PendingNavigationToDownloads = true;
+            TriggerPendingNavigationIfAny();
             return;
         }
 

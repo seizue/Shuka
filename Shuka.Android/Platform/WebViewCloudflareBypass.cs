@@ -71,6 +71,76 @@ public class WebViewCloudflareBypass : ICloudflareBypass
         try { CookiesRefreshed?.Invoke(null, EventArgs.Empty); } catch { }
     }
 
+    /// <summary>
+    /// Re-navigates the persistent WebView to <paramref name="url"/> and brings its
+    /// overlay to the foreground so the Cloudflare Managed Challenge is visible.
+    /// Call this when the user taps the CF notification — the persistent WebView's
+    /// fetch already ended (and hid the overlay) but the CF cookie is still missing,
+    /// so we show the challenge again for the user to solve interactively.
+    /// When the user passes the challenge, <see cref="CookiesRefreshed"/> fires and
+    /// DownloadManager resumes the waiting download automatically.
+    /// </summary>
+    public static void ShowChallengeOverlay(string url)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                // If the persistent WebView doesn't exist yet, nothing to show.
+                if (_persistentWebView == null) return;
+
+                // Re-attach if detached (e.g. user navigated away since last fetch).
+#if ANDROID
+                bool isAttached = false;
+                if (_persistentWebView.Handler?.PlatformView is global::Android.Views.View nv)
+                    isAttached = nv.IsAttachedToWindow;
+                if (!isAttached)
+                {
+                    if (_persistentHost != null && _persistentOverlay != null)
+                        try { _persistentHost.Remove(_persistentOverlay); } catch { }
+                    (_persistentHost, _persistentOverlay) = AttachWebView(_persistentWebView);
+                }
+#endif
+
+                // Navigate to the failing URL so the CF challenge re-appears.
+                _persistentWebView.Source = new UrlWebViewSource { Url = url };
+
+                // Bring the overlay to the foreground.
+                if (_persistentOverlay != null)
+                {
+                    _persistentOverlay.TranslationX    = 0;
+                    _persistentOverlay.TranslationY    = 0;
+                    _persistentOverlay.InputTransparent = false;
+                    _persistentOverlay.ZIndex           = 9999;
+                }
+                _persistentWebView.TranslationX    = 0;
+                _persistentWebView.InputTransparent = false;
+            }
+            catch { }
+        });
+    }
+
+    /// <summary>
+    /// Hides the persistent WebView overlay. Called on every early-exit path in
+    /// FetchWithPersistentWebViewAsync so the overlay is never left visible
+    /// when a new fetch starts (which would show the about:blank and URL navigations).
+    /// Must be called from the main thread — executes synchronously inline.
+    /// </summary>
+    private static void HidePersistentOverlay()
+    {
+        if (_persistentOverlay != null && _persistentOverlay.TranslationX == 0)
+        {
+            _persistentOverlay.TranslationX    = -10000;
+            _persistentOverlay.InputTransparent = true;
+            _persistentOverlay.ZIndex           = -9999;
+        }
+        if (_persistentWebView != null && _persistentWebView.TranslationX == 0)
+        {
+            _persistentWebView.TranslationX    = -10000;
+            _persistentWebView.InputTransparent = true;
+        }
+    }
+
     // Persistent WebView reused for Noveldex chapter fetches.
     // Navigating one long-lived WebView avoids WebKit DOM accumulation that
     // causes Android to freeze after 15+ separate WebView instances.
@@ -556,6 +626,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 bool hasCfChallenge = IsCloudflareChallenge(html);
                 if (hasCfChallenge)
                 {
+                    HidePersistentOverlay();
                     tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
                         new Uri(url).Host));
                     return;
@@ -597,9 +668,11 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                     {
                         if (IsCloudflareChallenge(html) || (html != null && (html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) || html.Contains("cf-", StringComparison.OrdinalIgnoreCase))))
                         {
+                            HidePersistentOverlay();
                             tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(new Uri(url).Host));
                             return;
                         }
+                        HidePersistentOverlay();
                         tcs.TrySetException(new InvalidOperationException($"69shuba chapter content container (.txtnav) not found on {url}"));
                         return;
                     }
@@ -619,6 +692,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
                 // Re-check after site-specific waits
                 if (IsCloudflareChallenge(html))
                 {
+                    HidePersistentOverlay();
                     tcs.TrySetException(new Shuka.Core.CloudflareExpiredException(
                         new Uri(url).Host));
                     return;
@@ -626,6 +700,7 @@ public class WebViewCloudflareBypass : ICloudflareBypass
 
                 if ((timedOut || waited >= MaxWaitMs) && (string.IsNullOrEmpty(html) || html.Length < 300))
                 {
+                    HidePersistentOverlay();
                     tcs.TrySetException(new TimeoutException($"Page load timed out for {url}"));
                     return;
                 }
@@ -640,10 +715,12 @@ public class WebViewCloudflareBypass : ICloudflareBypass
             }
             catch (OperationCanceledException)
             {
+                HidePersistentOverlay();
                 tcs.TrySetCanceled(ct);
             }
             catch (Exception ex)
             {
+                HidePersistentOverlay();
                 tcs.TrySetException(ex);
             }
             // NOTE: intentionally NOT cleaning up _persistentWebView here — it stays alive
