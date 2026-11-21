@@ -11,7 +11,7 @@ namespace Shuka.Core.Adapters;
 public class Sto9Browse : IBrowsableAdapter
 {
     public string SiteName         => "sto9.com";
-    public string Description      => "思兔閱讀 · Popular & trending novels";
+    public string Description      => "Chinese novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

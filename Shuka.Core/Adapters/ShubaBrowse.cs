@@ -15,7 +15,7 @@ namespace Shuka.Core.Adapters;
 public class ShubaBrowse : IBrowsableAdapter
 {
     public string SiteName         => "69shuba.com";
-    public string Description      => "Chinese novels · fantasy & urban · CF";
+    public string Description      => "Chinese novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => true;
 

@@ -20,7 +20,7 @@ namespace Shuka.Core.Adapters;
 public class ShukuBrowse : IBrowsableAdapter
 {
     public string SiteName         => "52shuku.net";
-    public string Description      => "Curated BL · danmei & romance";
+    public string Description      => "Chinese novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

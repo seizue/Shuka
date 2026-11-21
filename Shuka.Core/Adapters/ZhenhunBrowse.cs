@@ -18,7 +18,7 @@ namespace Shuka.Core.Adapters;
 public class ZhenhunBrowse : IBrowsableAdapter
 {
     public string SiteName        => "zhenhunxiaoshuo.com";
-    public string Description     => "Chinese web novels · 镇魂小说网";
+    public string Description     => "Chinese novels;
     public string IconGlyph       => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

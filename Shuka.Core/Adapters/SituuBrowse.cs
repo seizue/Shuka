@@ -15,7 +15,7 @@ namespace Shuka.Core.Adapters;
 public class SituuBrowse : IBrowsableAdapter
 {
     public string SiteName         => "situu.cc";
-    public string Description      => "BL · danmei & romance novels";
+    public string Description      => "Chinese novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

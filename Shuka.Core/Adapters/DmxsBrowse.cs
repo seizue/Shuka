@@ -18,7 +18,7 @@ namespace Shuka.Core.Adapters;
 public class DmxsBrowse : IBrowsableAdapter
 {
     public string SiteName => "dmxs.org";
-    public string Description => "BL danmei · boys love novels";
+    public string Description => "Chinese novels";
     public string IconGlyph => "\uE894"; // language (globe)
     public bool RequiresCfBypass => false;
 

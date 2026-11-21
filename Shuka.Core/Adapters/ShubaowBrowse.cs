@@ -14,7 +14,7 @@ namespace Shuka.Core.Adapters;
 public class ShubaowBrowse : IBrowsableAdapter
 {
     public string SiteName => "shubaow.net";
-    public string Description => "Romance, BL, GL & general web novels";
+    public string Description => "Chinese novels";
     public string IconGlyph => "\uE894"; // globe icon
     public bool RequiresCfBypass => false;
 

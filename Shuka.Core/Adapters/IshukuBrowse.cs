@@ -12,7 +12,7 @@ namespace Shuka.Core.Adapters;
 public class IshukuBrowse : IBrowsableAdapter
 {
     public string SiteName         => "ishuku.net";
-    public string Description      => "Chinese novels · simplified chinese · free";
+    public string Description      => "Chinese novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

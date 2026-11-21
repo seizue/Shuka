@@ -21,7 +21,7 @@ namespace Shuka.Core.Adapters;
 public class YamiboBrowse : IBrowsableAdapter
 {
     public string SiteName         => "yamibo.com";
-    public string Description      => "百合会 · Yuri / GL original novels";
+    public string Description      => "Chinese novels · Yuri / GL original novels";
     public string IconGlyph        => "\uE894"; // language (globe)
     public bool   RequiresCfBypass => false;
 

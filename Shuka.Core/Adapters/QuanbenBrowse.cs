@@ -17,7 +17,7 @@ namespace Shuka.Core.Adapters;
 public class QuanbenBrowse : IBrowsableAdapter
 {
     public string SiteName => "quanben.io";
-    public string Description => "Chinese full novels · fantasy & romance";
+    public string Description => "Chinese novels";
     public string IconGlyph => "\uE894"; // language (globe)
     public bool RequiresCfBypass => false;
 
