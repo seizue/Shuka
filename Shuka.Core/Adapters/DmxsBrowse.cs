@@ -31,6 +31,17 @@ public class DmxsBrowse : IBrowsableAdapter
         // Homepage shows hot section; no paginated popular without login
         "https://www.dmxs.org/";
 
+    public IReadOnlyList<SourceFilter>? Filters => _filters;
+    private static readonly SourceFilter[] _filters =
+    [
+        new SourceFilter("BL", page => page == 1
+            ? "https://www.dmxs.org/BLTR/"
+            : $"https://www.dmxs.org/BLTR/index_{page}.html"),
+        new SourceFilter("GL", page => page == 1
+            ? "https://www.dmxs.org/GLBH/"
+            : $"https://www.dmxs.org/GLBH/index_{page}.html"),
+    ];
+
     public string GetSearchUrl(string query, int page = 1) =>
         "https://www.dmxs.org/e/search/indexsearch.php";
 
