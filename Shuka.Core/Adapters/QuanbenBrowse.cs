@@ -104,6 +104,11 @@ public class QuanbenBrowse : IBrowsableAdapter
             {
                 cover = imgM.Groups[1].Value;
                 if (cover.StartsWith("//")) cover = "https:" + cover;
+                // quanben.io uses generic numbered thumbnails (book_1.jpg … book_12.jpg)
+                // that repeat across every page — they don't represent the actual book.
+                // Drop them so the placeholder is shown instead of a misleading cover.
+                if (Regex.IsMatch(cover, @"/book_\d+\.jpg$", RegexOptions.IgnoreCase))
+                    cover = null;
             }
 
             // Author: 作者: or 作者：
