@@ -30,6 +30,10 @@ public partial class HistoryPage : ContentPage
     private List<HistoryEntry> _filteredAndSortedEntries = new();
     private CancellationTokenSource? _searchDebounceTokenSource;
 
+    // Throttle: skip reconcile if called within 30 seconds of the last run.
+    private DateTime _lastReconcileTime = DateTime.MinValue;
+    private const int ReconcileCooldownSeconds = 30;
+
     public HistoryPage()
     {
         InitializeComponent();
@@ -90,43 +94,60 @@ public partial class HistoryPage : ContentPage
     {
         try
         {
+            // Throttle: skip if called within the cooldown window.
+            var now = DateTime.UtcNow;
+            if ((now - _lastReconcileTime).TotalSeconds < ReconcileCooldownSeconds)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[HistoryPage] ReconcileMissingFilesAsync skipped (throttled)");
+                return;
+            }
+            _lastReconcileTime = now;
+
             bool anyChanged = false;
             var entries = HistoryService.Instance.Entries.ToList();
 
-            foreach (var entry in entries)
+            // All EpubOpener calls do blocking I/O (ContentResolver, File.Exists, folder scans).
+            // Run the entire loop on a background thread to prevent main-thread stalls.
+            anyChanged = await Task.Run(() =>
             {
-                bool isAccessible = EpubOpener.IsAccessible(entry.EpubPath);
-                if (!isAccessible)
+                bool changed = false;
+                foreach (var entry in entries)
                 {
-                    string? resolved = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
-                    if (resolved != null && resolved != entry.EpubPath)
+                    bool isAccessible = EpubOpener.IsAccessible(entry.EpubPath);
+                    if (!isAccessible)
                     {
-                        entry.EpubPath = resolved;
-                        entry.IsFileAvailable = true;
-                        anyChanged = true;
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[HistoryPage] Auto-healed moved EPUB for '{entry.Title}': {resolved}");
-                    }
-                    else if (resolved != null)
-                    {
-                        if (!entry.IsFileAvailable)
+                        string? resolved = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
+                        if (resolved != null && resolved != entry.EpubPath)
                         {
+                            entry.EpubPath = resolved;
                             entry.IsFileAvailable = true;
-                            anyChanged = true;
+                            changed = true;
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[HistoryPage] Auto-healed moved EPUB for '{entry.Title}': {resolved}");
+                        }
+                        else if (resolved != null)
+                        {
+                            if (!entry.IsFileAvailable)
+                            {
+                                entry.IsFileAvailable = true;
+                                changed = true;
+                            }
+                        }
+                        else if (entry.IsFileAvailable)
+                        {
+                            entry.IsFileAvailable = false;
+                            changed = true;
                         }
                     }
-                    else if (entry.IsFileAvailable)
+                    else if (!entry.IsFileAvailable)
                     {
-                        entry.IsFileAvailable = false;
-                        anyChanged = true;
+                        entry.IsFileAvailable = true;
+                        changed = true;
                     }
                 }
-                else if (!entry.IsFileAvailable)
-                {
-                    entry.IsFileAvailable = true;
-                    anyChanged = true;
-                }
-            }
+                return changed;
+            });
 
             if (anyChanged)
             {
