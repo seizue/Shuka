@@ -1133,6 +1133,10 @@ internal static class Tui
             "[cyan]ishuku.net[/]",
             "[dim]https://ishuku.net/books/jE2atSUSMoWh[/]",
             "");
+        table.AddRow(
+            "[cyan]fushuw.org[/]",
+            "[dim]https://m.fushuw.org/chuanyuechongsheng/41341.html[/]",
+            "");
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();

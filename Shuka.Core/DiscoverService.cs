@@ -23,6 +23,7 @@ public class DiscoverService
         new ShubaowBrowse(),
         new Sto9Browse(),
         new IshukuBrowse(),
+        new FushuwBrowse(),
     ];
 
     public DiscoverService(ICloudflareBypass? cfBypass = null)

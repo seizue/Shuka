@@ -25,7 +25,7 @@ public class BookService
     public string? LastOutputPath { get; private set; }
 
     public static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter(), new Sto9Adapter(), new IshukuAdapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter(), new Sto9Adapter(), new IshukuAdapter(), new FushuwAdapter()];
 
     /// <summary>English-only sources (noveldex.io) should never be translated during download.</summary>
     public static bool ShouldTranslate(string url, bool translate) =>
