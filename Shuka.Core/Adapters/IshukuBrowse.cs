@@ -37,10 +37,10 @@ public class IshukuBrowse : IBrowsableAdapter
 
     private static readonly SourceFilter[] _filters =
     [
-        new SourceFilter("GL",      page => $"https://ishuku.net/api/books?genre=gl&sort=popularity&page={page}"),
-        new SourceFilter("BL",      page => $"https://ishuku.net/api/books?{BlGenres}&sort=popularity&page={page}"),
         new SourceFilter("Popular", page => $"https://ishuku.net/api/books?sort=popularity&page={page}"),
         new SourceFilter("Recent",  page => $"https://ishuku.net/api/books?sort=updated&page={page}"),
+        new SourceFilter("GL",      page => $"https://ishuku.net/api/books?genre=gl&sort=popularity&page={page}"),
+        new SourceFilter("BL",      page => $"https://ishuku.net/api/books?{BlGenres}&sort=popularity&page={page}"),
     ];
 
     public ListingPage ParseListing(string html, string pageUrl)
