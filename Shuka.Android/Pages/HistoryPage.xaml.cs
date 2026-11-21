@@ -120,6 +120,9 @@ public partial class HistoryPage : ContentPage
                         string? resolved = EpubOpener.ResolveAccessiblePath(entry.EpubPath, entry.Title, entry.Url);
                         if (resolved != null && resolved != entry.EpubPath)
                         {
+                            // NOTE: mutations on a background thread are safe only while HistoryEntry is a plain POCO
+                            // (no INotifyPropertyChanged). If INotifyPropertyChanged is ever added to HistoryEntry,
+                            // move these mutations to the InvokeOnMainThreadAsync block below.
                             entry.EpubPath = resolved;
                             entry.IsFileAvailable = true;
                             changed = true;

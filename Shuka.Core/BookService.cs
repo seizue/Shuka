@@ -25,7 +25,7 @@ public class BookService
     public string? LastOutputPath { get; private set; }
 
     public static readonly ISiteAdapter[] Adapters =
-        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter(), new Sto9Adapter()];
+        [new ShukuAdapter(), new CzBooksAdapter(), new DmxsAdapter(), new ShubaAdapter(), new QuanbenAdapter(), new SituuAdapter(), new YamiboAdapter(), new ZhenhunAdapter(), new NoveldexAdapter(), new ShubaowAdapter(), new Sto9Adapter(), new IshukuAdapter()];
 
     /// <summary>English-only sources (noveldex.io) should never be translated during download.</summary>
     public static bool ShouldTranslate(string url, bool translate) =>
@@ -750,7 +750,7 @@ public class BookService
 
     private static ISiteAdapter DetectAdapter(string url) =>
         Adapters.FirstOrDefault(a => a.Matches(url))
-        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net");
+        ?? throw new Exception($"No supported adapter for URL: {url}\nSupported: 52shuku.net, czbooks.net, dmxs.org, 69shuba.com, quanben.io, situu.cc, yamibo.com, zhenhunxiaoshuo.com, noveldex.io, shubaow.net, sto9.com, ishuku.net");
 
     private static string? TryExtractCover(string html, string baseUrl)
     {
