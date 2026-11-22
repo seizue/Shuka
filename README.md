@@ -24,15 +24,18 @@ A cross-platform web novel downloader and machine translation (MTL) tool that co
 
 | Site | Example URL |
 |------|------------|
-| [69shuba.com](https://www.69shuba.com/) | `https://www.69shuba.com/book/90417.htm` |
 | [52shuku.net](https://www.52shuku.net) | `https://www.52shuku.net/bl/09_b/bkd7d.html` |
+| [69shuba.com](https://www.69shuba.com/) | `https://www.69shuba.com/book/90417.htm` |
 | [czbooks.net](https://czbooks.net) | `https://czbooks.net/n/clgajm` |
 | [dmxs.org](https://www.dmxs.org) | `https://www.dmxs.org/gdjk/22982.html` |
+| [ishuku.net](https://ishuku.net) | `https://ishuku.net/books/jE2atSUSMoWh` |
+| [jpxs123.com](https://jpxs123.com) | `https://jpxs123.com/cyjk/11624.html` |
+| [m.fushuw.org](https://m.fushuw.org) | `https://m.fushuw.org/cyjk/11624.html` |
 | [quanben.io](https://www.quanben.io) | `https://www.quanben.io/n/aoshidanshen/list.html` |
-| [yamibo.com](https://www.yamibo.com/novel/list) | `https://www.yamibo.com/novel/267137` |
-| [Zhenhun Xiaoshuo](https://www.zhenhunxiaoshuo.com/linshilanggu/) | `https://www.zhenhunxiaoshuo.com/linshilanggu/` |
 | [shubaow.net](https://www.shubaow.net/) | `https://www.shubaow.net/book/1669.html` |
 | [sto9.com](https://sto9.com) | `https://sto9.com/book/12058.html` |
+| [yamibo.com](https://www.yamibo.com/novel/list) | `https://www.yamibo.com/novel/267137` |
+| [Zhenhun Xiaoshuo](https://www.zhenhunxiaoshuo.com/) | `https://www.zhenhunxiaoshuo.com/linshilanggu/` |
 
 
 **Note on Rate Limits (200+ Chapters):** Free translation providers enforce request quotas. Shuka uses gentle download pacing, saves progress chapter-by-chapter, and automatically fails over to backup engines (Bing on Android; Browser Translate / Local AI on Windows) if limits are hit.
