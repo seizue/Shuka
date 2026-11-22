@@ -424,24 +424,30 @@ public partial class SourceBrowsePage : ContentPage
         http.Timeout = TimeSpan.FromSeconds(15);
         var translator = new Shuka.Core.Translator(http);
 
-        // Translate titles that haven't been translated yet
-        var tasks = _loadedNovels
+        // Only translate titles not already cached
+        var untranslated = _loadedNovels
             .Where(n => !string.IsNullOrWhiteSpace(n.Title) && !_translatedTitles.ContainsKey(n.Title))
-            .Select(async novel =>
-            {
-                try
-                {
-                    var translated = await translator.TranslateTitle(novel.Title);
-                    if (!string.IsNullOrWhiteSpace(translated) &&
-                        !string.Equals(translated, novel.Title, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _translatedTitles[novel.Title] = translated;
-                    }
-                }
-                catch { /* Ignore translation failures */ }
-            });
+            .ToList();
 
-        await Task.WhenAll(tasks);
+        if (untranslated.Count == 0) return;
+
+        // Translate sequentially with a small delay — avoids competing with active downloads
+        // for the shared Bing session and prevents log spam from concurrent API calls.
+        foreach (var novel in untranslated)
+        {
+            if (!_translateTitles) break; // user toggled off mid-translation
+            try
+            {
+                var translated = await translator.TranslateTitle(novel.Title);
+                if (!string.IsNullOrWhiteSpace(translated) &&
+                    !string.Equals(translated, novel.Title, StringComparison.OrdinalIgnoreCase))
+                {
+                    _translatedTitles[novel.Title] = translated;
+                }
+            }
+            catch { /* Ignore translation failures */ }
+            await Task.Delay(50); // brief pause between requests
+        }
 
         // Rebuild grid with translated titles
         RebuildNovelGrid();
