@@ -173,12 +173,17 @@
                        HorizontalOptions="Center" />
             </VerticalStackLayout>
 
-            <!-- Scrollable novel grid -->
-            <ScrollView x:Name="ListScroll" IsVisible="False">
-                <VerticalStackLayout x:Name="NovelList"
-                                     Padding="16,12,16,40"
-                                     Spacing="10" />
-            </ScrollView>
+            <!-- Scrollable novel grid with pull-to-refresh -->
+            <RefreshView x:Name="ListRefreshView"
+                         IsVisible="False"
+                         Refreshing="OnListRefreshing"
+                         RefreshColor="{DynamicResource AccentLight}">
+                <ScrollView x:Name="ListScroll">
+                    <VerticalStackLayout x:Name="NovelList"
+                                         Padding="16,12,16,40"
+                                         Spacing="10" />
+                </ScrollView>
+            </RefreshView>
 
             <!-- Image context menu (long-press on cover) — same actions as Shuka Quest -->
             <Grid x:Name="ImageContextMenuOverlay"

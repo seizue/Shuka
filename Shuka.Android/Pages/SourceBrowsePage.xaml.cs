@@ -683,7 +683,7 @@ public partial class SourceBrowsePage : ContentPage
                 NovelList.Children.Clear();
                 LoadingState.IsVisible = true;
                 EmptyState.IsVisible   = false;
-                ListScroll.IsVisible   = false;
+                ListRefreshView.IsVisible   = false;
             });
         }
         else if (_browseCts == null || _browseCts.IsCancellationRequested)
@@ -727,11 +727,11 @@ public partial class SourceBrowsePage : ContentPage
                     if (result.Novels.Count == 0 && reset)
                     {
                         EmptyState.IsVisible = true;
-                        ListScroll.IsVisible = false;
+                        ListRefreshView.IsVisible = false;
                         return;
                     }
 
-                    ListScroll.IsVisible = true;
+                    ListRefreshView.IsVisible = true;
                     EmptyState.IsVisible = false;
 
                     NovelList.BatchBegin();
@@ -784,7 +784,7 @@ public partial class SourceBrowsePage : ContentPage
                     }
 
                     EmptyState.IsVisible   = NovelList.Children.Count == 0;
-                    ListScroll.IsVisible   = NovelList.Children.Count > 0;
+                    ListRefreshView.IsVisible   = NovelList.Children.Count > 0;
                     if (NovelList.Children.Count == 0)
                     {
                         var errLabel = new Label
@@ -796,7 +796,7 @@ public partial class SourceBrowsePage : ContentPage
                         };
                         errLabel.SetDynamicResource(Label.TextColorProperty, "Danger");
                         NovelList.Children.Add(errLabel);
-                        ListScroll.IsVisible = true;
+                        ListRefreshView.IsVisible = true;
                         EmptyState.IsVisible = false;
                     }
                 }
@@ -834,7 +834,7 @@ public partial class SourceBrowsePage : ContentPage
     private void ShowWebViewOnlyState()
     {
         EmptyState.IsVisible = false;
-        ListScroll.IsVisible = true;
+        ListRefreshView.IsVisible = true;
         NovelList.Children.Clear();
 
         var icon = new Label
@@ -1363,6 +1363,12 @@ public partial class SourceBrowsePage : ContentPage
         {
             _ = LoadPageAsync(reset: false);
         }
+    }
+
+    private async void OnListRefreshing(object? sender, EventArgs e)
+    {
+        await LoadPageAsync(reset: true);
+        ListRefreshView.IsRefreshing = false;
     }
 
     private View BuildLoadMoreButton()
