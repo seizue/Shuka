@@ -431,7 +431,7 @@ public partial class SourceBrowsePage : ContentPage
             {
                 try
                 {
-                    var translated = await translator.Translate(novel.Title);
+                    var translated = await translator.TranslateTitle(novel.Title);
                     if (!string.IsNullOrWhiteSpace(translated) &&
                         !string.Equals(translated, novel.Title, StringComparison.OrdinalIgnoreCase))
                     {
@@ -750,6 +750,10 @@ public partial class SourceBrowsePage : ContentPage
                     {
                         NovelList.BatchCommit();
                     }
+
+                    // Auto-translate new page titles if translate mode is active
+                    if (_translateTitles)
+                        _ = TranslateAllTitlesAsync();
                 }
                 finally
                 {

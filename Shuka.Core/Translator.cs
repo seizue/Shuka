@@ -148,6 +148,52 @@ public class Translator
         _http = http;
     }
 
+    /// <summary>
+    /// Translates a short string (title, author name) with MyMemory first,
+    /// then falls back to Google and Bing. MyMemory is preferred for short text
+    /// because it requires no session setup and has no rate limits on short strings.
+    /// </summary>
+    public async Task<string> TranslateTitle(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        if (!AnyChineseRegex.IsMatch(text)) return text;
+
+        // ── 1. MyMemory — ideal for short strings ─────────────────────────────
+        try
+        {
+            string? mm = await CallMyMemory(text, ct);
+            if (mm != null && !IsUntranslatedChinese(text, mm))
+                return mm;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { /* fall through */ }
+
+        // ── 2. Google GTX ─────────────────────────────────────────────────────
+        try
+        {
+            string? g = text.Length > 400
+                ? await CallGooglePost(text, ct)
+                : await CallGoogleGtx(text, ct);
+            if (g != null && !IsUntranslatedChinese(text, g))
+                return g;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { /* fall through */ }
+
+        // ── 3. Bing ───────────────────────────────────────────────────────────
+        try
+        {
+            string? b = await CallBingTranslator(text, ct, "auto-detect");
+            if (b != null && !IsUntranslatedChinese(text, b))
+                return b;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { /* fall through */ }
+
+        // All failed — return original
+        return text;
+    }
+
     /// <summary>Split text into chunks and translate them with adaptive concurrency.</summary>
     public async Task<string> Translate(string text, Action<string>? log = null,
         CancellationToken ct = default)
