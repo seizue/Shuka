@@ -21,14 +21,34 @@ public class CzBooksBrowse : IBrowsableAdapter
     public string IconGlyph => "\uE894"; // language (globe)
     public bool RequiresCfBypass => false;
 
-    public string HomeUrl => "https://czbooks.net/c/baihe";
+    public string HomeUrl => "https://czbooks.net/c/all";
 
     public string GetRecentUrl(int page = 1) =>
-        page == 1 ? "https://czbooks.net/c/baihe" : $"https://czbooks.net/c/baihe/{page}";
+        page == 1 ? "https://czbooks.net/c/all" : $"https://czbooks.net/c/all/{page}";
     public string GetPopularUrl(int page = 1) =>
-        page == 1 ? "https://czbooks.net/c/baihe" : $"https://czbooks.net/c/baihe/{page}";
+        page == 1 ? "https://czbooks.net/c/all" : $"https://czbooks.net/c/all/{page}";
     public string GetSearchUrl(string query, int page = 1) =>
         $"https://czbooks.net/s/{Uri.EscapeDataString(query)}/{page}";
+
+    public IReadOnlyList<SourceFilter>? Filters => _filters;
+    private static readonly SourceFilter[] _filters =
+    [
+        new SourceFilter("Popular", page => page == 1
+            ? "https://czbooks.net/c/all"
+            : $"https://czbooks.net/c/all/{page}"),
+        new SourceFilter("Fantasy", page => page == 1
+            ? "https://czbooks.net/c/xuanhuan"
+            : $"https://czbooks.net/c/xuanhuan/{page}"),
+        new SourceFilter("Xianxia", page => page == 1
+            ? "https://czbooks.net/c/xianxia"
+            : $"https://czbooks.net/c/xianxia/{page}"),
+        new SourceFilter("GL", page => page == 1
+            ? "https://czbooks.net/c/baihe"
+            : $"https://czbooks.net/c/baihe/{page}"),
+        new SourceFilter("BL", page => page == 1
+            ? "https://czbooks.net/c/danmei"
+            : $"https://czbooks.net/c/danmei/{page}"),
+    ];
 
     public ListingPage ParseListing(string html, string pageUrl)
     {
@@ -125,10 +145,10 @@ public class CzBooksBrowse : IBrowsableAdapter
 
         bool hasNext = html.Contains("下一頁") || html.Contains("下一页") ||
                        html.Contains("pagination") ||
-                       Regex.IsMatch(html, @"/c/baihe/\d+", RegexOptions.IgnoreCase) ||
+                       Regex.IsMatch(html, @"/c/[a-zA-Z0-9]+/\d+", RegexOptions.IgnoreCase) ||
                        Regex.IsMatch(html, @"/(?:new|hot)/\d+", RegexOptions.IgnoreCase);
         int currentPage = 1;
-        var pageM = Regex.Match(pageUrl, @"/c/baihe/(\d+)$", RegexOptions.IgnoreCase);
+        var pageM = Regex.Match(pageUrl, @"/c/[a-zA-Z0-9]+/(\d+)$", RegexOptions.IgnoreCase);
         if (!pageM.Success) pageM = Regex.Match(pageUrl, @"/(?:new|hot|s/[^/]+)/(\d+)$", RegexOptions.IgnoreCase);
         if (!pageM.Success) pageM = Regex.Match(pageUrl, @"/(\d+)$");
         if (pageM.Success) int.TryParse(pageM.Groups[1].Value, out currentPage);
